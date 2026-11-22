@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "files": [
-    {"path": "AGENTS.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
+    {"path": "AGENTS.md", "symlink": "CLAUDE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": "CLAUDE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": ".config/mise/conf.d/chrono-harness.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": ".chrono-harness/pr.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
