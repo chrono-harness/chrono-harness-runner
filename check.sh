@@ -8,6 +8,8 @@ cargo fmt --check --manifest-path crates/test-process/Cargo.toml
 cargo fmt --check --manifest-path crates/runner/Cargo.toml
 cargo fmt --check --manifest-path crates/runner-tests/Cargo.toml
 cargo build --locked --manifest-path crates/runner/Cargo.toml
+CHRONO_TEST_GIT=$(command -v chrono-test-git) || { echo "chrono-test-git is required by runner tests" >&2; exit 1; }
+export CHRONO_TEST_GIT
 cargo test --locked --manifest-path crates/runner-tests/Cargo.toml -- --test-threads=2
 
 proof_bindings=()

@@ -1,6 +1,7 @@
-use chrono_test_git as git_model;
 use serde_json::Value;
 use std::io::{self, Write};
+use std::os::unix::process::CommandExt;
+use std::process::Command;
 use std::{fs, path::Path};
 
 fn emit(stdout: &[u8], stderr: &[u8], code: i32) -> ! {
@@ -11,11 +12,18 @@ fn emit(stdout: &[u8], stderr: &[u8], code: i32) -> ! {
     std::process::exit(code);
 }
 
+fn run_git_model() -> ! {
+    let error = Command::new(env!("CHRONO_TEST_GIT"))
+        .args(std::env::args_os().skip(1))
+        .exec();
+    panic!("cannot start the registered Git fixture: {error}");
+}
+
 fn main() {
     let executable = std::env::current_exe().unwrap();
     let root = executable.parent().unwrap();
     if !root.join("git-case.json").exists() {
-        return git_model::main();
+        run_git_model();
     }
     let case: Value =
         serde_json::from_slice(&fs::read(root.join("git-case.json")).unwrap()).unwrap();
@@ -111,5 +119,5 @@ fn main() {
     {
         emit(&fs::read("response").unwrap(), b"", 0);
     }
-    git_model::main();
+    run_git_model();
 }
