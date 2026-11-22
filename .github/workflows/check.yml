@@ -66,6 +66,9 @@ jobs:
         if: failure()
         with:
           name: runner-check
-          path: .chrono-harness/state/check.json
+          path: |
+            .chrono-harness/state/check.json
+            .chrono-harness/state/*.operation-*/stdout
+            .chrono-harness/state/*.operation-*/stderr
           include-hidden-files: true
           retention-days: 1
