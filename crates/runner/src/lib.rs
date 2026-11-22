@@ -1,0 +1,2784 @@
+//! Generic external judge transport. Host policy belongs to the registered judge.
+#![allow(unexpected_cfgs)]
+#[cfg(verus_keep_ghost)]
+use super::paths as admission_paths;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_paths as admission_paths;
+#[cfg(not(verus_keep_ghost))]
+pub use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd::string::StringSliceAdditionalSpecFns;
+verus! {
+pub fn admit_relative_path(value: &str) -> (out: Result<(), &str>)
+    ensures match out {
+        Ok(()) => admission_paths::relative_path(value.spec_bytes()),
+        Err(invalid) => invalid@ == value@ && !admission_paths::relative_path(value.spec_bytes()),
+    },
+{
+    if admission_paths::valid_relative_path(value.as_bytes()) { Ok(()) }
+    else { Err(value) }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub use chrono_diagnostics::runtime::cli as logged_main;
+#[cfg(not(verus_keep_ghost))]
+pub use chrono_diagnostics::runtime::cli_at as logged_main_at;
+#[cfg(not(verus_keep_ghost))]
+pub use chrono_diagnostics::runtime::diagnostic as log_cli_error;
+#[cfg(not(verus_keep_ghost))]
+pub use chrono_diagnostics::runtime::maintain as maintain_runtime_logs;
+#[cfg(not(verus_keep_ghost))]
+pub mod artifact_disposal;
+#[cfg(not(verus_keep_ghost))]
+mod canonical_request;
+#[cfg(not(verus_keep_ghost))]
+mod checkout;
+#[cfg(not(verus_keep_ghost))]
+pub mod facts;
+#[cfg(not(verus_keep_ghost))]
+mod facts_binding;
+#[cfg(not(verus_keep_ghost))]
+mod facts_configs;
+#[cfg(not(verus_keep_ghost))]
+mod process_child;
+#[cfg(feature = "retention-test")]
+#[doc(hidden)]
+#[cfg(not(verus_keep_ghost))]
+pub use process_child::direct_child_status_probe_count;
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+mod process_ownership;
+/// Existing selector owner resolves a host policy for provider consumers.
+#[cfg(not(verus_keep_ghost))]
+pub fn load_selected_config(root: &Path, path: &str) -> Result<Value, String> {
+    facts_configs::load(root, path).map(|(_, _, config, _)| config)
+}
+#[cfg(not(verus_keep_ghost))]
+mod facts_inputs;
+#[cfg(not(verus_keep_ghost))]
+pub mod full;
+#[cfg(not(verus_keep_ghost))]
+pub mod initial;
+#[cfg(not(verus_keep_ghost))]
+pub mod input_file;
+#[cfg(not(verus_keep_ghost))]
+pub mod maintenance_signal;
+#[cfg(not(verus_keep_ghost))]
+pub mod observation;
+#[cfg(not(verus_keep_ghost))]
+pub mod ownership;
+#[cfg(not(verus_keep_ghost))]
+pub mod prepared;
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+pub mod process_fds;
+#[cfg(not(verus_keep_ghost))]
+mod publication;
+#[cfg(not(verus_keep_ghost))]
+pub mod retained_artifacts;
+#[cfg(not(verus_keep_ghost))]
+pub mod scoped_report;
+#[cfg(not(verus_keep_ghost))]
+mod short_console;
+#[cfg(not(verus_keep_ghost))]
+pub mod units;
+#[cfg(not(verus_keep_ghost))]
+pub mod verified_cli;
+#[cfg(not(verus_keep_ghost))]
+pub mod verified_git_binding;
+#[cfg(not(verus_keep_ghost))]
+pub use chrono_identifiers as verified_identifiers;
+#[cfg(not(verus_keep_ghost))]
+pub mod verified_limits;
+#[cfg(not(verus_keep_ghost))]
+pub mod verified_paths;
+#[path = "retained_artifacts/verified_release.rs"]
+#[cfg(not(verus_keep_ghost))]
+pub mod verified_release;
+#[cfg(not(verus_keep_ghost))]
+pub mod verified_status;
+#[cfg(not(verus_keep_ghost))]
+pub mod verified_verifier;
+#[cfg(not(verus_keep_ghost))]
+pub use verified_status::{CheckResult, Status};
+#[cfg(not(verus_keep_ghost))]
+pub mod wire;
+#[cfg(not(verus_keep_ghost))]
+use chrono_diagnostics::error::{ErrorRecord, Failure, NativeIoError};
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+pub use publication::NativeOutput;
+#[cfg(not(verus_keep_ghost))]
+pub use publication::{publish_native_output, publish_output, publish_output_to};
+#[cfg(not(verus_keep_ghost))]
+use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
+use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
+use sha2::{Digest, Sha256};
+#[cfg(not(verus_keep_ghost))]
+use std::collections::BTreeSet;
+#[cfg(not(verus_keep_ghost))]
+use std::fs;
+#[cfg(not(verus_keep_ghost))]
+use std::io::{Read, Write};
+#[cfg(not(verus_keep_ghost))]
+use std::path::{Component, Path, PathBuf};
+#[cfg(not(verus_keep_ghost))]
+use std::process::{Command, Stdio};
+#[cfg(not(verus_keep_ghost))]
+use std::sync::{
+    Arc, Barrier,
+    atomic::{AtomicBool, Ordering},
+};
+#[cfg(not(verus_keep_ghost))]
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[cfg(not(verus_keep_ghost))]
+pub const PROTOCOL: &str = "chrono-ci-judge/v1";
+
+/// 字符串入口共用无损 OS 参数边界；原生路径入口沿用 logged_main。
+#[cfg(not(verus_keep_ghost))]
+pub fn logged_text_main(producer: &str, work: impl FnOnce(&[String]) -> u8) -> u8 {
+    logged_main(producer, || {
+        let native: Vec<_> = std::env::args_os().collect();
+        let decoded: Vec<_> = native.iter().map(|argument| argument.to_str()).collect();
+        let arguments = match verified_cli::decoded_arguments(&decoded) {
+            Ok(arguments) => arguments,
+            Err(position) => {
+                let error = Failure::new("E_USAGE", "arguments must be valid UTF-8.")
+                    .at("argv_index", position.argv_index as u64)
+                    .at("argument_index", serde_json::json!(position.argument_index))
+                    .at(
+                        "argument_bytes",
+                        serde_json::json!(native[position.argv_index].as_encoded_bytes()),
+                    );
+                let logger = chrono_diagnostics::logging::Logger::stderr(producer);
+                let _ = chrono_diagnostics::logging::failure(
+                    "cli.invalid_argument",
+                    &error.to_string(),
+                    &error.record(),
+                );
+                let _ = logger.run(|| {
+                    chrono_diagnostics::logging::failure(
+                        "cli.invalid_argument",
+                        &error.to_string(),
+                        &error.record(),
+                    )
+                });
+                let _ = logger.finish();
+                // 诊断发布失败也不能把已经拒绝的命令变成成功。
+                return 2;
+            }
+        };
+        let arguments: Vec<_> = arguments.into_iter().skip(1).map(str::to_owned).collect();
+        work(&arguments)
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+#[cfg(not(verus_keep_ghost))]
+pub struct CliOutput {
+    pub exit_code: u8,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(not(verus_keep_ghost))]
+pub struct CommandSpec {
+    pub program: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
+    pub timeout_seconds: u64,
+    pub output_limit_bytes: usize,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(not(verus_keep_ghost))]
+pub struct CheckConfig {
+    pub schema: String,
+    pub judge: CommandSpec,
+    pub policy: Value,
+    pub report_path: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(not(verus_keep_ghost))]
+pub struct Request {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<units::Scope>,
+    #[serde(default)]
+    pub observations: Value,
+    pub protocol: String,
+    pub request_id: String,
+    pub host_root: PathBuf,
+    pub config_path: String,
+    pub config_sha256: String,
+    pub base: Option<String>,
+    pub candidate: String,
+    pub initial: bool,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(not(verus_keep_ghost))]
+pub struct Response {
+    pub protocol: String,
+    pub request_id: String,
+    pub status: Status,
+    pub results: Vec<CheckResult>,
+    pub evidence: Value,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg(not(verus_keep_ghost))]
+pub struct ProcessResult {
+    pub argv: Vec<String>,
+    pub cwd: PathBuf,
+    pub environment: std::collections::BTreeMap<String, String>,
+    pub environment_digest: String,
+    /// Actual process-engine capability carrier, separate from declared inputs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ownership_fds: Option<String>,
+    pub stdin_sha256: String,
+    pub stdout_bytes: Vec<u8>,
+    pub stderr_bytes: Vec<u8>,
+    #[serde(default)]
+    pub stdout_complete: bool,
+    #[serde(default)]
+    pub stderr_complete: bool,
+    pub stdout_sha256: String,
+    pub stderr_sha256: String,
+    pub failure: Option<String>,
+    /// Structured failure evidence is additive to the historical string.  It
+    /// is deliberately outside the judge-v1 request/response wire contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_record: Option<ErrorRecord>,
+    #[serde(skip)]
+    pub(crate) failure_cause: Option<Arc<ProcessFailure>>,
+    pub exit_code: i32,
+    /// Actual process-owner drain and direct join, independent of command success.
+    #[serde(default)]
+    pub owned_work_joined: bool,
+    /// Actual terminal signal, including cancellation; exit_code keeps its wire meaning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_signal: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+    pub executable: PathBuf,
+    pub sha256: String,
+    /// Retained process records bind the launch identity to this receipt.
+    /// These fields are optional only for historical inline records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launcher_pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_pid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_limit_bytes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_original: Option<Value>,
+}
+
+/// A process setup failure retains its structured owner record while the
+/// public compatibility helpers continue returning the historical message.
+#[derive(Debug)]
+#[cfg(not(verus_keep_ghost))]
+pub(crate) struct ProcessFailure {
+    pub(crate) message: String,
+    pub(crate) error: Failure,
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl ProcessFailure {
+    fn domain(code: impl Into<String>, message: impl Into<String>) -> Self {
+        let message = message.into();
+        let error = Failure::new(code, message.clone());
+        Self { message, error }
+    }
+
+    fn native(code: impl Into<String>, message: impl Into<String>, source: std::io::Error) -> Self {
+        let message = message.into();
+        let error = Failure::wrap(code, message.clone(), NativeIoError::new(source));
+        Self { message, error }
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl From<String> for ProcessFailure {
+    fn from(message: String) -> Self {
+        Self::domain("E_PROCESS", message)
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl From<&str> for ProcessFailure {
+    fn from(message: &str) -> Self {
+        Self::from(message.to_string())
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+impl From<std::io::Error> for ProcessFailure {
+    fn from(source: std::io::Error) -> Self {
+        Self::native("E_PROCESS_OWNERSHIP", source.to_string(), source)
+    }
+}
+
+#[derive(Debug)]
+#[cfg(not(verus_keep_ghost))]
+pub(crate) struct SharedProcessFailure(pub(crate) Arc<ProcessFailure>);
+#[cfg(not(verus_keep_ghost))]
+impl std::fmt::Display for SharedProcessFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+impl std::error::Error for SharedProcessFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+impl chrono_diagnostics::error::RecordedError for SharedProcessFailure {
+    fn error_node(&self) -> chrono_diagnostics::error::ErrorNode {
+        self.0.error.record().error
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+impl ProcessFailure {
+    fn shared(source: Arc<Self>) -> Self {
+        Self {
+            message: source.message.clone(),
+            error: Failure::wrap(
+                "E_PROCESS_OWNERSHIP",
+                source.message.clone(),
+                SharedProcessFailure(source),
+            ),
+        }
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl std::fmt::Display for ProcessFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+impl std::error::Error for ProcessFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+impl chrono_diagnostics::error::RecordedError for ProcessFailure {
+    fn error_node(&self) -> chrono_diagnostics::error::ErrorNode {
+        self.error.record().error
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+/// Transport bytes with bounded memory, returning their observed identity.
+#[cfg(not(verus_keep_ghost))]
+pub fn copy_hashed(input: impl Read, output: impl Write) -> Result<(String, u64), String> {
+    verified_status::copy_hash_stream(
+        (input, output, Sha256::new()),
+        [0_u8; 65536],
+        |(mut input, output, hash), mut buffer| {
+            let result = input.read(&mut buffer).map_err(|error| error.to_string());
+            ((input, output, hash), buffer, result)
+        },
+        |buffer: &[u8; 65536]| buffer.as_slice(),
+        |(input, mut output, hash), chunk| {
+            let result = output.write_all(chunk).map_err(|error| error.to_string());
+            ((input, output, hash), result)
+        },
+        |(input, output, mut hash), chunk| {
+            hash.update(chunk);
+            (input, output, hash)
+        },
+        |(_, _, hash)| format!("{:x}", hash.finalize()),
+    )
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn file_identity(path: &Path) -> Result<(String, u64), String> {
+    if !fs::metadata(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?
+        .is_file()
+    {
+        return Err(format!("not a regular input file: {}", path.display()));
+    }
+    let file = fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err(format!("not a regular input file: {}", path.display()));
+    }
+    copy_hashed(file, std::io::sink())
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn relative_path(value: &str) -> Result<(), String> {
+    admit_relative_path(value).map_err(|invalid| format!("invalid relative path: {invalid:?}"))
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn no_symlink_parents(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    no_symlink_parents_detailed(root, relative).map_err(|error| error.message)
+}
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn no_symlink_parents_detailed(
+    root: &Path,
+    relative: &str,
+) -> Result<PathBuf, ProcessFailure> {
+    relative_path(relative)?;
+    verified_paths::no_symlink_path(
+        Path::new(relative).components(),
+        root.to_path_buf(),
+        |mut parts: std::path::Components<'_>| {
+            let part = parts.next();
+            (parts, part)
+        },
+        |mut path: PathBuf, part: std::path::Component<'_>| {
+            path.push(part);
+            path
+        },
+        |path: PathBuf| {
+            let observation =
+                fs::symlink_metadata(&path).map(|metadata| metadata.file_type().is_symlink());
+            (path, observation)
+        },
+        |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound,
+    )
+    .map_err(|failure| {
+        failure.render(
+            |path: PathBuf| format!("symlink path is not allowed: {}", path.display()).into(),
+            |error: std::io::Error| {
+                ProcessFailure::native("E_PROCESS_PATH_READ", error.to_string(), error)
+            },
+        )
+    })
+}
+
+/// Validate and prepare one registered publication destination before any
+/// business or judge process is launched. Missing parent directories are part
+/// of publication preparation; existing files at the final address may be
+/// replaced, while symlinks and type-conflicting parents are rejected.
+#[cfg(not(verus_keep_ghost))]
+pub fn prepare_publication(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    relative_path(relative)?;
+    let components: Vec<_> = Path::new(relative).components().collect();
+    let target = root.join(relative);
+    verified_paths::prepare_publication(
+        &components,
+        root.to_path_buf(),
+        &target,
+        |mut path: PathBuf, component: std::path::Component<'_>| {
+            path.push(component);
+            path
+        },
+        |path: PathBuf| {
+            let observation =
+                fs::symlink_metadata(&path).map(|metadata| verified_paths::PublicationMetadata {
+                    symlink: metadata.file_type().is_symlink(),
+                    directory: metadata.is_dir(),
+                    file: metadata.is_file(),
+                });
+            (path, observation)
+        },
+        |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound,
+        |target: &PathBuf| target.parent(),
+        |parent: &Path| fs::create_dir_all(parent),
+        || no_symlink_parents(root, relative),
+    )
+    .map_err(|failure| {
+        failure.render(
+            |path: PathBuf| format!("symlink path is not allowed: {}", path.display()),
+            |path: PathBuf| format!("publication parent is not a directory: {}", path.display()),
+            |path: PathBuf| format!("publication destination is not a file: {}", path.display()),
+            |error: std::io::Error| error.to_string(),
+            |error: String| error,
+        )
+    })
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn invocation_template(template: &[String], binding: &Value) -> Vec<String> {
+    template
+        .iter()
+        .map(|value| match value.as_str() {
+            "{base}" => binding["base"].as_str().unwrap_or("").into(),
+            "{candidate}" => binding["candidate"].as_str().unwrap_or("").into(),
+            _ => value.clone(),
+        })
+        .collect()
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn invocation_path(index: usize, expected: &[String]) -> bool {
+    index == 0 || index > 0 && matches!(expected[index - 1].as_str(), "--config" | "--context")
+}
+
+/// Resolve the canonical path identities used by the live route validator.
+/// Raw argv/cwd remain in the entry; this value is an additional retained
+/// observation for portable offline comparison after the original root is gone.
+#[cfg(not(verus_keep_ghost))]
+pub fn resolve_invocation(
+    root: &Path,
+    entry: &Value,
+    template: &[String],
+    binding: &Value,
+) -> Result<Value, String> {
+    let argv: Vec<String> = serde_json::from_value(entry["argv"].clone())
+        .map_err(|_| "E_ROUTE_MISSING: observed entry argv")?;
+    let cwd = Path::new(
+        entry["cwd"]
+            .as_str()
+            .ok_or("E_ROUTE_MISSING: observed cwd")?,
+    );
+    let expected = invocation_template(template, binding);
+    if argv.len() != expected.len() || argv.is_empty() {
+        return Err("E_ROUTE_MISSING: canonical argv differs".into());
+    }
+    let mut paths = vec![Value::Null; argv.len()];
+    for (index, (actual, want)) in argv.iter().zip(&expected).enumerate() {
+        if invocation_path(index, &expected) {
+            let actual_path =
+                fs::canonicalize(if index > 0 && expected[index - 1] == "--context" {
+                    root.join(actual)
+                } else {
+                    cwd.join(actual)
+                })
+                .map_err(|error| format!("E_ROUTE_MISSING: {error}"))?;
+            let expected_path = fs::canonicalize(root.join(want))
+                .map_err(|error| format!("E_ROUTE_MISSING: {error}"))?;
+            if actual_path != expected_path {
+                return Err("E_ROUTE_MISSING: canonical path differs".into());
+            }
+            paths[index] = serde_json::json!({
+                "actual": actual_path,
+                "expected": expected_path,
+            });
+        } else if actual != want {
+            return Err("E_ROUTE_MISSING: canonical argv differs".into());
+        }
+    }
+    let raw = serde_json::json!({"argv": argv, "cwd": cwd});
+    Ok(serde_json::json!({
+        "raw_digest": wire::digest(&raw)?,
+        "paths": paths,
+    }))
+}
+
+/// Validate a retained entry's live path identities without touching the
+/// original checkout. The raw argv/cwd digest and non-path arguments remain
+/// checked, while path equality comes from the identities captured live.
+#[cfg(not(verus_keep_ghost))]
+pub fn validate_invocation_observation(
+    entry: &Value,
+    template: &[String],
+    binding: &Value,
+) -> Result<(), String> {
+    let argv: Vec<String> = serde_json::from_value(entry["argv"].clone())
+        .map_err(|_| "E_ROUTE_MISSING: observed entry argv")?;
+    let cwd = entry["cwd"]
+        .as_str()
+        .ok_or("E_ROUTE_MISSING: observed cwd")?;
+    let expected = invocation_template(template, binding);
+    let resolved = entry["resolved_paths"]
+        .as_object()
+        .ok_or("E_ROUTE_MISSING: resolved entry paths")?;
+    let raw = serde_json::json!({"argv": argv, "cwd": cwd});
+    if *resolved
+        .get("raw_digest")
+        .ok_or("E_ROUTE_MISSING: raw entry digest")?
+        != wire::digest(&raw)?
+    {
+        return Err("E_ROUTE_MISSING: raw entry identity differs".into());
+    }
+    let paths = resolved
+        .get("paths")
+        .ok_or("E_ROUTE_MISSING: resolved entry paths")?
+        .as_array()
+        .ok_or("E_ROUTE_MISSING: resolved entry paths")?;
+    if argv.len() != expected.len() || paths.len() != argv.len() || argv.is_empty() {
+        return Err("E_ROUTE_MISSING: canonical argv differs".into());
+    }
+    for (index, (actual, want)) in argv.iter().zip(&expected).enumerate() {
+        if invocation_path(index, &expected) {
+            let identity = paths[index]
+                .as_object()
+                .ok_or("E_ROUTE_MISSING: resolved path identity")?;
+            let actual_path = identity
+                .get("actual")
+                .ok_or("E_ROUTE_MISSING: actual path identity")?
+                .as_str()
+                .ok_or("E_ROUTE_MISSING: resolved path identity")?;
+            let expected_path = identity
+                .get("expected")
+                .ok_or("E_ROUTE_MISSING: expected path identity")?
+                .as_str()
+                .ok_or("E_ROUTE_MISSING: resolved path identity")?;
+            if actual_path != expected_path || actual_path.is_empty() {
+                return Err("E_ROUTE_MISSING: canonical path differs".into());
+            }
+        } else if !paths[index].is_null() || actual != want {
+            return Err("E_ROUTE_MISSING: canonical argv differs".into());
+        }
+    }
+    Ok(())
+}
+/// Deserialize an opaque JSON value while rejecting duplicate members recursively.
+/// Typed consumers can apply this at dynamic fields without a second whole-document tree.
+#[cfg(not(verus_keep_ghost))]
+pub fn strict_json_value<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Value, D::Error> {
+    struct Strict;
+    impl<'de> serde::de::Visitor<'de> for Strict {
+        type Value = Value;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("JSON without duplicate members")
+        }
+        fn visit_bool<E: serde::de::Error>(self, v: bool) -> Result<Value, E> {
+            Ok(v.into())
+        }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Value, E> {
+            Ok(v.into())
+        }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Value, E> {
+            Ok(v.into())
+        }
+        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Value, E> {
+            serde_json::Number::from_f64(v)
+                .map(Value::Number)
+                .ok_or_else(|| E::custom("nonfinite number"))
+        }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Value, E> {
+            Ok(v.into())
+        }
+        fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Value, E> {
+            Ok(v.into())
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Value, E> {
+            Ok(Value::Null)
+        }
+        fn visit_none<E: serde::de::Error>(self) -> Result<Value, E> {
+            Ok(Value::Null)
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut a: A) -> Result<Value, A::Error> {
+            let mut out = vec![];
+            while let Some(v) = a.next_element::<StrictValue>()? {
+                out.push(v.0)
+            }
+            Ok(out.into())
+        }
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut a: A) -> Result<Value, A::Error> {
+            let mut out = serde_json::Map::new();
+            while let Some(k) = a.next_key::<String>()? {
+                if out.contains_key(&k) {
+                    return Err(serde::de::Error::custom(format!(
+                        "duplicate JSON member {k}"
+                    )));
+                }
+                out.insert(k, a.next_value::<StrictValue>()?.0);
+            }
+            Ok(Value::Object(out))
+        }
+    }
+    struct StrictValue(Value);
+    impl<'de> Deserialize<'de> for StrictValue {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            d.deserialize_any(Strict).map(StrictValue)
+        }
+    }
+    d.deserialize_any(Strict)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn json(bytes: &[u8]) -> Result<Value, String> {
+    let mut d = serde_json::Deserializer::from_slice(bytes);
+    let v = strict_json_value(&mut d).map_err(|e| e.to_string())?;
+    d.end().map_err(|e| e.to_string())?;
+    Ok(v)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
+    serde_json::from_value(json(bytes)?).map_err(|e| e.to_string())
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn load_config(path: &Path) -> Result<CheckConfig, String> {
+    let c: CheckConfig = decode(&fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?)?;
+    if !matches!(
+        c.schema.as_str(),
+        "chrono-ci-check/v1" | "chrono-ci-check/v2" | "chrono-ci-check/v3"
+    ) {
+        return Err("unsupported check profile; full governance remains not implemented".into());
+    }
+    validate_command(&c.judge)?;
+    if !verified_paths::valid_host_state_path(c.report_path.as_bytes()) {
+        relative_path(&c.report_path)?;
+        return Err("report_path must reside in .chrono-harness/state/".into());
+    }
+    units::reference_publication(&c)?;
+    Ok(c)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn validate_command(s: &CommandSpec) -> Result<(), String> {
+    if s.program.is_empty()
+        || s.program.contains('\0')
+        || s.args.iter().any(|v| v.contains('\0'))
+        || s.env
+            .iter()
+            .any(|(k, v)| k.is_empty() || k.contains(['=', '\0']) || v.contains('\0'))
+        || !verified_limits::valid_execution_bounds(s.timeout_seconds, s.output_limit_bytes)
+    {
+        return Err("invalid command/bounds".into());
+    }
+    Ok(())
+}
+/// Ordered lexical candidates for live resolution and historical invocation verification.
+/// Passing a PATH override avoids consulting the collector's ambient PATH.
+#[cfg(not(verus_keep_ghost))]
+pub fn program_candidates(
+    root: &Path,
+    program: &str,
+    path_override: Option<&str>,
+) -> Result<Vec<PathBuf>, String> {
+    let root = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(root)
+    };
+    let raw = Path::new(program);
+    let paths = if raw.is_absolute() {
+        vec![raw.to_path_buf()]
+    } else if program.contains('/') {
+        vec![root.join(raw)]
+    } else {
+        let path = path_override
+            .map(std::ffi::OsString::from)
+            .or_else(|| std::env::var_os("PATH"))
+            .ok_or("PATH is missing")?;
+        std::env::split_paths(&path)
+            .map(|p| {
+                if p.is_absolute() {
+                    p.join(raw)
+                } else {
+                    root.join(p).join(raw)
+                }
+            })
+            .collect()
+    };
+    Ok(paths)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn resolve_program(
+    root: &Path,
+    program: &str,
+    path_override: Option<&str>,
+) -> Result<PathBuf, String> {
+    for p in program_candidates(root, program, path_override)? {
+        if p.is_file() {
+            // Preserve the invocation basename: rustup/cargo and other multicall tools
+            // select behavior from argv[0]. Reading p still hashes the target bytes.
+            return Ok(p);
+        }
+    }
+    Err(format!("executable not found: {program}"))
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn run_process(root: &Path, s: &CommandSpec, input: &[u8]) -> Result<ProcessResult, String> {
+    finish_process(
+        run_process_inner(
+            root,
+            s,
+            input,
+            None,
+            Duration::from_secs(s.timeout_seconds),
+            None,
+        )
+        .map_err(|failure| failure.message)?,
+    )
+}
+#[cfg(not(verus_keep_ghost))]
+fn finish_process(p: ProcessResult) -> Result<ProcessResult, String> {
+    if let Some(error) = &p.failure {
+        return Err(error.clone());
+    }
+    Ok(p)
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn finish_detailed(p: Result<ProcessResult, ProcessFailure>) -> Result<ProcessResult, String> {
+    p.map_err(|failure| failure.message)
+}
+/// Same engine, retaining partial output and true exit even when a process bound fires.
+#[cfg(not(verus_keep_ghost))]
+pub fn run_process_observed(
+    root: &Path,
+    s: &CommandSpec,
+    input: &[u8],
+    digest: &str,
+) -> Result<ProcessResult, String> {
+    finish_detailed(run_process_inner(
+        root,
+        s,
+        input,
+        Some(digest),
+        Duration::from_secs(s.timeout_seconds),
+        None,
+    ))
+}
+/// Preserve a caller's finer acquisition deadline through the same engine.
+#[cfg(not(verus_keep_ghost))]
+pub fn run_process_observed_for(
+    root: &Path,
+    s: &CommandSpec,
+    input: &[u8],
+    digest: &str,
+    timeout: Duration,
+) -> Result<ProcessResult, String> {
+    finish_detailed(run_process_inner(
+        root,
+        s,
+        input,
+        Some(digest),
+        timeout,
+        None,
+    ))
+}
+
+/// Optional live consumers of the same bounded original stream readers.
+/// Writers must return from IO; a failed writer is detached while both pipes drain.
+#[cfg(not(verus_keep_ghost))]
+pub struct ProcessForward<'a> {
+    pub stdout: &'a mut (dyn Write + Send),
+    pub stderr: &'a mut (dyn Write + Send),
+}
+
+/// Same owned process engine and acquisition deadline, with live output forwarding.
+/// A forwarding failure is retained alongside the actual child status.
+#[cfg(not(verus_keep_ghost))]
+pub fn run_process_observed_forwarded_for(
+    root: &Path,
+    s: &CommandSpec,
+    input: &[u8],
+    digest: &str,
+    timeout: Duration,
+    forward: ProcessForward<'_>,
+) -> Result<ProcessResult, String> {
+    finish_detailed(run_process_inner_with_stdout(
+        root,
+        s,
+        input,
+        Some(digest),
+        timeout,
+        s.output_limit_bytes,
+        None,
+        Some(forward),
+    ))
+}
+
+/// Runner-owned wire callers use this variant to retain prelaunch causes.
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn run_process_observed_detailed(
+    root: &Path,
+    s: &CommandSpec,
+    input: &[u8],
+    digest: &str,
+) -> Result<ProcessResult, ProcessFailure> {
+    run_process_inner(
+        root,
+        s,
+        input,
+        Some(digest),
+        Duration::from_secs(s.timeout_seconds),
+        None,
+    )
+}
+/// Explicit originals for a consumer that can be terminated by an enclosing owner.
+/// Stream files contain only bytes actually read, within the unchanged output bound.
+/// A launch record is not a terminal receipt; absent terminal evidence stays unknown.
+#[cfg(not(verus_keep_ghost))]
+pub struct ProcessEvidence<'a> {
+    /// Explicit storage owner, independent of the command's working directory.
+    pub root: &'a Path,
+    pub stdout: &'a Path,
+    pub stderr: &'a Path,
+    pub launch: &'a Path,
+    /// Existing directory owner; its caller seals the whole operation after joining.
+    pub publication: Option<&'a retained_artifacts::retention::Publication>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(not(verus_keep_ghost))]
+struct LaunchEvidence {
+    schema: String,
+    launcher_pid: u32,
+    child_pid: u32,
+    argv: Vec<String>,
+    cwd: PathBuf,
+    executable: PathBuf,
+    sha256: String,
+    environment_digest: String,
+    #[serde(default)]
+    ownership_fds: Option<String>,
+    stdin_sha256: String,
+    timeout_seconds: u64,
+    output_limit_bytes: usize,
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub fn validate_launch_evidence(path: &Path, process: &ProcessResult) -> Result<(), String> {
+    validate_launch_evidence_detailed(path, process).map_err(|failure| failure.message)
+}
+#[cfg(not(verus_keep_ghost))]
+fn validate_launch_evidence_detailed(
+    path: &Path,
+    process: &ProcessResult,
+) -> Result<(), ProcessFailure> {
+    let bytes = fs::read(path).map_err(|e| {
+        ProcessFailure::native(
+            "E_PROCESS_LAUNCH_EVIDENCE",
+            format!("launch evidence read: {e}"),
+            e,
+        )
+    })?;
+    validate_launch_evidence_bytes(&bytes, process).map_err(ProcessFailure::from)
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn validate_launch_evidence_bytes(
+    bytes: &[u8],
+    process: &ProcessResult,
+) -> Result<(), String> {
+    let record: LaunchEvidence =
+        decode(&bytes).map_err(|e| format!("launch evidence decode: {e}"))?;
+    let child_pid = process
+        .child_pid
+        .ok_or("process receipt missing child identity")?;
+    let launcher_pid = process
+        .launcher_pid
+        .ok_or("process receipt missing launcher identity")?;
+    let timeout_seconds = process
+        .timeout_seconds
+        .ok_or("process receipt missing timeout bound")?;
+    let output_limit_bytes = process
+        .output_limit_bytes
+        .ok_or("process receipt missing output bound")?;
+    let expected = LaunchEvidence {
+        schema: "chrono-process-launch/v2".into(),
+        launcher_pid,
+        child_pid,
+        argv: process.argv.clone(),
+        cwd: process.cwd.clone(),
+        executable: process.executable.clone(),
+        sha256: process.sha256.clone(),
+        environment_digest: process.environment_digest.clone(),
+        ownership_fds: process.ownership_fds.clone(),
+        stdin_sha256: process.stdin_sha256.clone(),
+        timeout_seconds,
+        output_limit_bytes,
+    };
+    let mut mismatches = Vec::new();
+    if record.schema != expected.schema {
+        mismatches.push("schema");
+    }
+    if record.launcher_pid != expected.launcher_pid || launcher_pid == 0 {
+        mismatches.push("launcher_pid");
+    }
+    if record.child_pid != child_pid || child_pid == 0 {
+        mismatches.push("child_pid");
+    }
+    if record.argv != expected.argv {
+        mismatches.push("argv");
+    }
+    if record.cwd != expected.cwd {
+        mismatches.push("cwd");
+    }
+    if record.executable != expected.executable {
+        mismatches.push("executable");
+    }
+    if record.sha256 != expected.sha256 {
+        mismatches.push("executable_sha256");
+    }
+    if record.environment_digest != expected.environment_digest {
+        mismatches.push("environment_digest");
+    }
+    if record.ownership_fds != expected.ownership_fds {
+        mismatches.push("ownership_fds");
+    }
+    if record.stdin_sha256 != expected.stdin_sha256 {
+        mismatches.push("stdin_sha256");
+    }
+    if record.timeout_seconds != timeout_seconds {
+        mismatches.push("timeout_seconds");
+    }
+    if record.output_limit_bytes != output_limit_bytes {
+        mismatches.push("output_limit_bytes");
+    }
+    if !mismatches.is_empty() {
+        return Err(format!(
+            "launch evidence does not match process receipt: {}",
+            mismatches.join(",")
+        ));
+    }
+    Ok(())
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn run_process_observed_retained(
+    root: &Path,
+    s: &CommandSpec,
+    input: &[u8],
+    digest: &str,
+    evidence: &ProcessEvidence<'_>,
+) -> Result<ProcessResult, String> {
+    run_process_observed_retained_for(
+        root,
+        s,
+        input,
+        digest,
+        Duration::from_secs(s.timeout_seconds),
+        evidence,
+    )
+}
+
+/// Retain live originals with the caller's exact acquisition deadline, using the same engine.
+#[cfg(not(verus_keep_ghost))]
+pub fn run_process_observed_retained_for(
+    root: &Path,
+    s: &CommandSpec,
+    input: &[u8],
+    digest: &str,
+    timeout: Duration,
+    evidence: &ProcessEvidence<'_>,
+) -> Result<ProcessResult, String> {
+    finish_detailed(run_process_inner(
+        root,
+        s,
+        input,
+        Some(digest),
+        timeout,
+        Some(evidence),
+    ))
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn evidence_path(root: &Path, path: &Path, label: &str) -> Result<PathBuf, ProcessFailure> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    let parent = absolute
+        .parent()
+        .ok_or_else(|| format!("{label} evidence parent missing"))?;
+    let parent = fs::canonicalize(parent).map_err(|error| {
+        ProcessFailure::native(
+            "E_PROCESS_EVIDENCE_PATH",
+            format!("{label} evidence parent: {error}"),
+            error,
+        )
+    })?;
+    let absolute = parent.join(
+        absolute
+            .file_name()
+            .ok_or_else(|| format!("{label} evidence path missing"))?,
+    );
+    let relative = absolute
+        .strip_prefix(root)
+        .map_err(|_| format!("{label} evidence escapes host root"))?
+        .to_str()
+        .ok_or_else(|| format!("{label} evidence path is not UTF-8"))?;
+    let checked = no_symlink_parents_detailed(root, relative)?;
+    let mut parent = checked
+        .parent()
+        .ok_or_else(|| format!("{label} evidence parent missing"))?;
+    loop {
+        match fs::symlink_metadata(parent) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!("{label} evidence parent is a symlink").into());
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(format!("{label} evidence parent is not a directory").into());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(format!("{label} evidence parent missing").into());
+            }
+            Err(error) => {
+                return Err(ProcessFailure::native(
+                    "E_PROCESS_EVIDENCE_PATH",
+                    format!("{label} evidence parent: {error}"),
+                    error,
+                ));
+            }
+        }
+        if parent == root {
+            break;
+        }
+        parent = parent
+            .parent()
+            .ok_or_else(|| format!("{label} evidence escaped host root"))?;
+    }
+    if let Ok(metadata) = fs::symlink_metadata(&checked) {
+        if metadata.file_type().is_symlink() {
+            return Err(format!("{label} evidence path is a symlink").into());
+        }
+        if !metadata.is_file() {
+            return Err(format!("{label} evidence path is not a regular file").into());
+        }
+    }
+    Ok(checked)
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn validate_process_evidence_paths(
+    root: &Path,
+    evidence: &ProcessEvidence<'_>,
+) -> Result<(PathBuf, PathBuf, PathBuf), ProcessFailure> {
+    Ok((
+        evidence_path(root, evidence.stdout, "stdout")?,
+        evidence_path(root, evidence.stderr, "stderr")?,
+        evidence_path(root, evidence.launch, "launch")?,
+    ))
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn launch_descriptor(root: &Path, path: &Path) -> Option<Value> {
+    let relative = path.strip_prefix(root).ok()?.to_str()?.to_owned();
+    let digest = file_identity(path).ok()?.0;
+    Some(serde_json::json!({"path": relative, "sha256": digest}))
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn cleanup_evidence_path(path: &Path) -> Result<(), ProcessFailure> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(format!("evidence cleanup refused symlink {}", path.display()).into())
+        }
+        Ok(metadata) if metadata.is_file() => fs::remove_file(path).map_err(|error| {
+            ProcessFailure::native(
+                "E_PROCESS_EVIDENCE_CLEANUP",
+                format!("{}: {error}", path.display()),
+                error,
+            )
+        }),
+        Ok(_) => Err(format!("evidence cleanup refused non-file {}", path.display()).into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(ProcessFailure::native(
+            "E_PROCESS_EVIDENCE_CLEANUP",
+            format!("{}: {error}", path.display()),
+            error,
+        )),
+    }
+}
+// The existing process engine owns termination on errors and unwinding too.
+#[cfg(not(verus_keep_ghost))]
+struct OwnedProcess {
+    child: process_child::DirectChild,
+    #[cfg(unix)]
+    ownership: process_ownership::Launch,
+    joined: bool,
+}
+#[cfg(not(verus_keep_ghost))]
+impl std::ops::Deref for OwnedProcess {
+    type Target = process_child::DirectChild;
+    fn deref(&self) -> &Self::Target {
+        &self.child
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+impl std::ops::DerefMut for OwnedProcess {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.child
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+impl Drop for OwnedProcess {
+    fn drop(&mut self) {
+        if self.joined {
+            return;
+        }
+        #[cfg(unix)]
+        {
+            self.ownership.drain();
+            unsafe {
+                libc::kill(-(self.child.id() as i32), libc::SIGKILL);
+            }
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+/// Acquire explicitly bounded input data on stdout without increasing stderr's
+/// diagnostic bound. The caller owns input eligibility, size and identity checks.
+/// Original process bytes, hashes, exit status and failures use the same engine.
+#[cfg(not(verus_keep_ghost))]
+pub fn run_process_observed_data(
+    root: &Path,
+    s: &CommandSpec,
+    input: &[u8],
+    digest: &str,
+    stdout_limit: usize,
+) -> Result<ProcessResult, String> {
+    finish_detailed(run_process_inner_with_stdout(
+        root,
+        s,
+        input,
+        Some(digest),
+        Duration::from_secs(s.timeout_seconds),
+        stdout_limit,
+        None,
+        None,
+    ))
+}
+#[cfg(not(verus_keep_ghost))]
+fn run_process_inner(
+    root: &Path,
+    s: &CommandSpec,
+    input: &[u8],
+    expected: Option<&str>,
+    timeout: Duration,
+    evidence: Option<&ProcessEvidence<'_>>,
+) -> Result<ProcessResult, ProcessFailure> {
+    run_process_inner_with_stdout(
+        root,
+        s,
+        input,
+        expected,
+        timeout,
+        s.output_limit_bytes,
+        evidence,
+        None,
+    )
+    .map_err(|mut failure| {
+        failure.error = failure
+            .error
+            .at(
+                "argv",
+                serde_json::json!(
+                    std::iter::once(&s.program)
+                        .chain(&s.args)
+                        .collect::<Vec<_>>()
+                ),
+            )
+            .at("cwd", root.to_string_lossy().into_owned())
+            .at("stdin_sha256", sha256(input))
+            .at("expected_executable_sha256", serde_json::json!(expected))
+            .at("operation_started", false);
+        failure
+    })
+}
+#[cfg(not(verus_keep_ghost))]
+fn run_process_inner_with_stdout(
+    root: &Path,
+    s: &CommandSpec,
+    input: &[u8],
+    expected: Option<&str>,
+    timeout: Duration,
+    stdout_limit: usize,
+    evidence: Option<&ProcessEvidence<'_>>,
+    forward: Option<ProcessForward<'_>>,
+) -> Result<ProcessResult, ProcessFailure> {
+    let span = tracing::info_span!(
+        "process",
+        launcher_pid = std::process::id(),
+        child_pid = tracing::field::Empty,
+    );
+    let _entered = span.enter();
+    tracing::debug!(
+        event_id = "process.preparing",
+        program = s.program,
+        "preparing bounded process invocation"
+    );
+    validate_command(s)?;
+    if !verified_limits::valid_output_limit(stdout_limit) {
+        return Err("invalid immutable input transport bound".into());
+    }
+    if expected.is_some() && !Path::new(&s.program).is_absolute() {
+        return Err("bound executable must be absolute; no ambient PATH resolution".into());
+    }
+    let executable = if expected.is_some() {
+        PathBuf::from(&s.program)
+    } else {
+        resolve_program(root, &s.program, s.env.get("PATH").map(String::as_str))?
+    };
+    let root = fs::canonicalize(root)
+        .map_err(|e| ProcessFailure::native("E_PROCESS_CWD", format!("process cwd: {e}"), e))?;
+    let publication = evidence.and_then(|paths| paths.publication);
+    let evidence_root = evidence
+        .map(|paths| {
+            fs::canonicalize(paths.root).map_err(|e| {
+                ProcessFailure::native(
+                    "E_PROCESS_EVIDENCE_PATH",
+                    format!("process evidence root: {e}"),
+                    e,
+                )
+            })
+        })
+        .transpose()?;
+    let evidence_paths = evidence
+        .zip(evidence_root.as_deref())
+        .map(|(paths, storage_root)| validate_process_evidence_paths(storage_root, paths))
+        .transpose()?;
+    let evidence = evidence_paths
+        .as_ref()
+        .map(|(stdout, stderr, launch)| ProcessEvidence {
+            root: evidence_root.as_deref().expect("validated evidence root"),
+            stdout,
+            stderr,
+            launch,
+            publication,
+        });
+    let launcher_pid = std::process::id();
+    let mut environment = if expected.is_some() {
+        s.env.clone()
+    } else {
+        let mut env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+        env.extend(s.env.clone());
+        env
+    };
+    let stdin_sha256 = sha256(input);
+    let hash = sha256(
+        &fs::read(&executable)
+            .map_err(|e| ProcessFailure::native("E_PROCESS_EXECUTABLE_READ", e.to_string(), e))?,
+    );
+    if expected.is_some_and(|v| v != hash) {
+        return Err(ProcessFailure::domain(
+            "E_PROCESS_EXECUTABLE_DIGEST",
+            "prelaunch executable digest mismatch",
+        ));
+    }
+    let mut command = Command::new(&executable);
+    if expected.is_some() {
+        command.env_clear();
+    }
+    command
+        .args(&s.args)
+        .envs(&s.env)
+        .current_dir(&root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut stream_publications = Vec::new();
+    let mut enrolled_streams = [None, None];
+    if let Some(paths) = &evidence {
+        for (index, (path, bound)) in [
+            (paths.stdout, stdout_limit),
+            (paths.stderr, s.output_limit_bytes),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if let Some(publication) = paths.publication {
+                let path = publication.write_destination(path, bound as u64)?;
+                enrolled_streams[index] = Some(fs::File::create_new(path).map_err(|e| {
+                    ProcessFailure::native("E_PROCESS_EVIDENCE", format!("stream original: {e}"), e)
+                })?);
+                continue;
+            }
+            let relative = path
+                .strip_prefix(paths.root)
+                .map_err(|e| e.to_string())?
+                .to_str()
+                .ok_or("stream path UTF-8")?;
+            if publication.is_none()
+                && retained_artifacts::retention::Inventory::adopted(paths.root)?
+                    .is_some_and(|i| i.accepts("check-original", relative))
+            {
+                let publication = retained_artifacts::retention::create_adopted_for_consumer(
+                    paths.root, "check-original", path, false,
+                    serde_json::json!({"kind":"process-stream","stream":index,"stdin_sha256":stdin_sha256,"outcome":"not-established"}),
+                    Some(bound as u64), "publication-recheck"
+                )?.ok_or("stream publication adoption changed")?;
+                enrolled_streams[index] = Some(
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .open(path)
+                        .map_err(|e| e.to_string())?,
+                );
+                stream_publications.push(publication);
+            }
+        }
+    }
+    #[cfg(unix)]
+    let _transfer = process_fds::Transfer::prepare(&mut command)?;
+    #[cfg(unix)]
+    let ownership_fds = {
+        environment.remove(process_fds::ENV);
+        _transfer.value.clone()
+    };
+    #[cfg(not(unix))]
+    let ownership_fds = None;
+    let environment_digest = wire::digest(&environment)?;
+    #[cfg(unix)]
+    let ownership = process_ownership::Launch::prepare()?;
+    #[cfg(unix)]
+    ownership.configure(&mut command);
+    // The record has one schema and producer. Reserve its actual metadata
+    // bound before spawn, using the widest possible child PID representation.
+    let launch_record = evidence.as_ref().map(|_| serde_json::json!({
+        "schema": "chrono-process-launch/v2",
+        "launcher_pid": launcher_pid, "child_pid": u32::MAX,
+        "argv": std::iter::once(executable.to_string_lossy().into_owned()).chain(s.args.clone()).collect::<Vec<_>>(),
+        "cwd": root, "executable": executable, "sha256": hash,
+        "environment_digest": environment_digest,
+        "ownership_fds": ownership_fds, "stdin_sha256": stdin_sha256,
+        "timeout_seconds": s.timeout_seconds, "output_limit_bytes": s.output_limit_bytes,
+    }));
+    if let (Some(paths), Some(publication), Some(record)) =
+        (evidence.as_ref(), publication, launch_record.as_ref())
+    {
+        publication.reserve_external_file(
+            paths.launch,
+            serde_json::to_vec(record).map_err(|e| e.to_string())?.len() as u64,
+        )?;
+    }
+    // Delay file creation until every setup operation above has succeeded.
+    // If spawn itself fails, these are the only files this invocation created
+    // and can be removed without touching a pre-existing address.
+    let (stdout_original, stderr_original) = match evidence.as_ref() {
+        Some(paths) => {
+            let stdout = match enrolled_streams[0].take() {
+                Some(file) => file,
+                None => fs::File::create_new(paths.stdout).map_err(|e| {
+                    ProcessFailure::native("E_PROCESS_EVIDENCE", format!("stdout original: {e}"), e)
+                })?,
+            };
+            let stderr = match enrolled_streams[1]
+                .take()
+                .map(Ok)
+                .unwrap_or_else(|| fs::File::create_new(paths.stderr))
+            {
+                Ok(file) => file,
+                Err(error) => {
+                    drop(stdout);
+                    let cleanup = if stream_publications.is_empty() && paths.publication.is_none() {
+                        cleanup_evidence_path(paths.stdout).err()
+                    } else {
+                        None
+                    };
+                    let message = match &cleanup {
+                        Some(cleanup) => {
+                            format!("stderr original: {error}; evidence cleanup: {cleanup}")
+                        }
+                        None => format!("stderr original: {error}"),
+                    };
+                    let mut failure = ProcessFailure::native("E_PROCESS_EVIDENCE", message, error);
+                    if let Some(cleanup) = cleanup {
+                        failure.error = failure.error.with_related("evidence_cleanup", cleanup);
+                    }
+                    return Err(failure);
+                }
+            };
+            (Some(stdout), Some(stderr))
+        }
+        None => (None, None),
+    };
+    let mut result = std::thread::scope(|scope| {
+        let launched = {
+            // Rust's macOS pipe setup uses pipe + fcntl rather than pipe2.
+            // Another managed fork in that interval can inherit a sibling's
+            // output writer and hold its EOF until the unrelated child exits.
+            // Serialize only spawn; running children and stream readers remain
+            // independent, including the ownership observer's launch handshake.
+            #[cfg(target_os = "macos")]
+            let _spawn = {
+                static SPAWN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+                SPAWN.lock().unwrap_or_else(|error| error.into_inner())
+            };
+            command.spawn()
+        };
+        let child = match launched {
+            Ok(child) => child,
+            Err(e) => {
+                drop(stdout_original);
+                drop(stderr_original);
+                let cleanup = evidence
+                    .as_ref()
+                    .filter(|paths| stream_publications.is_empty() && paths.publication.is_none())
+                    .map(|paths| {
+                        [paths.stdout, paths.stderr]
+                            .into_iter()
+                            .filter_map(|path| cleanup_evidence_path(path).err())
+                            .collect::<Vec<_>>()
+                    });
+                let cleanup = cleanup.filter(|errors| !errors.is_empty());
+                #[cfg(unix)]
+                let detail = ownership.spawn_error(&e);
+                #[cfg(not(unix))]
+                let detail = e.to_string();
+                let cleanup_note = cleanup
+                    .as_ref()
+                    .map(|errors| {
+                        format!(
+                            "; evidence cleanup: {}",
+                            errors
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        )
+                    })
+                    .unwrap_or_default();
+                let mut failure = ProcessFailure::native(
+                    "E_PROCESS_SPAWN",
+                    format!("{}: {detail}{cleanup_note}", executable.display()),
+                    e,
+                );
+                failure.error = failure
+                    .error
+                    .at("executable", executable.to_string_lossy().into_owned());
+                #[cfg(unix)]
+                {
+                    failure.error = failure.error.at("ownership", ownership.spawn_observation());
+                }
+                if !cleanup_note.is_empty() {
+                    failure.error = failure
+                        .error
+                        .at("evidence_cleanup", cleanup_note.trim_start_matches("; "));
+                }
+                for cleanup in cleanup.into_iter().flatten() {
+                    failure.error = failure.error.with_related("evidence_cleanup", cleanup);
+                }
+                return Err(failure);
+            }
+        };
+        let mut child = OwnedProcess {
+            child: process_child::DirectChild::new(child),
+            #[cfg(unix)]
+            ownership,
+            joined: false,
+        };
+        let pid = child.id();
+        span.record("child_pid", pid);
+        tracing::debug!(
+            event_id = "process.launched",
+            argv = %serde_json::to_string(&std::iter::once(executable.to_string_lossy().as_ref()).chain(s.args.iter().map(String::as_str)).collect::<Vec<_>>()).expect("argv serialize"),
+            cwd = %root.display(), executable_sha256 = hash,
+            environment_sha256 = environment_digest, stdin_sha256,
+            timeout_seconds = s.timeout_seconds, output_limit_bytes = s.output_limit_bytes,
+            "actual child started; no terminal result established",
+        );
+        #[cfg(unix)]
+        child.ownership.log_identity();
+        let publication_failure = evidence.as_ref().and_then(|paths| {
+            let mut record = launch_record.as_ref().expect("prepared launch record").clone();
+            record["child_pid"] = serde_json::json!(pid);
+            let published = (|| -> Result<(), Failure> {
+                let relative = paths.launch.strip_prefix(paths.root).map_err(|e|Failure::new("E_PROCESS_EVIDENCE",e.to_string()))?.to_str().ok_or_else(||Failure::new("E_PROCESS_EVIDENCE","launch path UTF-8"))?;
+                let raw = serde_json::to_vec(&record).map_err(|e|Failure::new("E_PROCESS_EVIDENCE",e.to_string()))?;
+                if publication.is_none() && retained_artifacts::retention::publish_pending_original(paths.root, "check-original", relative, &raw,
+                    serde_json::json!({"kind":"process-launch","child_pid":pid,"outcome":"not-established"})).map_err(|e|Failure::new("E_PROCESS_EVIDENCE",e))? { return Ok(()); }
+                let mut original = tempfile::NamedTempFile::new_in(
+                    paths
+                        .launch
+                        .parent()
+                        .ok_or_else(|| Failure::new("E_PROCESS_EVIDENCE", "launch original parent missing"))?,
+                )
+                .map_err(|e| Failure::wrap("E_PROCESS_EVIDENCE", format!("launch original: {e}"), NativeIoError::new(e)).at("phase", "create"))?;
+                original.write_all(&raw)
+                    .map_err(|e| Failure::wrap("E_PROCESS_EVIDENCE", format!("launch original: {e}"), NativeIoError::new(e)).at("phase", "write"))?;
+                original.flush().map_err(|e| Failure::wrap("E_PROCESS_EVIDENCE", format!("launch original: {e}"), NativeIoError::new(e)).at("phase", "flush"))?;
+                original
+                    .persist_noclobber(paths.launch)
+                    .map_err(|e| Failure::wrap("E_PROCESS_EVIDENCE", format!("launch original: {e}"), NativeIoError::new(e.error)).at("phase", "persist"))?;
+                retained_artifacts::retention::sync_report(paths.launch)
+                    .map_err(|e| Failure::wrap("E_PROCESS_EVIDENCE", format!("launch original: {e}"), NativeIoError::new(e)).at("phase", "sync"))?;
+                Ok(())
+            })();
+            published
+                .err()
+                .map(|error| Failure::wrap("E_PROCESS_EVIDENCE", format!("{error}; launch evidence: {record}"), error).at("launch", record))
+        });
+        let stdin = child.stdin.take().ok_or("missing process stdin")?;
+        let writer = if input.is_empty() {
+            // Preserve the child's input pipe and publish EOF directly; there
+            // are no bytes whose delivery requires a concurrent writer.
+            drop(stdin);
+            None
+        } else {
+            let input = input.to_vec();
+            Some(scope.spawn(move || {
+                let mut stdin = stdin;
+                stdin.write_all(&input)
+            }))
+        };
+        let exceeded = Arc::new(AtomicBool::new(false));
+        let limit = s.output_limit_bytes;
+        #[cfg(unix)]
+        let wake = child.ownership.wake();
+        #[cfg(not(unix))]
+        let wake = std::thread::current();
+        let monitor = move || {
+            #[cfg(unix)]
+            wake.notify();
+            #[cfg(not(unix))]
+            wake.unpark();
+        };
+        struct StreamResult {
+            bytes: Vec<u8>,
+            failures: Vec<Failure>,
+            complete: bool,
+        }
+        fn reader<'scope, 'output: 'scope, R: Read + Send + 'scope, W: Fn() + Send + 'scope>(
+            scope: &'scope std::thread::Scope<'scope, '_>,
+            mut r: R,
+            limit: usize,
+            flag: Arc<AtomicBool>,
+            monitor: W,
+            mut original: Option<fs::File>,
+            stream: &'static str,
+            ready: Arc<Barrier>,
+            mut forward: Option<&'scope mut (dyn Write + Send + 'output)>,
+        ) -> std::thread::ScopedJoinHandle<'scope, StreamResult> {
+            scope.spawn(move || {
+                let mut result = StreamResult {
+                    bytes: Vec::new(),
+                    failures: Vec::new(),
+                    complete: true,
+                };
+                ready.wait();
+                let mut buf = [0u8; 8192];
+                loop {
+                    let n = match r.read(&mut buf) {
+                        Ok(n) => n,
+                        Err(e) => {
+                            result.complete = false;
+                            result.failures.push(
+                                Failure::wrap(
+                                    "E_PROCESS_STREAM_READ",
+                                    format!("{stream} read: {e}"),
+                                    NativeIoError::new(e),
+                                )
+                                .at("stream", stream)
+                                .at("phase", "read"),
+                            );
+                            break;
+                        }
+                    };
+                    if n == 0 {
+                        break;
+                    }
+                    if result.bytes.len() + n > limit && !flag.swap(true, Ordering::Relaxed) {
+                        monitor();
+                    }
+                    let keep = n.min(limit.saturating_sub(result.bytes.len()));
+                    if keep != n {
+                        result.complete = false;
+                    }
+                    // Publication errors cannot discard bytes already read or
+                    // prevent collection of the child's remaining bounded output.
+                    result.bytes.extend_from_slice(&buf[..keep]);
+                    if let Some(writer) = forward.as_mut() {
+                        if let Err(error) =
+                            writer.write_all(&buf[..keep]).and_then(|()| writer.flush())
+                        {
+                            result.failures.push(
+                                Failure::wrap(
+                                    "E_PROCESS_FORWARD",
+                                    format!("{stream} forwarding: {error}"),
+                                    NativeIoError::new(error),
+                                )
+                                .at("stream", stream)
+                                .at("phase", "forward"),
+                            );
+                            forward = None;
+                        }
+                    }
+                    if let Some(file) = &mut original {
+                        // File is unbuffered: enclosing termination cannot discard
+                        // bytes already retained by a completed write.
+                        if let Err(e) = file.write_all(&buf[..keep]) {
+                            result.failures.push(
+                                Failure::wrap(
+                                    "E_PROCESS_EVIDENCE",
+                                    format!("{stream} original: {e}"),
+                                    NativeIoError::new(e),
+                                )
+                                .at("stream", stream)
+                                .at("phase", "write"),
+                            );
+                            original = None;
+                        }
+                    }
+                }
+                // EOF or an IO error prompts another real child-status probe;
+                // neither is treated as evidence that the process has exited.
+                monitor();
+                result
+            })
+        }
+        let readers_ready = Arc::new(Barrier::new(3));
+        let (stdout_forward, stderr_forward) = match forward {
+            Some(forward) => (Some(forward.stdout), Some(forward.stderr)),
+            None => (None, None),
+        };
+        tracing::debug!(
+            event_id = "process.readers_start",
+            "starting original stream readers"
+        );
+        let stdout = reader(
+            scope,
+            child.stdout.take().ok_or("missing stdout")?,
+            stdout_limit,
+            exceeded.clone(),
+            monitor.clone(),
+            stdout_original,
+            "stdout",
+            readers_ready.clone(),
+            stdout_forward,
+        );
+        let stderr = reader(
+            scope,
+            child.stderr.take().ok_or("missing stderr")?,
+            limit,
+            exceeded.clone(),
+            monitor,
+            stderr_original,
+            "stderr",
+            readers_ready.clone(),
+            stderr_forward,
+        );
+        tracing::debug!(
+            event_id = "process.readers_ready_wait",
+            "waiting at the existing stream-reader start barrier"
+        );
+        readers_ready.wait();
+        // Read the shared clock first: this evidence cutoff cannot extend the
+        // existing monitor deadline, including a delay between the two reads.
+        #[cfg(unix)]
+        let terminal_deadline = process_ownership::terminal_deadline(timeout);
+        let start = Instant::now();
+        let mut failure = None;
+        let mut failure_detail = None;
+        #[cfg(unix)]
+        let terminal_deadline_ns = terminal_deadline.unwrap_or(0);
+        #[cfg(not(unix))]
+        let terminal_deadline_ns = 0u64;
+        tracing::debug!(
+            event_id = "process.monitor_wait",
+            terminal_deadline_ns,
+            monitor_timeout_millis = timeout.as_millis() as u64,
+            "entering existing bounded process monitor"
+        );
+        let mut status = loop {
+            #[cfg(unix)]
+            if child.ownership.cancelled() {
+                failure = Some("process cancelled by enclosing owner".to_string());
+                break None;
+            }
+            if exceeded.load(Ordering::Relaxed) {
+                failure = Some("process output limit exceeded".into());
+                break None;
+            }
+            let expired = start.elapsed() >= timeout;
+            #[cfg(unix)]
+            let timely_exit = child.ownership.observed_exit_before(terminal_deadline);
+            #[cfg(not(unix))]
+            let timely_exit = false;
+            if expired && !timely_exit {
+                failure = Some("process timed out".into());
+                break None;
+            }
+            #[cfg(unix)]
+            let joined_wake = child.ownership.wake();
+            #[cfg(not(unix))]
+            let joined_wake = std::thread::current();
+            match child.probe(timely_exit, expired, move || {
+                #[cfg(unix)]
+                joined_wake.notify();
+                #[cfg(not(unix))]
+                joined_wake.unpark();
+            }) {
+                Ok(Some(v)) => break Some(v),
+                // A kernel observation never substitutes for joining the child
+                // and never grants another wait interval beyond the deadline.
+                Ok(None) if expired => {
+                    failure = Some("process timed out".into());
+                    break None;
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    failure = Some(format!("process wait: {e}"));
+                    failure_detail = Some(Failure::wrap(
+                        "E_PROCESS_WAIT",
+                        format!("process wait: {e}"),
+                        NativeIoError::new(e),
+                    ));
+                    break None;
+                }
+            }
+            #[cfg(unix)]
+            child
+                .ownership
+                .wait_for_wake(timeout.saturating_sub(start.elapsed()));
+            #[cfg(not(unix))]
+            std::thread::park_timeout(Duration::from_millis(10));
+        };
+        #[cfg(unix)]
+        if let Some(message) = &failure {
+            failure_detail = Some(
+                failure_detail
+                    .take()
+                    .unwrap_or_else(|| Failure::new("E_PROCESS", message.clone()))
+                    .at(
+                        "ownership_at_monitor_end",
+                        child.ownership.monitor_observation(),
+                    )
+                    .at("monitor_elapsed_millis", start.elapsed().as_millis() as u64)
+                    .at("monitor_timeout_millis", timeout.as_millis() as u64)
+                    .at("terminal_deadline_ns", terminal_deadline),
+            );
+        }
+        // Record the child's original terminal signal before cleanup can kill
+        // the owned group. Engine cancellation and bounds keep their own cause.
+        #[cfg(unix)]
+        if failure.is_none() {
+            use std::os::unix::process::ExitStatusExt;
+            if let Some(signal) = status.as_ref().and_then(ExitStatusExt::signal) {
+                failure = Some(format!("process terminated by signal {signal} (pid {pid})"));
+            }
+        }
+        #[cfg(unix)]
+        tracing::debug!(
+            event_id = "process.ownership_drain",
+            child_joined = status.is_some(),
+            monitor_failure = failure.as_deref().unwrap_or(""),
+            "entering owned descendant drain"
+        );
+        #[cfg(unix)]
+        let descendants_joined = child.ownership.drain();
+        #[cfg(not(unix))]
+        let descendants_joined = false;
+        #[cfg(unix)]
+        if !descendants_joined {
+            if failure_detail.is_none() {
+                failure_detail = failure
+                    .as_ref()
+                    .map(|message| Failure::new("E_PROCESS", message.clone()));
+            }
+            let cleanup = Failure::new(
+                "E_PROCESS_OWNERSHIP_CLEANUP",
+                "nested owner did not acknowledge joined completion",
+            )
+            .at("child_joined", status.is_some())
+            .at(
+                "ownership_after_cleanup",
+                child.ownership.monitor_observation(),
+            );
+            failure_detail = Some(match failure_detail.take() {
+                Some(original) => original.with_related("ownership_cleanup", cleanup),
+                None => cleanup,
+            });
+            let original = failure
+                .take()
+                .unwrap_or_else(|| "process ownership cleanup failed".into());
+            failure = Some(format!(
+                "{original}; nested owner did not acknowledge joined completion"
+            ));
+        }
+        // Kill lingering descendants even when their direct parent has exited; pipe readers remain bounded.
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+        if status.is_none() {
+            tracing::debug!(
+                event_id = "process.child_join",
+                "joining child after cancellation or monitor failure"
+            );
+            let _ = child.kill();
+            match child.wait() {
+                Ok(v) => status = Some(v),
+                Err(e) => {
+                    let original = failure.take().unwrap_or_default();
+                    failure = Some(format!("{original}; process join: {e}"));
+                    let join = Failure::wrap(
+                        "E_PROCESS_JOIN",
+                        format!("process join: {e}"),
+                        NativeIoError::new(e),
+                    );
+                    failure_detail = Some(match failure_detail.take() {
+                        Some(original) => original.with_related("process_join", join),
+                        None if original.is_empty() => join,
+                        None => {
+                            Failure::new("E_PROCESS", original).with_related("process_join", join)
+                        }
+                    });
+                }
+            }
+        }
+        child.joined = status.is_some();
+        tracing::debug!(
+            event_id = "process.streams_join",
+            child_joined = child.joined,
+            "joining original stdout/stderr readers and stdin writer"
+        );
+        let stdout_result = stdout.join();
+        let stderr_result = stderr.join();
+        if let Some(writer) = writer {
+            let _ = writer.join();
+        }
+        let a = stdout_result.map_err(|_| "stdout reader panicked")?;
+        let b = stderr_result.map_err(|_| "stderr reader panicked")?;
+        if exceeded.load(Ordering::Relaxed)
+            && failure.as_deref() != Some("process output limit exceeded")
+        {
+            failure = Some(match failure {
+                Some(original) => format!("{original}; process output limit exceeded"),
+                None => "process output limit exceeded".into(),
+            });
+        }
+        let launch_publication_failed = publication_failure.is_some();
+        if failure_detail.is_none() {
+            failure_detail = failure
+                .as_ref()
+                .map(|message| Failure::new("E_PROCESS", message.clone()));
+        }
+        for error in publication_failure
+            .into_iter()
+            .chain(a.failures)
+            .chain(b.failures)
+        {
+            failure = Some(match failure {
+                Some(original) => format!("{original}; {error}"),
+                None => error.to_string(),
+            });
+            failure_detail = Some(match failure_detail.take() {
+                Some(original) => original.with_related("process_evidence", error),
+                None => error,
+            });
+        }
+        let stdout_complete = a.complete;
+        let stderr_complete = b.complete;
+        let a = a.bytes;
+        let b = b.bytes;
+        let failure_cause = failure_detail.map(|error| {
+            Arc::new(ProcessFailure {
+                message: error.to_string(),
+                error: error
+                    .at("launcher_pid", launcher_pid)
+                    .at("child_pid", pid)
+                    .at("operation_started", true),
+            })
+        });
+        let mut process = ProcessResult {
+            argv: std::iter::once(executable.to_string_lossy().into_owned())
+                .chain(s.args.clone())
+                .collect(),
+            cwd: root,
+            environment_digest,
+            environment,
+            ownership_fds,
+            stdin_sha256,
+            stdout_sha256: sha256(&a),
+            stderr_sha256: sha256(&b),
+            stdout: String::from_utf8_lossy(&a).into_owned(),
+            stderr: String::from_utf8_lossy(&b).into_owned(),
+            stdout_bytes: a,
+            stderr_bytes: b,
+            stdout_complete,
+            stderr_complete,
+            failure: failure.clone(),
+            exit_code: status.and_then(|s| s.code()).unwrap_or(-1),
+            owned_work_joined: child.joined && descendants_joined,
+            exit_signal: {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::ExitStatusExt;
+                    status.and_then(|s| s.signal())
+                }
+                #[cfg(not(unix))]
+                {
+                    None
+                }
+            },
+            executable,
+            sha256: hash,
+            launcher_pid: Some(launcher_pid),
+            child_pid: Some(pid),
+            timeout_seconds: Some(s.timeout_seconds),
+            output_limit_bytes: Some(s.output_limit_bytes),
+            failure_record: failure_cause.as_ref().map(|source| source.error.record()),
+            failure_cause,
+            launch_original: None,
+        };
+        if let Some(paths) = evidence.as_ref() {
+            let validate_launch = !launch_publication_failed;
+            if let Err(error) = validate_launch_evidence_detailed(paths.launch, &process) {
+                if validate_launch {
+                    process.failure = Some(match process.failure.take() {
+                        Some(original) => format!("{original}; {error}"),
+                        None => error.to_string(),
+                    });
+                    let detail = match process.failure_cause.take() {
+                        Some(original) => Failure::wrap(
+                            "E_PROCESS",
+                            original.message.clone(),
+                            SharedProcessFailure(original),
+                        )
+                        .with_related("launch_evidence", error),
+                        None => {
+                            Failure::wrap("E_PROCESS_LAUNCH_EVIDENCE", error.message.clone(), error)
+                        }
+                    };
+                    process.failure_record = Some(detail.record());
+                    process.failure_cause = Some(Arc::new(ProcessFailure {
+                        message: detail.to_string(),
+                        error: detail,
+                    }));
+                }
+            }
+            process.launch_original = launch_descriptor(paths.root, paths.launch);
+        }
+        tracing::debug!(
+            event_id = "process.scope_exit",
+            "leaving process scope; owned destructors and scoped tasks still must join"
+        );
+        Ok(process)
+    });
+    if let Ok(process) = &mut result {
+        for publication in stream_publications {
+            if let Err(error) = publication.complete(serde_json::json!({"kind":"process-stream","exit_code":process.exit_code,"failure":process.failure,"stdin_sha256":process.stdin_sha256})) {
+                process.failure = Some(match process.failure.take() {
+                    Some(original) => format!("{original}; stream retention publication: {error}"),
+                    None => format!("stream retention publication: {error}"),
+                });
+                let retention_error = Failure::new("E_PROCESS_STREAM_RETENTION", error);
+                let detail = match process.failure_cause.take() {
+                    Some(original) => Failure::wrap(
+                        "E_PROCESS", original.message.clone(), SharedProcessFailure(original),
+                    ).with_related("stream_retention", retention_error),
+                    None => retention_error,
+                };
+                process.failure_record = Some(detail.record());
+                process.failure_cause = Some(Arc::new(ProcessFailure {
+                    message: process.failure.as_ref().unwrap().clone(), error: detail,
+                }));
+            }
+        }
+    }
+    let process = result?;
+    tracing::debug!(
+        event_id = "process.completed",
+        exit_code = process.exit_code,
+        failure = process.failure.as_deref().unwrap_or(""),
+        stdout_bytes = process.stdout_bytes.len(),
+        stderr_bytes = process.stderr_bytes.len(),
+        stdout_sha256 = process.stdout_sha256,
+        stderr_sha256 = process.stderr_sha256,
+        "process engine returned its original result after owned work joined",
+    );
+    Ok(process)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn validate_response_protocol(
+    r: &Response,
+    id: &str,
+    exit: i32,
+    protocol: &str,
+) -> Result<(), String> {
+    if r.protocol != protocol
+        || r.request_id != id
+        || r.results.is_empty()
+        || !r.evidence.is_object()
+        || r.evidence.as_object().is_none_or(|o| o.is_empty())
+    {
+        return Err("empty or mismatched judge response".into());
+    }
+    let mut ids = BTreeSet::new();
+    for result in &r.results {
+        if result.id.is_empty() || result.cause.is_empty() || !ids.insert(&result.id) {
+            return Err("invalid/duplicate judge result".into());
+        }
+        if result.status == Status::Passed && result.exit_code.is_some_and(|c| c != 0) {
+            return Err("passed result has failing exit".into());
+        }
+        if result.status == Status::Failed && result.exit_code == Some(0) {
+            return Err("failed result has successful exit".into());
+        }
+        if result.status == Status::NotRequired && result.exit_code.is_some() {
+            return Err("not-required result must have null exit_code".into());
+        }
+    }
+    let failed = r
+        .results
+        .iter()
+        .any(|v| matches!(v.status, Status::Failed | Status::Blocked));
+    let all_unused = r.results.iter().all(|v| v.status == Status::NotRequired);
+    if (failed && !matches!(r.status, Status::Failed | Status::Blocked))
+        || (!failed && matches!(r.status, Status::Failed | Status::Blocked))
+        || (r.status == Status::NotRequired) != all_unused
+        || (exit == 0) != (!failed)
+    {
+        return Err("judge exit/status/results disagreement".into());
+    }
+    Ok(())
+}
+#[cfg(not(verus_keep_ghost))]
+fn root_for_config(
+    path: &Path,
+    canonical_host: Option<&Path>,
+) -> Result<(PathBuf, String), String> {
+    let full = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(path)
+    };
+    if let Some(host) = canonical_host {
+        // Resolve only caller-to-host traversal. Below-root entries must be
+        // checked before a link or a following parent component can erase them.
+        let components: Vec<_> = full.components().collect();
+        for (index, component) in components.iter().enumerate() {
+            if *component != Component::Normal(std::ffi::OsStr::new(".chrono-harness")) {
+                continue;
+            }
+            let prefix: PathBuf = components[..index].iter().collect();
+            let root = fs::canonicalize(prefix).map_err(|e| e.to_string())?;
+            if root != host {
+                continue;
+            }
+            let mut rel = PathBuf::from(".chrono-harness");
+            no_symlink_parents(&root, rel.to_str().ok_or("non UTF-8 config path")?)?;
+            for component in &components[index + 1..] {
+                match component {
+                    Component::CurDir => {}
+                    Component::Normal(value) => {
+                        rel.push(value);
+                        no_symlink_parents(&root, rel.to_str().ok_or("non UTF-8 config path")?)?;
+                    }
+                    Component::ParentDir => {
+                        if rel == Path::new(".chrono-harness") || !rel.pop() {
+                            return Err("config path escaped host policy root".into());
+                        }
+                    }
+                    _ => return Err("config path escaped host root".into()),
+                }
+            }
+            return Ok((root, rel.to_str().ok_or("non UTF-8 config path")?.into()));
+        }
+        return Err("config must reside beneath .chrono-harness".into());
+    }
+    let canonical = fs::canonicalize(&full).map_err(|e| e.to_string())?;
+    for p in canonical.ancestors().skip(1) {
+        if p.file_name().is_some_and(|n| n == ".chrono-harness") {
+            let root = p.parent().ok_or("no host root")?.to_path_buf();
+            let rel = canonical
+                .strip_prefix(&root)
+                .map_err(|e| e.to_string())?
+                .to_str()
+                .ok_or("non UTF-8 config path")?
+                .into();
+            return Ok((root, rel));
+        }
+    }
+    Err("config must reside beneath .chrono-harness".into())
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn dispatch(args: &[&str]) -> CliOutput {
+    let mut argv = vec![std::env::args().next().unwrap_or_default()];
+    argv.extend(args.iter().map(|s| s.to_string()));
+    dispatch_observed(
+        args,
+        serde_json::json!({"argv":argv,"cwd":std::env::current_dir().ok()}),
+    )
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn dispatch_observed(args: &[&str], entry: Value) -> CliOutput {
+    match args{
+    []|["help"]|["--help"]|["-h"]=>CliOutput{exit_code:0,stdout:"chrono-harness check\nchrono-harness check --unit ID\nchrono-harness check --collect\nConfigured short checks read .chrono-harness/config.json and produce their inputs automatically. Legacy explicit spelling is accepted only by legacy registered contracts. Full independent scopes require registered execution_units.\nUse --initial without --base for a parentless candidate. Use --context P for chrono-judge/v1 external judges. Use an explicit chrono-initial-check/v1 profile for root registry inventory. Seven-judge governance NOT IMPLEMENTED.\n".into(),stderr:String::new()},
+    ["--version"]|["-V"]=>CliOutput{exit_code:0,stdout:format!("chrono-harness {}\n",env!("CARGO_PKG_VERSION")),stderr:String::new()},
+    ["check",rest @ ..]=>match check(rest, entry){Ok(output)=>output,Err(e)=>CliOutput{exit_code:2,stdout:String::new(),stderr:format!("E_CHECK: {e}\n")}},
+    ["retention",rest @ ..]=>retained_artifacts::retention_command::command(rest),
+    _=>CliOutput{exit_code:2,stdout:String::new(),stderr:"E_USAGE: use --help\n".into()}
+}
+}
+#[cfg(not(verus_keep_ghost))]
+fn check(args: &[&str], entry: Value) -> Result<CliOutput, String> {
+    if args.is_empty() || args == ["--collect"] || matches!(args, ["--unit", _]) {
+        let root = fs::canonicalize(std::env::current_dir().map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        if let Some(result) = prepared::participate(&root, args)? {
+            return Ok(result);
+        }
+    }
+    check_unmanaged(args, entry).map(|(exit_code, stdout)| CliOutput {
+        exit_code,
+        stdout,
+        stderr: String::new(),
+    })
+}
+#[cfg(not(verus_keep_ghost))]
+fn check_unmanaged(args: &[&str], entry: Value) -> Result<(u8, String), String> {
+    if args.is_empty() || args == ["--collect"] || matches!(args, ["--unit", _]) {
+        let root = fs::canonicalize(std::env::current_dir().map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let selection = match args {
+            [] => prepared::Selection::All,
+            ["--collect"] => prepared::Selection::Collect,
+            ["--unit", unit] => prepared::Selection::Unit {
+                unit: (*unit).into(),
+            },
+            _ => unreachable!(),
+        };
+        let _read_scope = retained_artifacts::retention::read_scope(&root)?;
+        let (req, p, binding) = prepared::prepare(&root, selection)?;
+        let retention = prepared::retention_directory(&req);
+        let result = execute_check(
+            root.clone(),
+            p.profile,
+            p.base,
+            p.candidate,
+            p.initial,
+            p.context.map(|c| c.path),
+            p.scope,
+            entry,
+            Some(binding),
+        )
+        .map(|(code, report)| {
+            let console = match short_console::completed(code, &report) {
+                Ok(console) => console,
+                Err(projection_error) => {
+                    short_console::projection_fallback(code, &report, &projection_error)
+                }
+            };
+            (code, console)
+        });
+        return result.map_err(|error| {
+            match prepared::retain_original(&root, &retention, "check-error", error.as_bytes()) {
+                Ok(original) => format!(
+                    "{}\nOriginal check error: {} (sha256 {})",
+                    short_console::error_cause(&error),
+                    original.path,
+                    original.sha256
+                ),
+                // Retention failure cannot justify discarding the original error
+                // or advertising a completed report or a nonexistent artifact.
+                Err(retention_error) => {
+                    format!("{error}\nOriginal check error retention failed: {retention_error}")
+                }
+            }
+        });
+    }
+    if !args.contains(&"--config") {
+        return Err("short check accepts only check, check --unit ID, or check --collect".into());
+    }
+
+    let mut config = None;
+    let mut base = None;
+    let mut candidate = None;
+    let mut initial = false;
+    let mut context = None;
+    let mut scope = None;
+    let mut i = 0;
+    let mut seen = BTreeSet::new();
+    while i < args.len() {
+        let k = args[i];
+        if !seen.insert(k) {
+            return Err(format!("duplicate argument {k}"));
+        }
+        if k == "--initial" {
+            initial = true;
+            i += 1;
+            continue;
+        }
+        let value = *args.get(i + 1).ok_or("missing argument value")?;
+        match k {
+            "--config" => config = Some(value),
+            "--base" => base = Some(value.to_owned()),
+            "--candidate" => candidate = Some(value.to_owned()),
+            "--context" => context = Some(value),
+            "--unit" | "--collect" => {
+                if scope.is_some() {
+                    return Err("unit and collect are mutually exclusive".into());
+                }
+                scope = Some(if k == "--unit" {
+                    units::Scope::Unit { unit: value.into() }
+                } else {
+                    units::Scope::Collect {
+                        manifest: value.into(),
+                    }
+                });
+            }
+            _ => return Err(format!("unknown argument {k}")),
+        }
+        i += 2;
+    }
+    if initial == base.is_some() {
+        return Err("supply either --base or --initial".into());
+    }
+    let candidate = candidate.ok_or("missing --candidate")?;
+    let config = Path::new(config.ok_or("missing --config")?);
+    let (root, entry_path) = root_for_config(config, None)?;
+    let entry_profile = json(&fs::read(root.join(&entry_path)).map_err(|e| e.to_string())?)?;
+    // Resolve a native selector before admitting full-unit scope.  The request
+    // keeps the literal entry path so route identity and registry provenance
+    // still bind the caller's selector; policy checks use the stable selected
+    // direct full-v3 profile.
+    let (root, config_path, _profile) = if facts_configs::is_selector(&entry_profile) {
+        let (root, entry_path) = root_for_config(config, Some(&root))?;
+        let (_, _, selected, _) = facts_configs::load(&root, &entry_path)?;
+        (root, entry_path, selected)
+    } else {
+        (root, entry_path, entry_profile)
+    };
+    execute_check(
+        root,
+        config_path,
+        base,
+        candidate,
+        initial,
+        context.map(str::to_owned),
+        scope,
+        entry,
+        None,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+#[cfg(not(verus_keep_ghost))]
+fn execute_check(
+    root: PathBuf,
+    config_path: String,
+    base: Option<String>,
+    candidate: String,
+    initial: bool,
+    context: Option<String>,
+    scope: Option<units::Scope>,
+    entry: Value,
+    preparation: Option<Value>,
+) -> Result<(u8, String), String> {
+    let (_, _, profile, _) = facts_configs::load(&root, &config_path)?;
+    let full_units = if scope.is_some() && profile["schema"] != units::PROFILE {
+        units::full_execution_units(&profile)?
+            .ok_or("unit/collect selection requires registered full-v3/v4 execution units")
+            .map(Some)?
+    } else {
+        None
+    };
+    if scope.is_some()
+        && profile["schema"] == units::PROFILE
+        && profile["policy"].get("units").is_none()
+    {
+        return Err("unit/collect selection requires registered execution units".into());
+    }
+    if let (Some(units::Scope::Collect { manifest }), Some(block)) = (&scope, &full_units) {
+        let definitions: std::collections::BTreeMap<String, units::Unit> =
+            serde_json::from_value(block["units"].clone()).map_err(|e| e.to_string())?;
+        units::validate_collection_paths(
+            manifest,
+            block["report_path"]
+                .as_str()
+                .ok_or("collection report path")?,
+            &definitions
+                .values()
+                .map(|u| u.report_path.clone())
+                .collect::<Vec<_>>(),
+        )?;
+    }
+    let mut entry = entry;
+    if let Some(template) = profile["canonical_check"]["argv"].as_array() {
+        let mut template: Vec<String> =
+            serde_json::from_value(Value::Array(template.clone())).map_err(|e| e.to_string())?;
+        if let Some(scope) = &scope {
+            template.extend(scope.contract_argv(&profile));
+        }
+        let binding = serde_json::json!({"base":base,"candidate":candidate});
+        let resolved = resolve_invocation(&root, &entry, &template, &binding)?;
+        entry
+            .as_object_mut()
+            .ok_or("observed entry object")?
+            .insert("resolved_paths".into(), resolved);
+    }
+    if profile.get("schema").and_then(Value::as_str) == Some(initial::PROFILE) {
+        if !initial || context.is_some() {
+            return Err("initial inventory requires --initial without --base or --context".into());
+        }
+        entry["preparation"] = serde_json::to_value(preparation).map_err(|e| e.to_string())?;
+        return initial::check(&root, &config_path, &candidate, entry);
+    }
+    if !matches!(
+        profile.get("schema").and_then(Value::as_str),
+        Some("chrono-ci-check/v1" | "chrono-ci-check/v2" | "chrono-ci-check/v3")
+    ) {
+        return full::check_prepared(
+            &root,
+            &config_path,
+            base.as_deref()
+                .ok_or("full check requires --base; initial mode has no governance success")?,
+            &candidate,
+            Path::new(&context.ok_or("full check requires --context")?),
+            entry,
+            scope,
+            preparation,
+        );
+    }
+    if context.is_some() {
+        return Err("CI profile does not accept --context".into());
+    }
+    let c = load_config(&root.join(&config_path))?;
+    let retained_streams = units::reference_publication(&c)?;
+    if retained_streams && preparation.is_none() {
+        return Err(
+            "retained-reference publication requires the prepared short check entry".into(),
+        );
+    }
+    let output_path = scope
+        .as_ref()
+        .map(|s| s.report_path(&c))
+        .transpose()?
+        .unwrap_or(c.report_path.clone());
+    let protocol = if scope.is_some() {
+        units::PROTOCOL
+    } else {
+        PROTOCOL
+    };
+    let bytes = fs::read(root.join(&config_path)).map_err(|e| e.to_string())?;
+    let request_id = sha256(
+        format!(
+            "{}:{:?}:{candidate}:{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH),
+            sha256(&bytes)
+        )
+        .as_bytes(),
+    );
+    let req = Request {
+        observations: serde_json::json!({"entry":entry,"preparation":preparation}),
+        scope,
+        protocol: protocol.into(),
+        request_id: request_id.clone(),
+        host_root: root.clone(),
+        config_path,
+        config_sha256: sha256(&bytes),
+        base,
+        candidate,
+        initial,
+    };
+    let retention = req.observations["preparation"]["request"]
+        .as_object()
+        .map(|_| {
+            serde_json::from_value::<prepared::InputRequest>(
+                req.observations["preparation"]["request"].clone(),
+            )
+            .map(|p| prepared::retention_directory(&p))
+        })
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    let report_path = prepare_publication(&root, &output_path)?;
+    // Register all retained process originals before launching the judge.  A
+    // lifecycle owner may terminate this runner as soon as the child starts;
+    // the stream readers and launch record must therefore have stable
+    // destinations before spawn rather than being copied after wait.
+    let process_evidence = if retained_streams {
+        let directory = retention
+            .as_deref()
+            .ok_or("missing report retention directory")?;
+        let stdout = format!("{directory}judge-stdout-{request_id}.bytes");
+        let stderr = format!("{directory}judge-stderr-{request_id}.bytes");
+        let launch = format!("{directory}judge-launch-{request_id}.json");
+        for path in [&stdout, &stderr, &launch] {
+            prepare_publication(&root, path)?;
+        }
+        Some((stdout, stderr, launch))
+    } else {
+        None
+    };
+    let input = serde_json::to_vec(&req).map_err(|e| e.to_string())?;
+    let proc = if req.observations["preparation"].is_object() {
+        let (_, _, policy, _) = facts_configs::load(&root, ".chrono-harness/config.json")?;
+        let credentials = prepared::credential_environment(&policy)?;
+        let mut judge = c.judge.clone();
+        let overrides = judge.env.clone();
+        judge.env.clear();
+        for key in policy["environment"]["inherit"]
+            .as_array()
+            .ok_or("environment inherit")?
+        {
+            let key = key.as_str().ok_or("environment key")?;
+            if !credentials.contains(key) {
+                if let Ok(value) = std::env::var(key) {
+                    judge.env.insert(key.into(), value);
+                }
+            }
+        }
+        for (key, value) in policy["environment"]["values"]
+            .as_object()
+            .ok_or("environment values")?
+        {
+            judge.env.insert(
+                key.clone(),
+                value.as_str().ok_or("environment value")?.into(),
+            );
+        }
+        if overrides.keys().any(|key| credentials.contains(key)) {
+            return Err("acquisition credentials cannot be forwarded to the check judge".into());
+        }
+        judge.env.extend(overrides);
+        let path = resolve_program(
+            &root,
+            &judge.program,
+            Some(judge.env.get("PATH").map(String::as_str).unwrap_or("")),
+        )?;
+        judge.program = path.to_str().ok_or("judge path UTF-8")?.into();
+        if let Some((stdout, stderr, launch)) = process_evidence.as_ref() {
+            let stdout_path = no_symlink_parents(&root, stdout)?;
+            let stderr_path = no_symlink_parents(&root, stderr)?;
+            let launch_path = no_symlink_parents(&root, launch)?;
+            let evidence = ProcessEvidence {
+                root: &root,
+                stdout: &stdout_path,
+                stderr: &stderr_path,
+                launch: &launch_path,
+                publication: None,
+            };
+            run_process_observed_retained(
+                &root,
+                &judge,
+                &input,
+                &file_identity(&path)?.0,
+                &evidence,
+            )
+        } else {
+            run_process_observed(&root, &judge, &input, &file_identity(&path)?.0)
+        }
+    } else {
+        // Preserve the legacy environment contract and retain original process
+        // evidence when an unprepared invocation fails after launch.
+        let evidence_paths = process_evidence
+            .as_ref()
+            .map(|(stdout, stderr, launch)| {
+                Ok::<_, String>((
+                    no_symlink_parents(&root, stdout)?,
+                    no_symlink_parents(&root, stderr)?,
+                    no_symlink_parents(&root, launch)?,
+                ))
+            })
+            .transpose()?;
+        let evidence = evidence_paths
+            .as_ref()
+            .map(|(stdout, stderr, launch)| ProcessEvidence {
+                root: &root,
+                stdout,
+                stderr,
+                launch,
+                publication: None,
+            });
+        run_process_inner(
+            &root,
+            &c.judge,
+            &input,
+            None,
+            Duration::from_secs(c.judge.timeout_seconds),
+            evidence.as_ref(),
+        )
+        .map_err(|failure| failure.message)
+    };
+    let runner_executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let runner_identity = serde_json::json!({"path":runner_executable,"sha256":sha256(&fs::read(&runner_executable).map_err(|e|e.to_string())?),"version":env!("CARGO_PKG_VERSION")});
+    let mut report = match proc {
+        Ok(p) => {
+            let response: Result<Response, String> = match &p.failure {
+                Some(failure) => Err(failure.clone()),
+                None => decode(&p.stdout_bytes),
+            };
+            let stored_process = if retained_streams {
+                let (stdout, stderr, launch) = process_evidence
+                    .as_ref()
+                    .ok_or("missing process evidence paths")?;
+                scoped_report::retain_process_evidence(&root, &p, stdout, stderr, launch)?
+            } else {
+                serde_json::to_value(&p).map_err(|e| e.to_string())?
+            };
+            match response.and_then(|r| {
+                validate_response_protocol(&r, &request_id, p.exit_code, protocol)?;
+                Ok(r)
+            }) {
+                Ok(r) => {
+                    serde_json::json!({"schema":"chrono-check-report/v1","request":req,"judge":stored_process,"response":r,"parity":"unestablished"})
+                }
+                Err(e) => {
+                    serde_json::json!({"schema":"chrono-check-report/v1","request":req,"transport_failure":e,"judge":stored_process})
+                }
+            }
+        }
+        Err(e) => {
+            serde_json::json!({"schema":"chrono-check-report/v1","request":req,"transport_failure":e})
+        }
+    };
+    report["runner"] = runner_identity;
+    let code = if report.get("transport_failure").is_some() {
+        2
+    } else if matches!(
+        report["response"]["status"].as_str(),
+        Some("passed" | "not-required")
+    ) {
+        0
+    } else {
+        1
+    };
+    let retained_report = if let Some(directory) = retention {
+        let path = format!("{directory}check-{request_id}.json");
+        report["retained_report"] = serde_json::json!(path);
+        Some(path)
+    } else {
+        None
+    };
+    let mut collected_originals: Vec<String> =
+        if matches!(report["request"]["scope"]["kind"].as_str(), Some("collect")) {
+            report["response"]["evidence"]["retained_originals"]
+                .as_array()
+                .map(|paths| {
+                    paths
+                        .iter()
+                        .map(|p| {
+                            p.as_str()
+                                .ok_or_else(|| "collection original path".to_owned())
+                                .map(str::to_owned)
+                        })
+                        .collect::<Result<Vec<_>, String>>()
+                })
+                .transpose()?
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+    if let Some(path) = report["response"]["evidence"]["operation_state"]["path"].as_str() {
+        relative_path(path)?;
+        collected_originals.push(path.to_owned());
+    }
+    let preparation = &report["request"]["observations"]["preparation"];
+    for values in [
+        &preparation["result"]["originals"],
+        &preparation["receipts"],
+    ] {
+        if let Some(values) = values.as_array() {
+            for value in values {
+                collected_originals.push(
+                    value["path"]
+                        .as_str()
+                        .ok_or("declared original path")?
+                        .to_owned(),
+                );
+            }
+        }
+    }
+    for stream in ["stdout_original", "stderr_original", "launch_original"] {
+        if let Some(path) = report["judge"][stream]["path"].as_str() {
+            collected_originals.push(path.to_owned());
+        }
+    }
+    let pending_native = (preparation["request"]["source"] == "ci").then_some(request_id.clone());
+    let mut slot_failure = None;
+    let _slot = if retained_report.is_some() {
+        let (publication, guard) = scoped_report::publication(
+            &root,
+            &output_path,
+            collected_originals.clone(),
+            pending_native.clone(),
+            None,
+            code,
+        );
+        slot_failure = publication.failure().map(str::to_owned);
+        report["publication"] = serde_json::to_value(publication).map_err(|e| e.to_string())?;
+        guard
+    } else {
+        None
+    };
+    let console = if retained_streams {
+        let projection = serde_json::json!({
+            "retained_report": report["retained_report"],
+            "response": report.get("response").map(|r| serde_json::json!({"status":r["status"], "results":r["results"]})),
+            "transport_failure":report["transport_failure"],
+        });
+        report.as_object_mut().unwrap().remove("response");
+        report["schema"] = serde_json::json!(scoped_report::SCHEMA);
+        Some(serde_json::to_string(&projection).map_err(|e| e.to_string())? + "\n")
+    } else {
+        None
+    };
+    let text = if c.schema == units::PROFILE {
+        serde_json::to_string(&report)
+    } else {
+        serde_json::to_string_pretty(&report)
+    }
+    .map_err(|e| e.to_string())?
+        + "\n";
+    fs::create_dir_all(report_path.parent().ok_or("report parent missing")?)
+        .map_err(|e| e.to_string())?;
+    if let Some(path) = retained_report {
+        if !retained_artifacts::retention::publish_final_original(
+            &root,
+            "check-original",
+            &path,
+            text.as_bytes(),
+            serde_json::json!({"request_id":request_id,"exit_code":code,"transport_failure":report["transport_failure"]}),
+            code == 0,
+        )? {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(no_symlink_parents(&root, &path)?)
+                .map_err(|e| e.to_string())?;
+            file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        let publication_error = |error: std::io::Error| {
+            format!(
+                "E_REPORT_EVIDENCE: {}",
+                serde_json::json!({
+                    "message":error.to_string(),"recovery":{"operation":"recover-report",
+                    "report":{"path":path,"sha256":sha256(text.as_bytes())}},"original_exit_code":code,
+                })
+            )
+        };
+        if let Some(error) = slot_failure {
+            return Err(publication_error(std::io::Error::other(error)));
+        }
+        retained_artifacts::retention::reference_report_held(
+            &root,
+            &output_path,
+            &path,
+            &collected_originals,
+            pending_native.as_deref(),
+        )
+        .map_err(|e| publication_error(std::io::Error::other(e)))?;
+        if retained_streams {
+            let reference = units::ReportReference {
+                schema: units::REPORT_REFERENCE.into(),
+                original: prepared::Original {
+                    path: path.clone(),
+                    sha256: sha256(text.as_bytes()),
+                },
+            };
+            retained_artifacts::retention::replace_report(
+                &report_path,
+                &serde_json::to_vec(&reference).map_err(|e| e.to_string())?,
+            )
+            .map_err(&publication_error)?;
+            retained_artifacts::retention::settle_report(&root, &output_path, &path)
+                .map_err(|e| publication_error(std::io::Error::other(e)))?;
+            return Ok((code, console.unwrap_or(text)));
+        }
+        retained_artifacts::retention::replace_report(&report_path, text.as_bytes())
+            .map_err(&publication_error)?;
+        retained_artifacts::retention::settle_report(&root, &output_path, &path)
+            .map_err(|e| publication_error(std::io::Error::other(e)))?;
+        return Ok((code, text));
+    }
+    fs::write(report_path, &text).map_err(|e| e.to_string())?;
+    Ok((code, text))
+}

@@ -1,0 +1,500 @@
+#![cfg(unix)]
+use chrono_harness::{CommandSpec, process_fds::Scope, run_process_observed, sha256};
+use std::{
+    collections::BTreeMap,
+    fs,
+    os::fd::{AsFd, AsRawFd},
+    path::Path,
+};
+fn spec(program: &str, args: Vec<String>) -> CommandSpec {
+    CommandSpec {
+        program: program.into(),
+        args,
+        env: BTreeMap::new(),
+        timeout_seconds: 10,
+        output_limit_bytes: 65536,
+    }
+}
+fn inherited_count() -> usize {
+    std::env::var("CHRONO_PROCESS_FDS")
+        .map(|value| value.split(',').count())
+        .unwrap_or(0)
+}
+fn capability_probe(count: usize) -> CommandSpec {
+    let mut command = spec(
+        std::env::current_exe().unwrap().to_str().unwrap(),
+        vec![
+            "--exact".into(),
+            "capability_child_helper".into(),
+            "--nocapture".into(),
+        ],
+    );
+    command
+        .env
+        .insert("CHRONO_FD_EXPECT".into(), count.to_string());
+    command
+}
+#[test]
+fn capability_child_helper() {
+    let Ok(expected) = std::env::var("CHRONO_FD_EXPECT") else {
+        return;
+    };
+    let carrier = std::env::var("CHRONO_PROCESS_FDS").ok();
+    let fds: Vec<i32> = carrier
+        .as_deref()
+        .map(|v| v.split(',').map(|fd| fd.parse().unwrap()).collect())
+        .unwrap_or_default();
+    assert_eq!(fds.len(), expected.parse::<usize>().unwrap());
+    for fd in &fds {
+        let flags = unsafe { libc::fcntl(*fd, libc::F_GETFD) };
+        assert!(flags >= 0, "{}", std::io::Error::last_os_error());
+        assert_eq!(flags & libc::FD_CLOEXEC, 0);
+    }
+    if let Ok(previous) = std::env::var("CHRONO_FD_SUPERSEDED") {
+        for fd in previous.split(',').map(|fd| fd.parse::<i32>().unwrap()) {
+            assert_eq!(
+                unsafe { libc::fcntl(fd, libc::F_GETFD) },
+                -1,
+                "superseded capability descriptor still inherited: {fd}"
+            );
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::EBADF)
+            );
+        }
+    }
+    if let Ok(bytes) = std::env::var("CHRONO_FD_WRITE") {
+        assert_eq!(
+            unsafe { libc::write(*fds.last().unwrap(), bytes.as_ptr().cast(), bytes.len()) },
+            bytes.len() as isize,
+            "{}",
+            std::io::Error::last_os_error()
+        );
+    }
+    if let Ok(expected) = std::env::var("CHRONO_FD_CONTENT") {
+        for fd in &fds {
+            let mut bytes = [0u8; 64];
+            let len = unsafe { libc::pread(*fd, bytes.as_mut_ptr().cast(), bytes.len(), 0) };
+            assert!(len >= 0, "{}", std::io::Error::last_os_error());
+            assert_eq!(&bytes[..len as usize], expected.as_bytes());
+        }
+    }
+    println!("FORWARDED_FDS={}", carrier.as_deref().unwrap_or(""));
+}
+#[test]
+fn scoped_descriptor_survives_bound_env_clear_and_parent_keeps_cloexec() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = tempfile::tempfile().unwrap();
+    let raw = file.as_raw_fd();
+    assert_ne!(
+        unsafe { libc::fcntl(raw, libc::F_GETFD) } & libc::FD_CLOEXEC,
+        0
+    );
+    let scope = Scope::new(&[file.as_fd()]).unwrap();
+    let mut command = capability_probe(inherited_count() + 1);
+    command
+        .env
+        .insert("CHRONO_FD_WRITE".into(), "child-capability".into());
+    command
+        .env
+        .insert("CHRONO_PROCESS_FDS".into(), "not-a-descriptor".into());
+    let result = run_process_observed(
+        dir.path(),
+        &command,
+        &[],
+        &sha256(&fs::read(&command.program).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(result.exit_code, 0, "{}", result.stderr);
+    assert!(!result.environment.contains_key("CHRONO_PROCESS_FDS"));
+    let observed = serde_json::to_value(&result).unwrap();
+    assert!(observed["ownership_fds"].is_string());
+    let forwarded = result
+        .stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("FORWARDED_FDS="))
+        .unwrap();
+    assert_eq!(observed["ownership_fds"], forwarded);
+    assert_eq!(
+        result.environment_digest,
+        chrono_harness::wire::digest(&result.environment).unwrap()
+    );
+    assert_ne!(
+        unsafe { libc::fcntl(raw, libc::F_GETFD) } & libc::FD_CLOEXEC,
+        0,
+        "owner descriptor flags must stay local"
+    );
+    drop(scope);
+    let command = capability_probe(inherited_count());
+    assert_eq!(
+        run_process_observed(
+            dir.path(),
+            &command,
+            &[],
+            &sha256(&fs::read(&command.program).unwrap())
+        )
+        .unwrap()
+        .exit_code,
+        0
+    );
+}
+#[test]
+fn nested_runner_helper() {
+    if std::env::var_os("CHRONO_FD_NESTED").is_none() {
+        return;
+    }
+    let inherited = std::env::var("CHRONO_PROCESS_FDS").unwrap();
+    let descriptors: Vec<i32> = inherited.split(',').map(|v| v.parse().unwrap()).collect();
+    let flags: Vec<i32> = descriptors
+        .iter()
+        .map(|fd| unsafe { libc::fcntl(*fd, libc::F_GETFD) })
+        .collect();
+    let mut command = capability_probe(inherited_count());
+    command.env.insert("CHRONO_FD_SUPERSEDED".into(), inherited);
+    command
+        .env
+        .insert("CHRONO_FD_WRITE".into(), "nested-env-clear".into());
+    let result = run_process_observed(
+        Path::new("/"),
+        &command,
+        &[],
+        &sha256(&fs::read(&command.program).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(result.exit_code, 0, "{} {}", result.stdout, result.stderr);
+    assert_eq!(
+        descriptors
+            .iter()
+            .map(|fd| unsafe { libc::fcntl(*fd, libc::F_GETFD) })
+            .collect::<Vec<_>>(),
+        flags,
+        "engine calls must not mutate inherited descriptors used by other threads or native children"
+    );
+    let native = capability_probe(inherited_count());
+    let direct = std::process::Command::new(&native.program)
+        .args(&native.args)
+        .envs(&native.env)
+        .env("CHRONO_FD_WRITE", "native-after-engine")
+        .output()
+        .unwrap();
+    assert!(
+        direct.status.success(),
+        "{}",
+        String::from_utf8_lossy(&direct.stderr)
+    );
+    println!("nested-forwarded");
+}
+#[test]
+fn nested_engine_forwards_opaque_capability_after_environment_clear() {
+    use std::io::{Read, Seek};
+    let dir = tempfile::tempdir().unwrap();
+    let mut file = tempfile::tempfile().unwrap();
+    let _scope = Scope::new(&[file.as_fd()]).unwrap();
+    let exe = std::env::current_exe().unwrap();
+    let mut command = spec(
+        exe.to_str().unwrap(),
+        vec![
+            "--exact".into(),
+            "nested_runner_helper".into(),
+            "--nocapture".into(),
+        ],
+    );
+    command.env.insert("CHRONO_FD_NESTED".into(), "1".into());
+    let result =
+        run_process_observed(dir.path(), &command, &[], &sha256(&fs::read(&exe).unwrap())).unwrap();
+    assert_eq!(result.exit_code, 0, "{} {}", result.stdout, result.stderr);
+    assert!(result.stdout.contains("nested-forwarded"));
+    file.rewind().unwrap();
+    let mut bytes = String::new();
+    file.read_to_string(&mut bytes).unwrap();
+    assert_eq!(bytes, "nested-env-clearnative-after-engine");
+}
+
+#[test]
+fn reserved_descriptor_helper() {
+    let Ok(slot) = std::env::var("CHRONO_FD_RESERVED_SLOT") else {
+        return;
+    };
+    let slot: i32 = slot.parse().unwrap();
+    assert!((198..=200).contains(&slot));
+    let dir = tempfile::tempdir().unwrap();
+    let warm = spec(
+        env!("CARGO_BIN_EXE_chrono-test-process-lifecycle"),
+        vec!["exit".into(), "0".into()],
+    );
+    let result = run_process_observed(
+        dir.path(),
+        &warm,
+        &[],
+        &sha256(&fs::read(&warm.program).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(result.exit_code, 0);
+    assert!(result.failure.is_none());
+    let file = tempfile::tempfile().unwrap();
+    use std::os::unix::fs::FileExt;
+    file.write_all_at(b"declared-ownership-capability", 0)
+        .unwrap();
+    let mut held = Vec::new();
+    loop {
+        let filler = fs::File::open("/dev/null").unwrap();
+        let fd = filler.as_raw_fd();
+        held.push(filler);
+        if fd >= slot - 2 {
+            assert_eq!(fd, slot - 2);
+            break;
+        }
+    }
+    let _scope = Scope::new(&[file.as_fd()]).unwrap();
+    let mut command = capability_probe(1);
+    command.env.insert(
+        "CHRONO_FD_CONTENT".into(),
+        "declared-ownership-capability".into(),
+    );
+    let result = run_process_observed(
+        dir.path(),
+        &command,
+        &[],
+        &sha256(&fs::read(&command.program).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(
+        result.exit_code, 0,
+        "slot {slot}: {} {}",
+        result.stdout, result.stderr
+    );
+    assert!(result.failure.is_none(), "{:?}", result.failure);
+}
+
+#[test]
+fn first_launch_descriptor_helper() {
+    let Ok(mode) = std::env::var("CHRONO_FIRST_LAUNCH_DESCRIPTOR") else {
+        return;
+    };
+    let (socket, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+    assert_ne!(socket.as_raw_fd(), 198);
+    assert_eq!(unsafe { libc::dup2(socket.as_raw_fd(), 198) }, 198);
+    let flags = if mode == "cloexec" {
+        libc::FD_CLOEXEC
+    } else {
+        0
+    };
+    assert_eq!(unsafe { libc::fcntl(198, libc::F_SETFD, flags) }, 0);
+    let dir = tempfile::tempdir().unwrap();
+    let command = spec(
+        env!("CARGO_BIN_EXE_chrono-test-process-lifecycle"),
+        vec!["exit".into(), "0".into()],
+    );
+    let result = run_process_observed(
+        dir.path(),
+        &command,
+        &[],
+        &sha256(&fs::read(&command.program).unwrap()),
+    );
+    if mode == "cloexec" {
+        let result = result.unwrap();
+        assert_eq!(result.exit_code, 0);
+        assert!(result.failure.is_none(), "{:?}", result.failure);
+    } else {
+        assert_eq!(result.unwrap_err(), "process ownership descriptor read");
+    }
+    assert_eq!(unsafe { libc::fcntl(198, libc::F_GETFD) }, flags);
+    assert_eq!(unsafe { libc::close(198) }, 0);
+}
+
+#[test]
+fn first_launch_distinguishes_local_cloexec_socket_from_inherited_transport() {
+    use std::os::unix::process::CommandExt;
+    for mode in ["cloexec", "inherited"] {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", "first_launch_descriptor_helper", "--nocapture"])
+            .env("CHRONO_FIRST_LAUNCH_DESCRIPTOR", mode)
+            .env_remove("CHRONO_PROCESS_FDS");
+        unsafe {
+            command.pre_exec(|| {
+                for fd in [198, 199, 200] {
+                    if libc::close(fd) < 0 {
+                        let error = std::io::Error::last_os_error();
+                        if error.raw_os_error() != Some(libc::EBADF) {
+                            return Err(error);
+                        }
+                    }
+                }
+                Ok(())
+            });
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{mode}: {} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn forwarded_capabilities_preserve_identity_across_reserved_descriptor_slots() {
+    for slot in [198, 199, 200] {
+        // Isolate this namespace experiment from the enclosing launch tree.
+        // Inherited lease descriptors remain open; only their carrier is absent.
+        use std::os::unix::process::CommandExt;
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", "reserved_descriptor_helper", "--nocapture"])
+            .env("CHRONO_FD_RESERVED_SLOT", slot.to_string())
+            .env_remove("CHRONO_PROCESS_FDS");
+        unsafe {
+            command.pre_exec(|| {
+                for fd in [198, 199, 200] {
+                    if libc::close(fd) < 0 {
+                        let error = std::io::Error::last_os_error();
+                        if error.raw_os_error() != Some(libc::EBADF) {
+                            return Err(error);
+                        }
+                    }
+                }
+                Ok(())
+            });
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "slot {slot}: {} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn declared_native_command_owns_capability_after_scope_release() {
+    use std::io::{Read, Seek};
+    let mut file = tempfile::tempfile().unwrap();
+    let scope = Scope::new(&[file.as_fd()]).unwrap();
+    let probe = capability_probe(inherited_count() + 1);
+    let mut command = std::process::Command::new(&probe.program);
+    command
+        .args(&probe.args)
+        .env_clear()
+        .envs(&probe.env)
+        .env("CHRONO_FD_WRITE", "native-owned-copy");
+    chrono_harness::process_fds::forward_command(&mut command, &[]).unwrap();
+    assert!(chrono_harness::process_fds::forward_command(&mut command, &[]).is_err());
+    drop(scope);
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_ne!(
+        unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC,
+        0
+    );
+    file.rewind().unwrap();
+    let mut bytes = String::new();
+    file.read_to_string(&mut bytes).unwrap();
+    assert_eq!(bytes, "native-owned-copy");
+}
+
+#[test]
+fn held_native_capability_helper() {
+    if std::env::var_os("CHRONO_FD_HELD").is_none() {
+        return;
+    }
+    capability_child_helper();
+    use std::io::{Read, Write};
+    println!("READY");
+    std::io::stdout().flush().unwrap();
+    std::io::stdin().read_exact(&mut [0]).unwrap();
+}
+
+#[test]
+fn overlapping_native_commands_hold_exclusion_after_killed_wrapper_and_thread_handoff() {
+    use std::io::{BufRead, Write};
+    if std::env::var_os("CHRONO_FD_OVERLAP_ISOLATED").is_none() {
+        // Other tests can fork while this test owns its lock. Until exec, those
+        // unrelated children also hold the process-wide descriptor table.
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "overlapping_native_commands_hold_exclusion_after_killed_wrapper_and_thread_handoff",
+                "--nocapture",
+            ])
+            .env("CHRONO_FD_OVERLAP_ISOLATED", "1");
+        chrono_harness::process_fds::forward_command(&mut command, &[]).unwrap();
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    for signal in [libc::SIGTERM, libc::SIGKILL] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("capability");
+        let file = fs::File::create(&path).unwrap();
+        assert_eq!(unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) }, 0);
+        let scope = Scope::new(&[file.as_fd()]).unwrap();
+        let mut commands = Vec::new();
+        for _ in 0..2 {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "held_native_capability_helper", "--nocapture"])
+                .env_clear()
+                .env("CHRONO_FD_HELD", "1")
+                .env("CHRONO_FD_EXPECT", (inherited_count() + 1).to_string())
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped());
+            chrono_harness::process_fds::forward_command(&mut command, &[]).unwrap();
+            commands.push(command);
+        }
+        drop(scope);
+        drop(file);
+        let mut first = commands.remove(0);
+        let mut first = std::thread::spawn(move || first.spawn().unwrap())
+            .join()
+            .unwrap();
+        let mut second_command = commands.remove(0);
+        let mut second = second_command.spawn().unwrap();
+        drop(second_command);
+        let mut readers = Vec::new();
+        for child in [&mut first, &mut second] {
+            let mut reader = std::io::BufReader::new(child.stdout.take().unwrap());
+            let mut line = String::new();
+            loop {
+                assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                if line.contains("READY") {
+                    break;
+                }
+                line.clear();
+            }
+            readers.push(reader);
+        }
+        let exclusion = fs::File::open(&path).unwrap();
+        assert_ne!(
+            unsafe { libc::flock(exclusion.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+            0
+        );
+        assert_eq!(unsafe { libc::kill(first.id() as i32, signal) }, 0);
+        assert!(!first.wait().unwrap().success());
+        assert_ne!(
+            unsafe { libc::flock(exclusion.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+            0
+        );
+        second.stdin.take().unwrap().write_all(b"r").unwrap();
+        assert!(second.wait().unwrap().success());
+        assert_eq!(
+            unsafe { libc::flock(exclusion.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+            0,
+            "{}",
+            std::io::Error::last_os_error()
+        );
+    }
+}

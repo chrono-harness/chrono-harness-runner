@@ -1,0 +1,134 @@
+[package]
+name = "chrono-harness-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+autotests = false
+
+[[test]]
+name = "runtime_logging"
+path = "tests/runtime_logging.rs"
+
+[dependencies]
+chrono-identifiers = { git = "https://github.com/chrono-harness/chrono-harness-identifiers.git", rev = "77f5059bac12d38630ab42a3b6f4ba4222fd7464" }
+verus_builtin_macros = "=0.0.0-2026-04-20-1748"
+serde = { version = "1", features = ["derive"] }
+sha1 = "0.10"
+serde_json = "1"
+libc = "0.2"
+sha2 = "0.10"
+chrono-harness = { path = "../runner", features = ["retention-test"] }
+chrono-diagnostics = { git = "https://github.com/chrono-harness/chrono-harness-diagnostics.git", rev = "8da697ff878dbe2e31ddcfe7366714de49e79d03" }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "chrono-harness-test-cli"
+path = "../runner/src/main.rs"
+test = false
+bench = false
+
+[[test]]
+name = "cli_contract"
+path = "tests/cli_contract.rs"
+
+[[test]]
+name = "protocol_v1"
+path = "tests/protocol_v1.rs"
+
+[[test]]
+name = "registry_snapshot"
+path = "tests/registry_snapshot.rs"
+
+[[test]]
+name = "git_inputs"
+path = "tests/git_inputs.rs"
+
+[[test]]
+name = "verified_git_binding"
+path = "tests/verified_git_binding.rs"
+
+# Compile the real runner with its registered development optimization.
+# Finite retention rounds exercise snapshot work; debug assertions remain enabled.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[[test]]
+name = "process_fds"
+path = "tests/process_fds.rs"
+
+[[bin]]
+name = "chrono-test-process-lifecycle"
+path = "tests/support/process_lifecycle.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "chrono-test-protocol-judge"
+path = "tests/support/protocol_judge.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "chrono-test-cli-child"
+path = "tests/support/cli_child.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "chrono-test-prepared-producer"
+path = "tests/support/prepared_producer.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "chrono-test-git-input"
+path = "tests/support/git_input.rs"
+test = false
+bench = false
+
+[[test]]
+name = "retention"
+path = "tests/retention.rs"
+
+[[test]]
+name = "verified_paths"
+path = "tests/verified_paths.rs"
+
+[[test]]
+name = "verified_status"
+path = "tests/verified_status.rs"
+
+[[test]]
+name = "verified_limits"
+path = "tests/verified_limits.rs"
+
+[[test]]
+name = "verified_cli"
+path = "tests/verified_cli.rs"
+
+[[test]]
+name = "verified_verifier"
+path = "tests/verified_verifier.rs"
+
+[[test]]
+name = "verified_release"
+path = "tests/verified_release.rs"
+
+[[bin]]
+name = "chrono-test-retention-child"
+path = "tests/support/retention_child.rs"
+test = false
+bench = false
+
+[[test]]
+name = "verified_fixture"
+path = "tests/verified_fixture.rs"
+
+[[test]]
+name = "maintenance_signal"
+path = "tests/maintenance_signal.rs"

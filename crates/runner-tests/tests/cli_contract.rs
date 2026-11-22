@@ -1,0 +1,2369 @@
+#[path = "support/native_executable.rs"]
+mod native_executable;
+
+use chrono_harness::{CommandSpec, Status, dispatch, run_process};
+use serde_json::{Value, json};
+
+use std::{fs, path::Path, process::Command};
+use tempfile::TempDir;
+
+const CHILD: &str = env!("CARGO_BIN_EXE_chrono-test-cli-child");
+
+#[test]
+fn scoped_report_path_requires_a_nonempty_state_suffix() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_path = dir.path().join("check.json");
+    for (report_path, accepted) in [
+        (".chrono-harness/state/check.json", true),
+        (".chrono-harness/state/中文.json", true),
+        (".chrono-harness/state/a/./check.json", true),
+        (".chrono-harness/state//check.json", true),
+        (".chrono-harness/state/a/", true),
+        (".chrono-harness/state/", false),
+        (".chrono-harness/state", false),
+        (".chrono-harness/states/check.json", false),
+        (".chrono-harness/state-old/check.json", false),
+        (".chrono-harness/state/../check.json", false),
+        ("/.chrono-harness/state/check.json", false),
+        (".chrono-harness/state/bad\0path", false),
+    ] {
+        let profile = json!({
+            "schema": "chrono-ci-check/v3",
+            "judge": {"program": CHILD, "args": [], "timeout_seconds": 15,
+                      "output_limit_bytes": 4096},
+            "policy": {},
+            "report_path": report_path
+        });
+        fs::write(&config_path, serde_json::to_vec(&profile).unwrap()).unwrap();
+        let loaded = chrono_harness::load_config(&config_path);
+        assert_eq!(loaded.is_ok(), accepted, "{report_path:?}: {loaded:?}");
+    }
+}
+
+#[test]
+fn ci_result_status_keeps_exact_wire_names_and_variant_identity() {
+    let cases = [
+        (Status::Passed, "passed"),
+        (Status::Failed, "failed"),
+        (Status::NotRequired, "not-required"),
+        (Status::Blocked, "blocked"),
+    ];
+    for (i, (status, name)) in cases.iter().enumerate() {
+        assert_eq!(serde_json::to_value(status).unwrap(), json!(name));
+        let decoded: Status = serde_json::from_value(json!(name)).unwrap();
+        assert_eq!(&decoded, status);
+        assert_eq!(&status.clone(), status);
+        for (j, (other, _)) in cases.iter().enumerate() {
+            assert_eq!(status == other, i == j);
+        }
+    }
+    for invalid in ["pass", "Passed", "not_required", "", "blocked "] {
+        assert!(serde_json::from_value::<Status>(json!(invalid)).is_err());
+    }
+    for invalid in [Value::Null, json!(0), json!(["passed"])] {
+        assert!(serde_json::from_value::<Status>(invalid).is_err());
+    }
+}
+
+#[test]
+fn report_reference_publication_is_an_explicit_scoped_v3_contract() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("check.json");
+    let mut config = serde_json::json!({"schema":"chrono-ci-check/v3","judge":{"program":CHILD,"args":[],"timeout_seconds":15,"output_limit_bytes":4096},"policy":{},"report_path":".chrono-harness/state/check.json"});
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    assert!(
+        !chrono_harness::units::reference_publication(&chrono_harness::load_config(&path).unwrap())
+            .unwrap()
+    );
+    for schema in [
+        "chrono-ci-check/v1",
+        "chrono-ci-check/v2",
+        "chrono-ci-check/v3",
+    ] {
+        for value in [
+            Value::Null,
+            Value::Bool(true),
+            serde_json::json!("unknown"),
+            serde_json::json!("retained-reference/v1"),
+            serde_json::json!("retained-reference/v2"),
+        ] {
+            config["schema"] = schema.into();
+            config["policy"]["report_publication"] = value.clone();
+            fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+            let loaded = chrono_harness::load_config(&path);
+            assert_eq!(
+                loaded.is_ok(),
+                schema == "chrono-ci-check/v3" && value.as_str() == Some("retained-reference/v2")
+            );
+            if let Ok(config) = loaded {
+                assert!(chrono_harness::units::reference_publication(&config).unwrap());
+            }
+        }
+    }
+}
+
+#[test]
+fn scoped_stream_storage_preserves_raw_process_identity_and_detects_bad_originals() {
+    use chrono_harness::{prepared, scoped_report};
+    let dir = tempfile::tempdir().unwrap();
+    let process = run_process(
+        dir.path(),
+        &CommandSpec {
+            program: CHILD.into(),
+            args: vec!["pipe".into()],
+            env: Default::default(),
+            timeout_seconds: 15,
+            output_limit_bytes: 4096,
+        },
+        b"\x00\xff\xf0\x80",
+    )
+    .unwrap();
+    assert_eq!(process.stdout_bytes, b"EOF:\x00\xff\xf0\x80");
+    assert_eq!(process.stderr_bytes, b"joined");
+    let record =
+        scoped_report::retain_process(dir.path(), ".chrono-harness/state/preparation/", &process)
+            .unwrap();
+    for key in ["stdout", "stderr", "stdout_bytes", "stderr_bytes"] {
+        assert!(record.get(key).is_none());
+    }
+    let restored =
+        scoped_report::restore_process(&record, |o| prepared::read_original(dir.path(), o, None))
+            .unwrap();
+    assert_eq!(
+        serde_json::to_value(&restored).unwrap(),
+        serde_json::to_value(&process).unwrap()
+    );
+    let repeated =
+        scoped_report::retain_process(dir.path(), ".chrono-harness/state/preparation/", &process)
+            .unwrap();
+    assert_eq!(record, repeated);
+    for stream in ["stdout", "stderr"] {
+        let key = format!("{stream}_original");
+        let path = dir.path().join(record[&key]["path"].as_str().unwrap());
+        let original = fs::read(&path).unwrap();
+        fs::write(&path, b"damaged bytes").unwrap();
+        assert!(
+            scoped_report::restore_process(&record, |o| prepared::read_original(
+                dir.path(),
+                o,
+                None
+            ))
+            .is_err()
+        );
+        let error = scoped_report::retain_process(
+            dir.path(),
+            ".chrono-harness/state/preparation/",
+            &process,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains(&format!("cannot retain judge {stream}")) && error.contains("exit 0"),
+            "{error}"
+        );
+        let evidence: Value =
+            serde_json::from_str(error.strip_prefix("E_PROCESS_EVIDENCE: ").unwrap()).unwrap();
+        assert_eq!(
+            chrono_harness::full::expand_process(&evidence["process"]).unwrap(),
+            serde_json::to_value(&process).unwrap(),
+            "publication failure must preserve both byte streams and every process identity"
+        );
+        if stream == "stderr" {
+            assert_eq!(evidence["stdout_original"], record["stdout_original"]);
+        }
+        fs::write(&path, &original).unwrap();
+        let mut changed = record.clone();
+        changed[format!("{stream}_sha256")] = json!("0".repeat(64));
+        assert!(
+            scoped_report::restore_process(&changed, |o| prepared::read_original(
+                dir.path(),
+                o,
+                None
+            ))
+            .unwrap_err()
+            .contains("digest mismatch")
+        );
+        let mut changed = record.clone();
+        changed[format!("{stream}_bytes")] = json!([]);
+        assert!(
+            scoped_report::restore_process(&changed, |o| prepared::read_original(
+                dir.path(),
+                o,
+                None
+            ))
+            .unwrap_err()
+            .contains("cannot contain inline streams")
+        );
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn invalid_utf8_cli_argument_emits_structured_domain_error_on_stderr() {
+    use std::os::unix::ffi::OsStringExt;
+    let binary = Path::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"));
+    let output = std::process::Command::new(binary)
+        .arg(std::ffi::OsString::from_vec(vec![0xff]))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let text = std::str::from_utf8(&output.stderr).unwrap();
+    assert_eq!(text.lines().count(), 1);
+    let record: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(record["schema"], "chrono-log/v1");
+    assert_eq!(record["event"], "cli.invalid_argument");
+    assert_eq!(record["error"]["schema"], "chrono-error/v1");
+    assert_eq!(record["error"]["error"]["code"], "E_USAGE");
+    assert_eq!(record["error"]["error"]["source"], serde_json::Value::Null);
+    assert_eq!(record["error"]["error"]["context"]["argument_index"], 0);
+    assert_eq!(record["error"]["error"]["context"]["argv_index"], 1);
+    assert_eq!(
+        record["error"]["error"]["context"]["argument_bytes"],
+        json!([255])
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn invalid_utf8_program_name_is_a_domain_error_before_help_dispatch() {
+    use std::os::unix::{ffi::OsStringExt, process::CommandExt};
+    let root = TempDir::new().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
+        .arg0(std::ffi::OsString::from_vec(vec![0xff]))
+        .arg("--help")
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let record: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(record["producer"], "chrono-harness");
+    assert_eq!(record["event"], "cli.invalid_argument");
+    assert_eq!(record["error"]["error"]["code"], "E_USAGE");
+    assert_eq!(record["error"]["error"]["context"]["argv_index"], 0);
+    assert_eq!(
+        record["error"]["error"]["context"]["argument_index"],
+        json!(null)
+    );
+    assert_eq!(
+        record["error"]["error"]["context"]["argument_bytes"],
+        json!([255])
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn runner_binary_read_only_stdout_is_a_native_publication_failure() {
+    use sha2::{Digest, Sha256};
+    use std::process::Stdio;
+
+    let binary = Path::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"));
+    let expected = dispatch(&["--help"]);
+    assert_eq!(expected.exit_code, 0);
+    assert!(!expected.stdout.is_empty());
+    assert!(expected.stderr.is_empty());
+    let dir = TempDir::new().unwrap();
+    let descriptor = dir.path().join("read-only-output");
+    let original = b"launcher supplied a read-only output descriptor\n";
+    fs::write(&descriptor, original).unwrap();
+    let actual = Command::new(&binary)
+        .arg("--help")
+        .stdout(Stdio::from(fs::File::open(&descriptor).unwrap()))
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("stdout.bin"), &actual.stdout).unwrap();
+    fs::write(dir.path().join("stderr.bin"), &actual.stderr).unwrap();
+    fs::write(
+        dir.path().join("observation.json"),
+        serde_json::to_vec_pretty(&json!({
+            "argv": [binary, "--help"],
+            "descriptor_scenario": {"stdout": "open O_RDONLY regular file", "stderr": "writable capture pipe"},
+            "binary_sha256": format!("{:x}", Sha256::digest(fs::read(&binary).unwrap())),
+            "expected_exit": 2,
+            "actual_exit": actual.status.code(),
+            "expected_stdout_bytes": expected.stdout.len(),
+            "stdout_bytes": actual.stdout.len(),
+            "stderr_bytes": actual.stderr.len(),
+            "native_error": libc::EBADF
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    if actual.status.code() != Some(2) {
+        let retained = dir.keep();
+        panic!(
+            "native output failure was suppressed; original evidence: {}",
+            retained.display()
+        );
+    }
+    assert!(actual.stdout.is_empty());
+    assert_eq!(fs::read(descriptor).unwrap(), original);
+    assert!(actual.stderr.ends_with(b"\n"));
+    assert_eq!(
+        std::str::from_utf8(&actual.stderr).unwrap().lines().count(),
+        1
+    );
+    let event: Value = serde_json::from_slice(&actual.stderr).unwrap();
+    assert_eq!(event["schema"], "chrono-log/v1");
+    assert_eq!(event["event"], "runner.output_publication_failed");
+    let error = &event["error"]["error"];
+    assert_eq!(error["code"], "E_OUTPUT_PUBLISH");
+    assert_eq!(error["context"]["stream"], "stdout");
+    assert_eq!(error["context"]["phase"], "write");
+    assert_eq!(error["context"]["operation_exit_code"], 0);
+    assert_eq!(error["context"]["operation_succeeded"], true);
+    assert_eq!(error["context"]["published_bytes"], 0);
+    assert_eq!(error["source"]["source"]["native_code"], libc::EBADF);
+}
+
+#[test]
+#[cfg(unix)]
+fn native_output_preserves_bad_descriptor_primary_related_and_diagnostic_causes() {
+    use chrono_harness::NativeOutput;
+    use std::{error::Error, io};
+
+    let output = chrono_harness::CliOutput {
+        exit_code: 0,
+        stdout: "machine\n".into(),
+        stderr: "explanation".into(),
+    };
+    // These are the two independent channels and their combination, using the
+    // actual adapter rather than an injected IO error from a mock writer.
+    for (stdout_read_only, stderr_read_only) in [(true, false), (false, true), (true, true)] {
+        let dir = TempDir::new().unwrap();
+        let open = |name, read_only| {
+            let path = dir.path().join(name);
+            fs::write(&path, b"original descriptor bytes").unwrap();
+            if read_only {
+                fs::File::open(path).unwrap()
+            } else {
+                fs::OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(path)
+                    .unwrap()
+            }
+        };
+        let mut stdout = NativeOutput::new(open("stdout", stdout_read_only));
+        let stderr = NativeOutput::new(open("stderr", stderr_read_only));
+        let failure = chrono_harness::publish_output(&output, &mut stdout, stderr).unwrap_err();
+        let native = failure.source().unwrap().source().unwrap();
+        let native = native.downcast_ref::<io::Error>().unwrap();
+        assert_eq!(native.raw_os_error(), Some(libc::EBADF));
+        let record = failure.record();
+        assert_eq!(
+            record.error.context["stream"],
+            if stdout_read_only { "stdout" } else { "stderr" }
+        );
+        assert_eq!(record.error.context["phase"], "write");
+        assert_eq!(record.error.context["operation_exit_code"], 0);
+        assert_eq!(record.error.context["published_bytes"], 0);
+        assert_eq!(
+            record
+                .error
+                .source
+                .as_ref()
+                .unwrap()
+                .source
+                .as_ref()
+                .unwrap()
+                .native_code,
+            Some(i64::from(libc::EBADF))
+        );
+        let related = failure.related().collect::<Vec<_>>();
+        assert_eq!(
+            related.len(),
+            usize::from(stdout_read_only && stderr_read_only) + usize::from(stderr_read_only)
+        );
+        if stdout_read_only && stderr_read_only {
+            assert_eq!(related[0].0, "secondary_output_publication");
+            let native = related[0].1.source().unwrap().source().unwrap();
+            assert_eq!(
+                native.downcast_ref::<io::Error>().unwrap().raw_os_error(),
+                Some(libc::EBADF)
+            );
+            assert_eq!(record.error.related[0].error.context["stream"], "stderr");
+        }
+        if stderr_read_only {
+            let diagnostic = related.last().unwrap();
+            assert_eq!(diagnostic.0, "diagnostic_publication");
+            let native = diagnostic.1.source().unwrap();
+            assert_eq!(
+                native.downcast_ref::<io::Error>().unwrap().raw_os_error(),
+                Some(libc::EBADF)
+            );
+            assert_eq!(
+                fs::read(dir.path().join("stderr")).unwrap(),
+                b"original descriptor bytes"
+            );
+        } else {
+            let bytes = fs::read(dir.path().join("stderr")).unwrap();
+            assert!(bytes.starts_with(b"explanation\n"));
+            let diagnostic = &bytes[b"explanation\n".len()..];
+            assert_eq!(std::str::from_utf8(diagnostic).unwrap().lines().count(), 1);
+            let event: Value = serde_json::from_slice(diagnostic).unwrap();
+            assert_eq!(event["event"], "runner.output_publication_failed");
+            assert_eq!(event["error"], serde_json::to_value(record).unwrap());
+        }
+        assert_eq!(
+            fs::read(dir.path().join("stdout")).unwrap(),
+            if stdout_read_only {
+                b"original descriptor bytes".as_slice()
+            } else {
+                output.stdout.as_bytes()
+            }
+        );
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn runner_binary_publication_preserves_bytes_and_reports_broken_stdout() {
+    use std::process::Stdio;
+    fn broken_pipe() -> Stdio {
+        let (writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        drop(reader);
+        Stdio::from(std::os::fd::OwnedFd::from(writer))
+    }
+    let binary = Path::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"));
+    for args in [vec!["--help"], vec!["--version"], vec!["unknown-command"]] {
+        let expected = dispatch(&args);
+        let actual = Command::new(&binary).args(&args).output().unwrap();
+        assert_eq!(actual.status.code(), Some(i32::from(expected.exit_code)));
+        assert_eq!(actual.stdout, expected.stdout.as_bytes());
+        assert_eq!(actual.stderr, expected.stderr.as_bytes());
+    }
+    let args = ["--help"];
+    let expected = dispatch(&args);
+    assert_eq!(expected.exit_code, 0);
+    assert!(!expected.stdout.is_empty());
+    assert!(expected.stderr.is_empty());
+
+    // The peer is already closed, so publication fails without a timing race.
+    let actual = Command::new(&binary)
+        .args(args)
+        .stdout(broken_pipe())
+        .output()
+        .unwrap();
+    assert_eq!(actual.status.code(), Some(2));
+    assert!(actual.stdout.is_empty());
+    let diagnostic = &actual.stderr;
+    assert_eq!(std::str::from_utf8(diagnostic).unwrap().lines().count(), 1);
+    let event: Value = serde_json::from_slice(diagnostic).unwrap();
+    assert_eq!(event["schema"], "chrono-log/v1");
+    assert_eq!(event["event"], "runner.output_publication_failed");
+    assert_eq!(event["error"]["error"]["context"]["stream"], "stdout");
+    assert_eq!(event["error"]["error"]["context"]["operation_exit_code"], 0);
+    assert_eq!(
+        event["error"]["error"]["source"]["source"]["native_code"],
+        libc::EPIPE
+    );
+
+    let unavailable = Command::new(&binary)
+        .args(args)
+        .stdout(broken_pipe())
+        .stderr(broken_pipe())
+        .output()
+        .unwrap();
+    assert_eq!(unavailable.status.code(), Some(2));
+    assert!(unavailable.stdout.is_empty() && unavailable.stderr.is_empty());
+}
+
+#[test]
+fn runner_output_publication_attempts_independent_channels_and_keeps_typed_failures() {
+    use std::io::{self, Write};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct Failing(io::ErrorKind, Arc<AtomicUsize>);
+    impl Write for Failing {
+        fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            Err(io::Error::new(self.0, "publication failed"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let output = chrono_harness::CliOutput {
+        exit_code: 7,
+        stdout: "machine output\n".into(),
+        stderr: "operation explanation\n".into(),
+    };
+    let stdout_calls = Arc::new(AtomicUsize::new(0));
+    let mut stdout = Failing(io::ErrorKind::BrokenPipe, stdout_calls.clone());
+    let mut stderr = Vec::new();
+    let failure = chrono_harness::publish_output_to(&output, &mut stdout, &mut stderr)
+        .expect_err("stdout failure must be returned");
+    assert_eq!(stdout_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(stderr, output.stderr.as_bytes());
+    let record = failure.record();
+    assert_eq!(record.error.code, "E_OUTPUT_PUBLISH");
+    assert_eq!(record.error.context["stream"], "stdout");
+    assert_eq!(record.error.context["operation_exit_code"], 7);
+    assert_eq!(record.error.context["operation_succeeded"], false);
+    assert_eq!(record.error.source.as_ref().unwrap().code, "E_NATIVE_IO");
+    assert_eq!(
+        record
+            .error
+            .source
+            .as_ref()
+            .unwrap()
+            .source
+            .as_ref()
+            .unwrap()
+            .code,
+        "io::BrokenPipe"
+    );
+}
+
+#[test]
+fn runner_output_publication_keeps_both_failures_and_does_not_replay_partial_payload() {
+    use std::io::{self, Write};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct PartialThenFail(Arc<AtomicUsize>);
+    impl Write for PartialThenFail {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                Ok(bytes.len().min(2))
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "partial publication",
+                ))
+            }
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            panic!("flush must not run after a failed write_all")
+        }
+    }
+    struct FlushFails(Vec<u8>);
+    impl Write for FlushFails {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(io::ErrorKind::Other, "flush publication"))
+        }
+    }
+
+    let output = chrono_harness::CliOutput {
+        exit_code: 2,
+        stdout: "abcdef".into(),
+        stderr: "stderr bytes".into(),
+    };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut stdout = PartialThenFail(calls.clone());
+    let mut stderr = FlushFails(Vec::new());
+    let failure = chrono_harness::publish_output_to(&output, &mut stdout, &mut stderr)
+        .expect_err("both channel failures must be returned");
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(stderr.0, output.stderr.as_bytes());
+    let record = failure.record();
+    assert_eq!(record.error.context["stream"], "stdout");
+    assert_eq!(record.error.context["operation_exit_code"], 2);
+    assert_eq!(record.error.context["phase"], "write");
+    assert_eq!(record.error.context["published_bytes"], 2);
+    assert_eq!(record.error.related.len(), 1);
+    assert_eq!(record.error.related[0].role, "secondary_output_publication");
+    assert_eq!(record.error.related[0].error.context["stream"], "stderr");
+    assert_eq!(record.error.related[0].error.context["phase"], "flush");
+    assert_eq!(
+        record.error.related[0].error.context["published_bytes"],
+        output.stderr.len()
+    );
+    assert_eq!(
+        record.error.related[0].error.source.as_ref().unwrap().code,
+        "E_NATIVE_IO"
+    );
+}
+
+#[derive(Clone, Default)]
+struct PublicationCapture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+impl std::io::Write for PublicationCapture {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn publication_boundary_recovers_interrupted_writes_without_replaying_accepted_bytes() {
+    use std::io::{self, Write};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct InterruptedWriter {
+        accepted: PublicationCapture,
+        requests: Arc<Mutex<Vec<Vec<u8>>>>,
+        flushes: Arc<Mutex<usize>>,
+    }
+    impl Write for InterruptedWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let mut requests = self.requests.lock().unwrap();
+            requests.push(bytes.to_vec());
+            match requests.len() {
+                1 | 3 => Err(io::Error::from(io::ErrorKind::Interrupted)),
+                2 => self.accepted.write(&bytes[..2]),
+                _ => self.accepted.write(bytes),
+            }
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            *self.flushes.lock().unwrap() += 1;
+            Ok(())
+        }
+    }
+
+    for exit_code in [0, 7] {
+        let output = chrono_harness::CliOutput {
+            exit_code,
+            stdout: "abcdef".into(),
+            stderr: "uvwxyz".into(),
+        };
+        let mut stdout = InterruptedWriter::default();
+        let stderr = InterruptedWriter::default();
+        assert_eq!(
+            chrono_harness::publish_output(&output, &mut stdout, stderr.clone()).unwrap(),
+            exit_code
+        );
+        assert_eq!(*stdout.accepted.0.lock().unwrap(), b"abcdef");
+        assert_eq!(*stderr.accepted.0.lock().unwrap(), b"uvwxyz");
+        assert_eq!(
+            *stdout.requests.lock().unwrap(),
+            [
+                b"abcdef".to_vec(),
+                b"abcdef".to_vec(),
+                b"cdef".to_vec(),
+                b"cdef".to_vec()
+            ]
+        );
+        assert_eq!(
+            *stderr.requests.lock().unwrap(),
+            [
+                b"uvwxyz".to_vec(),
+                b"uvwxyz".to_vec(),
+                b"wxyz".to_vec(),
+                b"wxyz".to_vec()
+            ]
+        );
+        assert_eq!(*stdout.flushes.lock().unwrap(), 1);
+        assert_eq!(*stderr.flushes.lock().unwrap(), 1);
+    }
+}
+
+#[test]
+fn publication_boundary_turns_zero_writes_into_native_failure_and_attempts_stderr() {
+    use std::error::Error;
+    use std::io::{self, Write};
+
+    struct ZeroWriter {
+        prefix: usize,
+        accepted: Vec<u8>,
+        requests: Vec<Vec<u8>>,
+    }
+    impl Write for ZeroWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.requests.push(bytes.to_vec());
+            if self.requests.len() == 1 && self.prefix > 0 {
+                self.accepted.extend_from_slice(&bytes[..self.prefix]);
+                Ok(self.prefix)
+            } else {
+                Ok(0)
+            }
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            panic!("a zero write must fail before stdout flush")
+        }
+    }
+
+    for prefix in [0, 2] {
+        let output = chrono_harness::CliOutput {
+            exit_code: 7,
+            stdout: "abcdef".into(),
+            stderr: "explanation\n".into(),
+        };
+        let mut stdout = ZeroWriter {
+            prefix,
+            accepted: Vec::new(),
+            requests: Vec::new(),
+        };
+        let stderr = PublicationCapture::default();
+        let failure =
+            chrono_harness::publish_output(&output, &mut stdout, stderr.clone()).unwrap_err();
+        assert_eq!(stdout.accepted, &b"abcdef"[..prefix]);
+        let expected_requests = if prefix == 0 {
+            vec![b"abcdef".to_vec()]
+        } else {
+            vec![b"abcdef".to_vec(), b"cdef".to_vec()]
+        };
+        assert_eq!(stdout.requests, expected_requests);
+        let native = failure.source().unwrap().source().unwrap();
+        let native = native.downcast_ref::<io::Error>().unwrap();
+        assert_eq!(native.kind(), io::ErrorKind::WriteZero);
+        assert_eq!(native.raw_os_error(), None);
+        assert!(
+            native.get_ref().is_none(),
+            "the error must come from write_all"
+        );
+        let record = failure.record();
+        assert_eq!(record.error.code, "E_OUTPUT_PUBLISH");
+        assert_eq!(record.error.context["stream"], "stdout");
+        assert_eq!(record.error.context["phase"], "write");
+        assert_eq!(record.error.context["operation_exit_code"], 7);
+        assert_eq!(record.error.context["operation_succeeded"], false);
+        assert_eq!(record.error.context["output_bytes"], 6);
+        assert_eq!(record.error.context["published_bytes"], prefix);
+        assert!(record.error.related.is_empty());
+        let cause = record
+            .error
+            .source
+            .as_ref()
+            .unwrap()
+            .source
+            .as_ref()
+            .unwrap();
+        assert_eq!(cause.code, "io::WriteZero");
+        assert_eq!(cause.message, native.to_string());
+        assert_eq!(cause.native_code, None);
+        let bytes = stderr.0.lock().unwrap();
+        assert!(bytes.starts_with(b"explanation\n"));
+        let event_bytes = &bytes[b"explanation\n".len()..];
+        assert_eq!(std::str::from_utf8(event_bytes).unwrap().lines().count(), 1);
+        let event: Value = serde_json::from_slice(event_bytes).unwrap();
+        assert_eq!(event["event"], "runner.output_publication_failed");
+        assert_eq!(event["error"], serde_json::to_value(record).unwrap());
+    }
+}
+
+#[test]
+fn publication_flushes_empty_channels_from_existing_cli_outputs() {
+    use std::io::{self, Write};
+
+    struct EmptyFlushFails(usize);
+    impl Write for EmptyFlushFails {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            panic!("an empty channel has no payload to write")
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.0 += 1;
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+    }
+
+    // The binary regression already covers healthy empty channels. Here the
+    // same real CLI outputs must still observe an empty channel's flush error.
+    for (args, empty_stream) in [
+        (vec!["--help"], "stderr"),
+        (vec!["unknown-command"], "stdout"),
+    ] {
+        let output = dispatch(&args);
+        let mut empty = EmptyFlushFails(0);
+        let mut other = Vec::new();
+        let failure = if empty_stream == "stdout" {
+            assert!(output.stdout.is_empty());
+            assert!(!output.stderr.is_empty());
+            chrono_harness::publish_output_to(&output, &mut empty, &mut other).unwrap_err()
+        } else {
+            assert!(output.stderr.is_empty());
+            assert!(!output.stdout.is_empty());
+            chrono_harness::publish_output_to(&output, &mut other, &mut empty).unwrap_err()
+        };
+        assert_eq!(empty.0, 1);
+        let expected_other = if empty_stream == "stdout" {
+            &output.stderr
+        } else {
+            &output.stdout
+        };
+        assert_eq!(other, expected_other.as_bytes());
+        let record = failure.record();
+        assert_eq!(record.error.context["stream"], empty_stream);
+        assert_eq!(record.error.context["phase"], "flush");
+        assert_eq!(record.error.context["output_bytes"], 0);
+        assert_eq!(record.error.context["published_bytes"], 0);
+        assert_eq!(
+            record.error.context["operation_exit_code"],
+            output.exit_code
+        );
+        assert!(record.error.related.is_empty());
+        assert_eq!(
+            record
+                .error
+                .source
+                .as_ref()
+                .unwrap()
+                .source
+                .as_ref()
+                .unwrap()
+                .code,
+            "io::BrokenPipe"
+        );
+    }
+}
+
+#[test]
+fn publication_boundary_preserves_success_and_frames_one_event_after_unterminated_stderr() {
+    use std::io::{self, Write};
+    struct Fails;
+    impl Write for Fails {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "original output cause",
+            ))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            panic!("failed write is not flushed")
+        }
+    }
+    for exit_code in [0, 1, 2, 7] {
+        let output = chrono_harness::CliOutput {
+            exit_code,
+            stdout: "λ\n\0machine".into(),
+            stderr: "explanation".into(),
+        };
+        let stderr = PublicationCapture::default();
+        let mut stdout = Vec::new();
+        assert_eq!(
+            chrono_harness::publish_output(&output, &mut stdout, stderr.clone()).unwrap(),
+            exit_code
+        );
+        assert_eq!(stdout, output.stdout.as_bytes());
+        assert_eq!(*stderr.0.lock().unwrap(), output.stderr.as_bytes());
+
+        let stderr = PublicationCapture::default();
+        let failure =
+            chrono_harness::publish_output(&output, &mut Fails, stderr.clone()).unwrap_err();
+        assert_eq!(
+            failure.record().error.context["operation_exit_code"],
+            exit_code
+        );
+        assert_eq!(
+            failure.record().error.context["operation_succeeded"],
+            exit_code == 0
+        );
+        assert!(failure.related().next().is_none());
+        let bytes = stderr.0.lock().unwrap();
+        assert!(bytes.starts_with(b"explanation\n"));
+        let event_bytes = &bytes[b"explanation\n".len()..];
+        assert_eq!(std::str::from_utf8(event_bytes).unwrap().lines().count(), 1);
+        let event: Value = serde_json::from_slice(event_bytes).unwrap();
+        assert_eq!(event["event"], "runner.output_publication_failed");
+        assert_eq!(
+            event["error"],
+            serde_json::to_value(failure.record()).unwrap()
+        );
+    }
+}
+
+#[test]
+fn publication_boundary_retains_both_output_causes_and_unavailable_diagnostic_sink() {
+    use std::io::{self, Write};
+    struct Stdout;
+    impl Write for Stdout {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::from_raw_os_error(libc::EPIPE))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            panic!("failed write")
+        }
+    }
+    struct Stderr(PublicationCapture, usize);
+    impl Write for Stderr {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.write_all(bytes)?;
+            self.1 += 1;
+            Err(io::Error::from_raw_os_error(if self.1 == 1 {
+                libc::EBADF
+            } else {
+                libc::ENOSPC
+            }))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            panic!("failed sink is not flushed")
+        }
+    }
+    let attempts = PublicationCapture::default();
+    let output = chrono_harness::CliOutput {
+        exit_code: 1,
+        stdout: "machine".into(),
+        stderr: "business".into(),
+    };
+    let failure = chrono_harness::publish_output(&output, &mut Stdout, Stderr(attempts.clone(), 0))
+        .unwrap_err();
+    let record = failure.record();
+    assert_eq!(
+        record
+            .error
+            .source
+            .as_ref()
+            .unwrap()
+            .source
+            .as_ref()
+            .unwrap()
+            .native_code,
+        Some(i64::from(libc::EPIPE))
+    );
+    assert_eq!(record.error.related.len(), 2);
+    assert_eq!(record.error.related[0].role, "secondary_output_publication");
+    assert_eq!(
+        record.error.related[0]
+            .error
+            .source
+            .as_ref()
+            .unwrap()
+            .source
+            .as_ref()
+            .unwrap()
+            .native_code,
+        Some(i64::from(libc::EBADF))
+    );
+    assert_eq!(record.error.related[1].role, "diagnostic_publication");
+    assert_eq!(
+        record.error.related[1]
+            .error
+            .source
+            .as_ref()
+            .unwrap()
+            .native_code,
+        Some(i64::from(libc::ENOSPC))
+    );
+    let diagnostic = failure.related().nth(1).unwrap().1.source().unwrap();
+    assert_eq!(
+        diagnostic
+            .downcast_ref::<io::Error>()
+            .unwrap()
+            .raw_os_error(),
+        Some(libc::ENOSPC)
+    );
+    let attempts = attempts.0.lock().unwrap();
+    assert!(attempts.starts_with(b"business{"));
+    assert_eq!(
+        attempts
+            .windows(b"business".len())
+            .filter(|bytes| *bytes == b"business")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn publication_boundary_keeps_stderr_flush_and_partial_diagnostic_write_failures() {
+    use std::io::{self, Write};
+    struct Sink(PublicationCapture, usize);
+    impl Write for Sink {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.1 += 1;
+            match self.1 {
+                1 => {
+                    self.0.write_all(bytes)?;
+                    Ok(bytes.len())
+                }
+                2 => {
+                    self.0.write_all(&bytes[..3])?;
+                    Ok(3)
+                }
+                3 => Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "diagnostic partial write",
+                )),
+                _ => panic!("diagnostic payload replayed"),
+            }
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            assert_eq!(self.1, 1, "failed diagnostic is not flushed");
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "original stderr flush",
+            ))
+        }
+    }
+    let stderr = PublicationCapture::default();
+    let mut stdout = Vec::new();
+    let output = chrono_harness::CliOutput {
+        exit_code: 0,
+        stdout: "machine".into(),
+        stderr: "original\n".into(),
+    };
+    let failure =
+        chrono_harness::publish_output(&output, &mut stdout, Sink(stderr.clone(), 0)).unwrap_err();
+    assert_eq!(stdout, b"machine");
+    assert_eq!(*stderr.0.lock().unwrap(), b"original\n{\"s");
+    let record = failure.record();
+    assert_eq!(record.error.context["stream"], "stderr");
+    assert_eq!(record.error.context["phase"], "flush");
+    assert_eq!(
+        record
+            .error
+            .source
+            .as_ref()
+            .unwrap()
+            .source
+            .as_ref()
+            .unwrap()
+            .message,
+        "original stderr flush"
+    );
+    assert_eq!(record.error.related.len(), 1);
+    assert_eq!(record.error.related[0].error.context["phase"], "write");
+    assert_eq!(
+        record.error.related[0]
+            .error
+            .source
+            .as_ref()
+            .unwrap()
+            .message,
+        "diagnostic partial write"
+    );
+}
+
+#[test]
+fn publication_boundary_keeps_event_and_finish_flush_failures_with_original_output_cause() {
+    use std::error::Error as _;
+    use std::io::{self, Write};
+    struct Stdout;
+    impl Write for Stdout {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::from_raw_os_error(libc::EPIPE))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            panic!("failed output is not flushed")
+        }
+    }
+    struct Stderr(PublicationCapture, usize, usize);
+    impl Write for Stderr {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.write(bytes)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.1 += 1;
+            if self.1 < self.2 {
+                Ok(())
+            } else if self.1 == self.2 {
+                Err(io::Error::from_raw_os_error(libc::ENOSPC))
+            } else {
+                panic!("diagnostic flush was retried")
+            }
+        }
+    }
+    let output = chrono_harness::CliOutput {
+        exit_code: 0,
+        stdout: "machine".into(),
+        stderr: "explanation\n".into(),
+    };
+    for fail_at in [2, 3] {
+        let captured = PublicationCapture::default();
+        let failure = chrono_harness::publish_output(
+            &output,
+            &mut Stdout,
+            Stderr(captured.clone(), 0, fail_at),
+        )
+        .unwrap_err();
+        let original = failure.source().unwrap().source().unwrap();
+        assert_eq!(
+            original.downcast_ref::<io::Error>().unwrap().raw_os_error(),
+            Some(libc::EPIPE)
+        );
+        let record = failure.record();
+        assert_eq!(record.error.context["stream"], "stdout");
+        assert_eq!(record.error.related.len(), 1);
+        let related = &record.error.related[0];
+        assert_eq!(related.role, "diagnostic_publication");
+        assert_eq!(related.error.context["phase"], "flush");
+        assert_eq!(
+            related.error.context.contains_key("attempted_record"),
+            fail_at == 2
+        );
+        assert_eq!(
+            related.error.source.as_ref().unwrap().native_code,
+            Some(i64::from(libc::ENOSPC))
+        );
+        let diagnostic = failure.related().next().unwrap().1.source().unwrap();
+        assert_eq!(
+            diagnostic
+                .downcast_ref::<io::Error>()
+                .unwrap()
+                .raw_os_error(),
+            Some(libc::ENOSPC)
+        );
+        let bytes = captured.0.lock().unwrap();
+        assert!(bytes.starts_with(output.stderr.as_bytes()));
+        let event_bytes = &bytes[output.stderr.len()..];
+        assert_eq!(std::str::from_utf8(event_bytes).unwrap().lines().count(), 1);
+        let event: Value = serde_json::from_slice(event_bytes).unwrap();
+        assert_eq!(event["event"], "runner.output_publication_failed");
+        assert_eq!(event["error"]["error"]["context"]["operation_exit_code"], 0);
+    }
+}
+
+#[test]
+fn standard_sha256_vectors_match_memory_stream_and_file() {
+    use std::io::{Cursor, Read};
+    struct Chunks(Cursor<Vec<u8>>);
+    impl Read for Chunks {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let length = buffer.len().min(63);
+            self.0.read(&mut buffer[..length])
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("input");
+    for (bytes, expected) in [
+        (
+            vec![],
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        ),
+        (
+            b"abc".to_vec(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        ),
+        (
+            b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".to_vec(),
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+        ),
+        (
+            vec![b'a'; 1_000_000],
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
+        ),
+    ] {
+        assert_eq!(chrono_harness::sha256(&bytes), expected);
+        fs::write(&path, &bytes).unwrap();
+        assert_eq!(
+            chrono_harness::file_identity(&path).unwrap(),
+            (expected.into(), bytes.len() as u64)
+        );
+        let mut copied = Vec::new();
+        let identity =
+            chrono_harness::copy_hashed(Chunks(Cursor::new(bytes.clone())), &mut copied).unwrap();
+        assert_eq!(identity, (expected.into(), bytes.len() as u64));
+        assert_eq!(copied, bytes);
+    }
+}
+
+fn fixture(case: Value) -> (TempDir, String) {
+    let dir = tempfile::tempdir_in(std::path::Path::new(CHILD).parent().unwrap()).unwrap();
+    fs::create_dir_all(dir.path().join(".chrono-harness/ci")).unwrap();
+    fs::write(
+        dir.path().join("cli-case.json"),
+        serde_json::to_vec(&case).unwrap(),
+    )
+    .unwrap();
+    let path = dir.path().join(".chrono-harness/ci/check.json");
+    fs::write(&path,serde_json::to_vec(&json!({"schema":"chrono-ci-check/v1","judge":{"program":CHILD,"args":["judge"],"timeout_seconds":15,"output_limit_bytes":4096},"policy":{},"report_path":".chrono-harness/state/check.json"})).unwrap()).unwrap();
+    let name = path.to_str().unwrap().to_string();
+    (dir, name)
+}
+fn run(path: &str) -> chrono_harness::CliOutput {
+    dispatch(&[
+        "check",
+        "--config",
+        path,
+        "--base",
+        &"a".repeat(40),
+        "--candidate",
+        &"b".repeat(40),
+    ])
+}
+
+#[test]
+fn real_child_and_report_publish() {
+    let (dir, p) = fixture(json!({}));
+    let r = run(&p);
+    assert_eq!(r.exit_code, 0, "{}", r.stderr);
+    let v: serde_json::Value = serde_json::from_str(&r.stdout).unwrap();
+    assert_eq!(v["judge"]["exit_code"], 0);
+    assert_eq!(v["response"]["results"][0]["id"], "external");
+    assert!(
+        dir.path()
+            .join(".chrono-harness/state/check.json")
+            .is_file()
+    );
+}
+
+#[test]
+#[ignore]
+fn retained_reference_cli_subprocess_helper() {
+    let output = dispatch(&["check"]);
+    println!(
+        "CHRONO_CLI_HELPER_RESULT:{}",
+        serde_json::to_string(&json!({
+            "exit_code": output.exit_code,
+            "stdout": output.stdout,
+            "stderr": output.stderr,
+        }))
+        .unwrap()
+    );
+}
+
+fn run_retained_cli_child(root: &Path, source: &str) -> Value {
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "retained_reference_cli_subprocess_helper",
+            "--ignored",
+            "--nocapture",
+        ])
+        .current_dir(root)
+        .env(chrono_harness::prepared::SOURCE, source)
+        .env(
+            "CHRONO_TEST_AUTHENTICATION",
+            "inert authentication fixture λ",
+        )
+        .env_remove("CHRONO_TEST_AUTHENTICATION_ABSENT")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("CHRONO_CLI_HELPER_RESULT:"))
+        .expect("CLI helper result");
+    serde_json::from_str(line).unwrap()
+}
+
+#[test]
+fn retained_reference_local_fixture_preserves_assertions_under_each_enclosing_source() {
+    for source in ["local", "ci"] {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "retained_reference_cli_registers_process_evidence_before_judge_spawn",
+                "--nocapture",
+            ])
+            .env(chrono_harness::prepared::SOURCE, source)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "enclosing source {source}: {output:?}"
+        );
+    }
+}
+
+#[test]
+fn retained_reference_cli_registers_process_evidence_before_judge_spawn() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".chrono-harness/ci")).unwrap();
+    fs::create_dir_all(dir.path().join(".chrono-harness/state")).unwrap();
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/retention.json"),
+        dir.path().join(".chrono-harness/retention.json"),
+    )
+    .unwrap();
+    fs::write(dir.path().join("cli-case.json"), b"{}").unwrap();
+    let shell = env!("CARGO_BIN_EXE_chrono-test-cli-child");
+    let shell_hash = chrono_harness::sha256(&fs::read(shell).unwrap());
+    let producer = env!("CARGO_BIN_EXE_chrono-test-prepared-producer");
+    let judge = env!("CARGO_BIN_EXE_chrono-test-cli-child");
+    let config = json!({
+        "schema_version": 4,
+        "runner": {"path": "chrono-harness"},
+        "canonical_check": {
+            "operation": "validate.delta",
+            "argv": ["chrono-harness", "check"],
+            "profile": ".chrono-harness/ci/check.json",
+            "inputs": {
+                "local": {
+                    "operation": "prepare.local",
+                    "tool": "producer",
+                    "argv": ["run"]
+                }
+            }
+        },
+        "facts_git": {"tool": "git", "input": "git-bytes"},
+        "tools": [
+            {"id": "git", "program": shell, "resolution": "PATH-once", "version_argv": ["git-version"], "expected_version": "git"},
+            {"id": "producer", "program": producer, "resolution": "PATH-once", "version_argv": ["version"], "expected_version": "prepared-producer 0.1.0"}
+        ],
+        "environment": {
+            "inherit": ["PATH", "CHRONO_CHECK_SOURCE", "CHRONO_TEST_AUTHENTICATION", "CHRONO_TEST_AUTHENTICATION_ABSENT"],
+            "credential_environment": ["CHRONO_TEST_AUTHENTICATION", "CHRONO_TEST_AUTHENTICATION_ABSENT"],
+            "values": {},
+            "inputs": [{"id": "git-bytes", "location": shell, "presence": "present", "sha256": shell_hash}]
+        },
+        "artifacts": [{"path": ".chrono-harness/state/", "owner": "host", "kind": "evidence", "tracked": false}],
+        "protocol": {"timeout_seconds": 15, "stdout_limit_bytes": 65536}
+    });
+    fs::write(
+        dir.path().join(".chrono-harness/config.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    let profile = json!({
+        "schema": "chrono-ci-check/v3",
+        "judge": {"program": judge, "args": ["judge"], "timeout_seconds": 15, "output_limit_bytes": 4096},
+        "policy": {
+            "registration_config": ".chrono-harness/config.json",
+            "facts_config": ".chrono-harness/config.json",
+            "report_publication": "retained-reference/v2"
+        },
+        "report_path": ".chrono-harness/state/check.json"
+    });
+    fs::write(
+        dir.path().join(".chrono-harness/ci/check.json"),
+        serde_json::to_vec(&profile).unwrap(),
+    )
+    .unwrap();
+    // This fixture registers only a local producer. Native selection must still
+    // reject that declaration before a judge or report can be published.
+    let missing_native = run_retained_cli_child(dir.path(), "ci");
+    assert_eq!(missing_native["exit_code"], 2);
+    assert!(
+        missing_native["stderr"]
+            .as_str()
+            .unwrap()
+            .contains("native input binding missing"),
+        "{}",
+        missing_native["stderr"]
+    );
+    assert!(!dir.path().join(".chrono-harness/state/check.json").exists());
+
+    let output = run_retained_cli_child(dir.path(), "local");
+    assert_eq!(output["exit_code"], 0, "{}", output["stderr"]);
+    let environment = std::collections::BTreeMap::from([
+        ("PATH".to_owned(), std::env::var("PATH").unwrap()),
+        ("CHRONO_CHECK_SOURCE".to_owned(), "local".to_owned()),
+        (
+            "CHRONO_TEST_AUTHENTICATION".to_owned(),
+            "inert authentication fixture λ".to_owned(),
+        ),
+    ]);
+    let mut acquisitions = 0;
+    for entry in fs::read_dir(dir.path().join(".chrono-harness/state/preparation")).unwrap() {
+        let path = entry.unwrap().path();
+        if !path.is_file() {
+            continue;
+        }
+        let raw = fs::read(path).unwrap();
+        let Ok(receipt) = serde_json::from_slice::<Value>(&raw) else {
+            continue;
+        };
+        if receipt["environment_representation"] == "sha256" {
+            acquisitions += 1;
+            for process in [&receipt["process"], &receipt["tool"]["version"]] {
+                assert_eq!(
+                    process["environment"]["CHRONO_TEST_AUTHENTICATION"],
+                    chrono_harness::sha256(b"inert authentication fixture \xce\xbb")
+                );
+                assert!(
+                    process["environment"]
+                        .get("CHRONO_TEST_AUTHENTICATION_ABSENT")
+                        .is_none()
+                );
+                assert_eq!(
+                    process["environment_digest"],
+                    chrono_harness::wire::digest(&environment).unwrap()
+                );
+            }
+        }
+    }
+    assert_eq!(acquisitions, 1);
+    let reference: Value = serde_json::from_slice(
+        &fs::read(dir.path().join(".chrono-harness/state/check.json")).unwrap(),
+    )
+    .unwrap();
+    let report: Value = serde_json::from_slice(
+        &fs::read(
+            dir.path()
+                .join(reference["original"]["path"].as_str().unwrap()),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reference["schema"], "chrono-check-reference/v1");
+    let judge = &report["judge"];
+    for (field, digest) in [
+        ("stdout_original", judge["stdout_sha256"].as_str().unwrap()),
+        ("stderr_original", judge["stderr_sha256"].as_str().unwrap()),
+    ] {
+        let original = &judge[field];
+        let path = dir.path().join(original["path"].as_str().unwrap());
+        assert_eq!(chrono_harness::sha256(&fs::read(path).unwrap()), digest);
+    }
+    let launch = &judge["launch_original"];
+    assert!(dir.path().join(launch["path"].as_str().unwrap()).is_file());
+    assert!(judge.get("stdout_bytes").is_none());
+    assert!(judge.get("stderr_bytes").is_none());
+
+    // Fail the actual replacement after judge completion. The previous fixed
+    // pointer and the new sealed result must both survive, and recovery must
+    // use the same original through real CLI calls without a working judge.
+    let slot = dir.path().join(".chrono-harness/state/check.json");
+    let previous = fs::read(&slot).unwrap();
+    let pending = ".chrono-harness/state/check.json.publication-pending";
+    fs::write(
+        dir.path().join("cli-case.json"),
+        serde_json::to_vec(&json!({
+            "block_pending":pending
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let failed = run_retained_cli_child(dir.path(), "local");
+    assert_eq!(failed["exit_code"], 2, "{failed}");
+    assert_eq!(fs::read(&slot).unwrap(), previous);
+    let error_path = failed["stderr"]
+        .as_str()
+        .unwrap()
+        .split("Original check error: ")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap();
+    let error = fs::read_to_string(dir.path().join(error_path)).unwrap();
+    let error: Value =
+        serde_json::from_str(error.strip_prefix("E_REPORT_EVIDENCE: ").unwrap()).unwrap();
+    let recovery = error["recovery"].clone();
+    let original_path = recovery["report"]["path"].as_str().unwrap();
+    let original_raw = fs::read(dir.path().join(original_path)).unwrap();
+    let request_path = dir.path().join("recover-report.json");
+    fs::write(&request_path, serde_json::to_vec(&recovery).unwrap()).unwrap();
+    let recover = || {
+        Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
+            .args([
+                "retention",
+                "--host-root",
+                dir.path().to_str().unwrap(),
+                "--request",
+                "recover-report.json",
+            ])
+            .output()
+            .unwrap()
+    };
+    assert_eq!(
+        recover().status.code(),
+        Some(2),
+        "blocked replacement stays failed"
+    );
+    fs::remove_dir(dir.path().join(pending)).unwrap();
+    fs::write(
+        dir.path().join("cli-case.json"),
+        b"{\"kind\":\"raw\",\"text\":\"must not execute\"}",
+    )
+    .unwrap();
+    let mut wrong = recovery.clone();
+    wrong["report"]["sha256"] = json!("0".repeat(64));
+    fs::write(&request_path, serde_json::to_vec(&wrong).unwrap()).unwrap();
+    assert_eq!(
+        recover().status.code(),
+        Some(2),
+        "wrong original must not publish"
+    );
+    fs::write(&request_path, serde_json::to_vec(&recovery).unwrap()).unwrap();
+    let original_file = dir.path().join(original_path);
+    let saved_file = original_file.with_extension("original-inode");
+    fs::rename(&original_file, &saved_file).unwrap();
+    fs::write(&original_file, &original_raw).unwrap();
+    assert_eq!(
+        recover().status.code(),
+        Some(2),
+        "same bytes at another inode are not the sealed original"
+    );
+    fs::remove_file(&original_file).unwrap();
+    fs::rename(&saved_file, &original_file).unwrap();
+    let recovered = recover();
+    assert!(
+        recovered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recovered.stderr)
+    );
+    let receipt: Value = serde_json::from_slice(&recovered.stdout).unwrap();
+    assert_eq!(receipt["original_exit_code"], 0);
+    let reference: Value = serde_json::from_slice(&fs::read(&slot).unwrap()).unwrap();
+    assert_eq!(reference["original"], recovery["report"]);
+    assert_eq!(
+        fs::read(dir.path().join(original_path)).unwrap(),
+        original_raw
+    );
+    let report: Value = serde_json::from_slice(&original_raw).unwrap();
+    let stream = &report["judge"]["stdout_original"];
+    let stream_path = dir.path().join(stream["path"].as_str().unwrap());
+    let stream_raw = fs::read(&stream_path).unwrap();
+    fs::write(&stream_path, b"changed stream").unwrap();
+    assert_eq!(
+        recover().status.code(),
+        Some(2),
+        "stream corruption rejects even an existing pointer"
+    );
+    fs::write(&stream_path, stream_raw).unwrap();
+    assert!(
+        recover().status.success(),
+        "same-original recovery is idempotent"
+    );
+    let unfinished = ".chrono-harness/state/preparation/unfinished-report.json";
+    let publication = chrono_harness::retained_artifacts::retention::create_adopted_for_consumer(
+        dir.path(),
+        "check-original",
+        &dir.path().join(unfinished),
+        false,
+        json!({"outcome":"not-established"}),
+        None,
+        "report-recheck",
+    )
+    .unwrap()
+    .unwrap();
+    fs::write(dir.path().join(unfinished), &original_raw).unwrap();
+    drop(publication);
+    let mut unknown = recovery;
+    unknown["report"]["path"] = json!(unfinished);
+    fs::write(&request_path, serde_json::to_vec(&unknown).unwrap()).unwrap();
+    let refused = recover();
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("not sealed"));
+
+    // The public check entry also exercises the lifecycle participation
+    // parser.  A malformed lifecycle response must retain the outer process
+    // receipt before returning its parse/status error.
+    let mut participating = config;
+    participating["canonical_check"]["participation"] = json!({
+        "operation": "worktree.check",
+        "tool": "producer",
+        "argv": ["malformed"],
+    });
+    fs::write(
+        dir.path().join(".chrono-harness/config.json"),
+        serde_json::to_vec(&participating).unwrap(),
+    )
+    .unwrap();
+    let refused = run_retained_cli_child(dir.path(), "local");
+    assert_eq!(refused["exit_code"], 2);
+    assert!(
+        refused["stderr"]
+            .as_str()
+            .unwrap()
+            .contains("original process"),
+        "{}",
+        refused["stderr"]
+    );
+    let receipt = fs::read_dir(dir.path().join(".chrono-harness/state/preparation"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("participation-"))
+        })
+        .expect("participation failure receipt");
+    let raw = fs::read(receipt).unwrap();
+    assert!(!String::from_utf8_lossy(&raw).contains("inert authentication fixture λ"));
+    let receipt: Value = serde_json::from_slice(&raw).unwrap();
+    let receipt = chrono_harness::full::expand_process(&receipt).unwrap();
+    assert_eq!(receipt["stdout"], "{}");
+    assert_eq!(receipt["stdout_sha256"], chrono_harness::sha256(b"{}"));
+    assert_eq!(receipt["environment_representation"], "sha256");
+    assert_eq!(
+        receipt["environment"]["CHRONO_TEST_AUTHENTICATION"],
+        chrono_harness::sha256("inert authentication fixture λ".as_bytes())
+    );
+    assert!(
+        receipt["environment"]
+            .get("CHRONO_TEST_AUTHENTICATION_ABSENT")
+            .is_none()
+    );
+    assert_eq!(
+        receipt["environment_digest"],
+        chrono_harness::wire::digest(&environment).unwrap()
+    );
+}
+
+#[test]
+fn unit_report_compacts_formatting_and_preserves_original_process_bytes() {
+    let (dir, p) = fixture(
+        json!({"fields":{"protocol":"chrono-ci-judge/v2", "evidence":{
+        "bytes":(0..=255).cycle().take(8192).collect::<Vec<u8>>()}}}),
+    );
+    let mut config: serde_json::Value = serde_json::from_slice(&fs::read(&p).unwrap()).unwrap();
+    config["schema"] = json!("chrono-ci-check/v3");
+    config["judge"]["output_limit_bytes"] = json!(1024 * 1024);
+    config["policy"]["units"] =
+        json!({"one":{"tests":["test:one"],"report_path":".chrono-harness/state/one/check.json"}});
+    fs::write(&p, serde_json::to_vec(&config).unwrap()).unwrap();
+    let r = dispatch(&[
+        "check",
+        "--config",
+        &p,
+        "--base",
+        &"a".repeat(40),
+        "--candidate",
+        &"b".repeat(40),
+        "--unit",
+        "one",
+    ]);
+    assert_eq!(r.exit_code, 0, "{}", r.stderr);
+    assert_eq!(
+        r.stdout.lines().count(),
+        1,
+        "byte arrays must not acquire per-byte indentation"
+    );
+    assert_eq!(
+        fs::read(dir.path().join(".chrono-harness/state/one/check.json")).unwrap(),
+        r.stdout.as_bytes()
+    );
+    let report: serde_json::Value = serde_json::from_str(&r.stdout).unwrap();
+    let original: Vec<u8> =
+        serde_json::from_value(report["judge"]["stdout_bytes"].clone()).unwrap();
+    assert_eq!(
+        report["judge"]["stdout_sha256"],
+        chrono_harness::sha256(&original)
+    );
+    assert_eq!(
+        report["judge"]["stdout"],
+        std::str::from_utf8(&original).unwrap()
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&original).unwrap(),
+        report["response"]
+    );
+    let preserved: Vec<u8> =
+        serde_json::from_value(report["response"]["evidence"]["bytes"].clone()).unwrap();
+    assert_eq!(preserved, (0..=255).cycle().take(8192).collect::<Vec<u8>>());
+}
+
+#[test]
+fn full_unit_selector_rejects_legacy_profile_before_launch() {
+    let (_dir, p) = fixture(json!({}));
+    let mut config: serde_json::Value = serde_json::from_slice(&fs::read(&p).unwrap()).unwrap();
+    config["schema"] = serde_json::Value::Null;
+    config["schema_version"] = json!(2);
+    fs::write(&p, serde_json::to_vec(&config).unwrap()).unwrap();
+    let r = dispatch(&[
+        "check",
+        "--config",
+        &p,
+        "--base",
+        &"a".repeat(40),
+        "--candidate",
+        &"b".repeat(40),
+        "--unit",
+        "one",
+    ]);
+    assert_eq!(r.exit_code, 2);
+    assert!(r.stderr.contains("full-v3"));
+}
+
+#[test]
+fn full_execution_units_reject_duplicate_report_paths() {
+    let profile = json!({
+        "schema_version": 3,
+        "execution_units": {
+            "units": {
+                "one": {"tests": ["test:one"], "report_path": ".chrono-harness/state/unit.json"},
+                "two": {"tests": ["test:two"], "report_path": ".chrono-harness/state/unit.json"}
+            },
+            "shared_operations": {},
+            "collection_limits": {"manifest_bytes": 1024, "report_bytes": 1024},
+            "report_path": ".chrono-harness/state/collection.json"
+        }
+    });
+    let error = chrono_harness::units::full_execution_units(&profile).unwrap_err();
+    assert!(error.contains("report paths overlap"), "{error}");
+}
+
+#[test]
+fn full_execution_units_preserve_path_boundaries() {
+    let profile = |collection: &str, one: &str, two: &str| {
+        json!({
+            "schema_version": 3,
+            "execution_units": {
+                "units": {
+                    "one": {"tests": ["test:one"], "report_path": format!(".chrono-harness/state/{one}")},
+                    "two": {"tests": ["test:two"], "report_path": format!(".chrono-harness/state/{two}")}
+                },
+                "shared_operations": {},
+                "collection_limits": {"manifest_bytes": 1024, "report_bytes": 1024},
+                "report_path": format!(".chrono-harness/state/{collection}")
+            }
+        })
+    };
+    for (collection, one, two, accepted) in [
+        ("collection.json", "one.json", "two.json", true),
+        ("collection.json", "unit", "unit-other", true),
+        ("汇总.json", "单元.json", "另一个.json", true),
+        ("collection.json", "nested//one.json", "two.json", true),
+        ("collection.json", "nested/./one.json", "two.json", true),
+        ("collection.json", "nested/", "two.json", true),
+        ("report.json", "one.json", "two.json", false),
+        ("collection.json", "report.json", "two.json", false),
+        ("same", "same", "two.json", false),
+        ("parent", "parent/child", "two.json", false),
+        ("parent/child", "parent", "two.json", false),
+        ("collection.json", "same", "same", false),
+        ("collection.json", "parent", "parent/child", false),
+        ("collection.json", "parent/child", "parent", false),
+        ("collection.json", "", "two.json", false),
+    ] {
+        let profile = profile(collection, one, two);
+        let result = chrono_harness::units::full_execution_units(&profile);
+        if accepted {
+            assert_eq!(result.unwrap(), Some(profile["execution_units"].clone()));
+        } else {
+            assert_eq!(
+                result.unwrap_err(),
+                "execution report paths overlap reserved evidence or another report",
+                "{collection:?}, {one:?}, {two:?}"
+            );
+        }
+    }
+    for invalid in [
+        ".chrono-harness/state/../outside.json",
+        ".chrono-harness/state/nul\0.json",
+        "outside.json",
+    ] {
+        let mut invalid_profile = profile("collection.json", "one.json", "two.json");
+        invalid_profile["execution_units"]["units"]["one"]["report_path"] = json!(invalid);
+        assert!(chrono_harness::units::full_execution_units(&invalid_profile).is_err());
+    }
+}
+
+#[test]
+fn publication_preflight_rejects_symlink_and_parent_type_conflicts() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".chrono-harness/state")).unwrap();
+    fs::write(dir.path().join(".chrono-harness/state/file"), b"blocked").unwrap();
+    let error =
+        chrono_harness::prepare_publication(dir.path(), ".chrono-harness/state/file/report.json")
+            .unwrap_err();
+    assert!(
+        error.contains("publication parent is not a directory"),
+        "{error}"
+    );
+    std::os::unix::fs::symlink(
+        "report.json",
+        dir.path().join(".chrono-harness/state/link.json"),
+    )
+    .unwrap();
+    let error = chrono_harness::prepare_publication(dir.path(), ".chrono-harness/state/link.json")
+        .unwrap_err();
+    assert!(error.contains("symlink path is not allowed"), "{error}");
+}
+
+#[test]
+fn actual_failure_is_preserved() {
+    let (_dir, p) = fixture(json!({"exit":7,"fields":{"status":"failed","results":[{
+        "id":"external","status":"failed","cause":"real execution","exit_code":7}]}}));
+    let r = run(&p);
+    assert_eq!(r.exit_code, 1);
+    assert!(r.stdout.contains("registered") == false);
+    assert!(r.stdout.contains("\"exit_code\": 7"));
+}
+#[test]
+fn malformed_empty_and_identity_mismatch_fail() {
+    for case in [
+        json!({"kind":"raw","text":""}),
+        json!({"kind":"raw","text":"{}\n"}),
+        json!({"kind":"raw","text":"not-json\n"}),
+        json!({"fields":{"request_id":"other"}}),
+        json!({"fields":{"protocol":"wrong"}}),
+        json!({"fields":{"results":[]}}),
+        json!({"extra_json":true}),
+    ] {
+        let (_dir, p) = fixture(case.clone());
+        let r = run(&p);
+        assert_eq!(r.exit_code, 2, "{case}: {r:?}");
+        assert!(r.stdout.contains("transport_failure"));
+    }
+}
+#[test]
+fn exit_status_mismatch_fails() {
+    for case in [
+        json!({"exit":9}),
+        json!({"fields":{"status":"failed","results":[{
+            "id":"external","status":"failed","cause":"real execution","exit_code":9}]}}),
+    ] {
+        let (_dir, p) = fixture(case);
+        assert_eq!(run(&p).exit_code, 2);
+    }
+}
+#[test]
+fn bounds_cover_timeout_and_output() {
+    for (case, cause, timeout) in [
+        (json!({"kind":"sleep"}), "process timed out", 1),
+        (json!({"kind":"flood"}), "process output limit exceeded", 5),
+    ] {
+        let (_dir, p) = fixture(case);
+        let mut cfg: serde_json::Value = serde_json::from_slice(&fs::read(&p).unwrap()).unwrap();
+        cfg["judge"]["timeout_seconds"] = timeout.into();
+        fs::write(&p, serde_json::to_vec(&cfg).unwrap()).unwrap();
+        let start = std::time::Instant::now();
+        let r = run(&p);
+        assert_eq!(r.exit_code, 2);
+        assert!(start.elapsed().as_secs() < 5);
+        let report: serde_json::Value = serde_json::from_str(&r.stdout).unwrap();
+        assert_eq!(
+            report["transport_failure"],
+            cause,
+            "elapsed={:?}, exit={}, stdout_bytes={}, stderr_bytes={}",
+            start.elapsed(),
+            report["judge"]["exit_code"],
+            report["judge"]["stdout_bytes"].as_array().unwrap().len(),
+            report["judge"]["stderr_bytes"].as_array().unwrap().len()
+        );
+        assert_eq!(report["judge"]["failure"], cause);
+        let bytes: Vec<u8> =
+            serde_json::from_value(report["judge"]["stdout_bytes"].clone()).unwrap();
+        assert!(bytes.len() <= 4096);
+        assert_eq!(
+            report["judge"]["stdout_sha256"],
+            chrono_harness::sha256(&bytes)
+        );
+    }
+}
+#[test]
+fn duplicate_json_and_arguments_fail() {
+    let (_dir, p) = fixture(json!({}));
+    let bytes = fs::read_to_string(&p)
+        .unwrap()
+        .replace("\"schema\":", "\"schema\":\"bad\",\"schema\":");
+    fs::write(&p, bytes).unwrap();
+    assert_eq!(run(&p).exit_code, 2);
+    assert_eq!(
+        dispatch(&[
+            "check",
+            "--initial",
+            "--initial",
+            "--candidate",
+            "x",
+            "--config",
+            &p
+        ])
+        .exit_code,
+        2
+    );
+}
+#[test]
+fn proposed_full_profile_remains_unsupported() {
+    let (_dir, p) = fixture(json!({}));
+    fs::write(&p, r#"{"schema_version":1,"status":"proposed"}"#).unwrap();
+    assert_ne!(run(&p).exit_code, 0);
+}
+#[test]
+fn unknown_and_malformed_commands_are_errors() {
+    for args in [
+        vec!["checks"],
+        vec!["spec"],
+        vec!["spec", "status"],
+        vec!["parity"],
+        vec!["spec", "status", "x"],
+        vec!["--version", "check"],
+        vec!["check"],
+        vec!["check", "--help"],
+    ] {
+        assert_ne!(dispatch(&args).exit_code, 0);
+    }
+}
+#[test]
+fn help_and_version_are_information_only() {
+    assert!(dispatch(&[]).stdout.contains("NOT IMPLEMENTED"));
+    assert!(
+        dispatch(&["--version"])
+            .stdout
+            .starts_with("chrono-harness ")
+    );
+}
+#[test]
+fn exact_argv_and_spaced_cwd_reach_child() {
+    let dir = tempfile::Builder::new()
+        .prefix("host with spaces ")
+        .tempdir()
+        .unwrap();
+    let text = "literal $HOME `whoami` ' \"";
+    let r = run_process(
+        dir.path(),
+        &CommandSpec {
+            program: CHILD.into(),
+            env: Default::default(),
+            args: vec!["echo".into(), text.into()],
+            timeout_seconds: 15,
+            output_limit_bytes: 4096,
+        },
+        &[],
+    )
+    .unwrap();
+    assert_eq!(r.stdout.lines().next(), Some(text));
+    assert!(r.stdout.contains(dir.path().to_str().unwrap()));
+}
+
+#[test]
+fn input_pipe_delivers_exact_bytes_and_eof_for_empty_and_nonempty_requests() {
+    let dir = tempfile::tempdir().unwrap();
+    for input in [b"".as_slice(), b"\0\xffliteral input\n".as_slice()] {
+        let result = run_process(
+            dir.path(),
+            &CommandSpec {
+                program: CHILD.into(),
+                env: Default::default(),
+                args: vec!["pipe".into()],
+                timeout_seconds: 15,
+                output_limit_bytes: 4096,
+            },
+            input,
+        )
+        .unwrap();
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.stdout_bytes, [b"EOF:".as_slice(), input].concat());
+        assert_eq!(result.stderr_bytes, b"joined");
+        assert_eq!(result.stdin_sha256, chrono_harness::sha256(input));
+        assert!(result.failure.is_none());
+    }
+}
+#[test]
+fn not_required_is_a_typed_status() {
+    assert_eq!(
+        serde_json::to_string(&Status::NotRequired).unwrap(),
+        "\"not-required\""
+    );
+}
+#[test]
+fn external_judge_result_exit_invariants() {
+    for (status, child_exit, judge_exit, expected) in [
+        ("not-required", None, 0, 0),
+        ("passed", None, 0, 0),
+        ("failed", None, 1, 1),
+        ("passed", Some(0), 0, 0),
+        ("failed", Some(7), 7, 1),
+        ("not-required", Some(7), 0, 2),
+        ("not-required", Some(0), 0, 2),
+        ("passed", Some(7), 0, 2),
+        ("failed", Some(0), 1, 2),
+    ] {
+        let (_dir, path) = fixture(json!({"echo_protocol":true, "child_exit":child_exit,
+            "exit":judge_exit,"fields":{"status":status,"results":[{"id":"external",
+            "status":status,"cause":"fixture result","exit_code":null}],"evidence":{"fixture":true}}}));
+        let result = run(&path);
+        assert_eq!(
+            result.exit_code, expected,
+            "{status}/{child_exit:?}: {result:?}"
+        );
+        let report: serde_json::Value = serde_json::from_str(&result.stdout).unwrap();
+        assert_eq!(report["judge"]["exit_code"], judge_exit);
+        assert_eq!(report.get("transport_failure").is_some(), expected == 2);
+        if status == "not-required" && child_exit.is_some() {
+            assert!(
+                report["transport_failure"]
+                    .as_str()
+                    .unwrap()
+                    .contains("not-required")
+            );
+        }
+    }
+}
+
+#[test]
+fn aggregate_not_required_exactly_matches_unused_results() {
+    for case in [
+        json!({"fields":{"status":"not-required"}}),
+        json!({"fields":{"results":[{"id":"external","status":"not-required",
+            "cause":"real execution","exit_code":null}]}}),
+    ] {
+        let (_dir, path) = fixture(case);
+        let result = run(&path);
+        assert_eq!(result.exit_code, 2);
+        let report: serde_json::Value = serde_json::from_str(&result.stdout).unwrap();
+        assert_eq!(
+            report["transport_failure"],
+            "judge exit/status/results disagreement"
+        );
+    }
+}
+
+#[test]
+fn command_path_override_selects_and_hashes_the_invoked_executable() {
+    let dir = tempfile::Builder::new()
+        .prefix("command cwd ")
+        .tempdir_in(std::path::Path::new(CHILD).parent().unwrap())
+        .unwrap();
+    let tools = dir.path().join("tools");
+    fs::create_dir(&tools).unwrap();
+    let executable = tools.join("true");
+    native_executable::install(CHILD, &executable).unwrap();
+    let bytes = fs::read(CHILD).unwrap();
+    let mut spec = CommandSpec {
+        program: "true".into(),
+        args: vec![],
+        env: Default::default(),
+        timeout_seconds: 15,
+        output_limit_bytes: 4096,
+    };
+    let inherited = run_process(dir.path(), &spec, &[]).unwrap();
+    assert_eq!(inherited.exit_code, 0);
+    assert_ne!(inherited.executable, executable);
+    assert_eq!(
+        inherited.sha256,
+        chrono_harness::sha256(&fs::read(&inherited.executable).unwrap())
+    );
+    for path in [tools.to_str().unwrap(), "tools", "missing:tools"] {
+        spec.env.insert("PATH".into(), path.into());
+        let result = run_process(dir.path(), &spec, &[]).unwrap();
+        assert_eq!(result.exit_code, 9, "PATH={path}");
+        assert_eq!(result.executable, executable);
+        assert_eq!(result.sha256, chrono_harness::sha256(&bytes));
+    }
+    spec.env.insert("PATH".into(), "missing".into());
+    assert!(
+        run_process(dir.path(), &spec, &[])
+            .unwrap_err()
+            .contains("executable not found")
+    );
+}
+#[test]
+fn symlinked_tool_preserves_invocation_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let alias = dir.path().join("registered-tool");
+    std::os::unix::fs::symlink(CHILD, &alias).unwrap();
+    let result = run_process(
+        dir.path(),
+        &CommandSpec {
+            program: alias.to_str().unwrap().into(),
+            args: vec!["argv0".into()],
+            env: Default::default(),
+            timeout_seconds: 15,
+            output_limit_bytes: 4096,
+        },
+        &[],
+    )
+    .unwrap();
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.stdout, alias.to_str().unwrap());
+    assert_eq!(result.executable, alias);
+}
+
+#[test]
+fn scoped_cli_embedded_invalid_utf8_is_protocol_error_and_valid_replacement_passes() {
+    for (bytes, expected_exit) in [(vec![239u8, 191, 189], 0), (vec![255], 2)] {
+        let (_dir, p) = fixture(json!({"echo_protocol":true,"replacement_bytes":bytes,
+            "fields":{"results":[{"id":"encoding","status":"passed","cause":"MARKER","exit_code":0}]}}));
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
+            .args([
+                "check",
+                "--config",
+                &p,
+                "--base",
+                &"a".repeat(40),
+                "--candidate",
+                &"b".repeat(40),
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(expected_exit),
+            "scoped CLI must reject original invalid bytes"
+        );
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let raw: Vec<u8> = serde_json::from_value(report["judge"]["stdout_bytes"].clone()).unwrap();
+        assert_eq!(std::str::from_utf8(&raw).is_ok(), expected_exit == 0);
+        assert_eq!(report["judge"]["exit_code"], 0);
+        if expected_exit == 0 {
+            assert_eq!(report["response"]["results"][0]["cause"], "�");
+        } else {
+            assert!(report.get("transport_failure").is_some());
+        }
+    }
+}
+
+#[test]
+fn retained_entry_validation_reaches_raw_paths_and_missing_members_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    fs::write(root.join("runner"), "runner").unwrap();
+    fs::write(root.join("config"), "config").unwrap();
+    let template = vec![
+        "runner".into(),
+        "check".into(),
+        "--config".into(),
+        "config".into(),
+    ];
+    let mut entry = json!({"argv":template,"cwd":root});
+    entry["resolved_paths"] =
+        chrono_harness::resolve_invocation(&root, &entry, &template, &json!({})).unwrap();
+    dir.close().unwrap();
+    chrono_harness::validate_invocation_observation(&entry, &template, &json!({})).unwrap();
+    let mut wrong = entry.clone();
+    wrong["argv"][3] = "other".into();
+    assert!(
+        chrono_harness::validate_invocation_observation(&wrong, &template, &json!({}))
+            .unwrap_err()
+            .contains("raw entry identity")
+    );
+    let mut wrong = entry.clone();
+    wrong["resolved_paths"]["paths"][3]["actual"] = "other".into();
+    assert!(
+        chrono_harness::validate_invocation_observation(&wrong, &template, &json!({}))
+            .unwrap_err()
+            .contains("canonical path")
+    );
+    for field in ["raw_digest", "paths"] {
+        let mut missing = entry.clone();
+        missing["resolved_paths"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(
+            chrono_harness::validate_invocation_observation(&missing, &template, &json!({}))
+                .unwrap_err()
+                .contains("E_ROUTE_MISSING")
+        );
+    }
+    for field in ["actual", "expected"] {
+        let mut missing = entry.clone();
+        missing["resolved_paths"]["paths"][3]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(
+            chrono_harness::validate_invocation_observation(&missing, &template, &json!({}))
+                .unwrap_err()
+                .contains("E_ROUTE_MISSING")
+        );
+    }
+}
+
+#[test]
+fn collection_manifest_repeated_separators_are_filesystem_aliases() {
+    use chrono_harness::units::{overlap, validate_collection_paths};
+    for (a, b) in [
+        (
+            ".chrono-harness/state//report.json",
+            ".chrono-harness/state/report.json",
+        ),
+        (
+            ".chrono-harness//state/unit",
+            ".chrono-harness/state/unit/report.json",
+        ),
+    ] {
+        assert!(overlap(a, b));
+        assert!(overlap(b, a));
+    }
+    assert!(
+        validate_collection_paths(
+            ".chrono-harness/state//collected.json",
+            ".chrono-harness/state/collected.json",
+            &[]
+        )
+        .is_err()
+    );
+    assert!(
+        validate_collection_paths(
+            ".chrono-harness/state//one.json",
+            ".chrono-harness/state/collected.json",
+            &[".chrono-harness/state/one.json".into()]
+        )
+        .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn selector_alias_and_parent_traversal_preserve_below_root_guards() {
+    use std::os::unix::fs::symlink;
+    let temporary = tempfile::tempdir().unwrap();
+    let source = temporary.path();
+    for parent in [
+        source.join(".chrono-harness/state/implementation-repair/selector-fixtures"),
+        source.join("crates/runner-tests/target/selector-fixtures"),
+    ] {
+        fs::create_dir_all(&parent).unwrap();
+        let dir = tempfile::tempdir_in(parent).unwrap();
+        let root = dir.path().join("host");
+        fs::create_dir_all(root.join(".chrono-harness")).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let alias = dir.path().join("alias");
+        symlink(&root, &alias).unwrap();
+        let marker = root.join(".chrono-harness/facts-launches");
+        let tool = root.join(".chrono-harness/git-fixture");
+        native_executable::install(CHILD, &tool).unwrap();
+        let target = json!({"schema_version":3,"facts_git":{"tool":"git","input":"git-bytes"},"tools":[{"id":"git","program":tool,"resolution":"PATH-once","version_argv":["--version"],"expected_version":"expected"}],"environment":{"inherit":[],"values":{},"inputs":[{"id":"git-bytes","location":tool,"presence":"present","sha256":chrono_harness::sha256(&fs::read(&tool).unwrap())}]},"protocol":{"timeout_seconds":5,"stdout_limit_bytes":4096}});
+        fs::write(
+            root.join(".chrono-harness/direct.json"),
+            serde_json::to_vec(&target).unwrap(),
+        )
+        .unwrap();
+        let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+        fs::write(root.join(".chrono-harness/config.json"),serde_json::to_vec(&json!({"schema":"chrono-git-configs/v1","platforms":{platform:".chrono-harness/direct.json"}})).unwrap()).unwrap();
+        symlink("config.json", root.join(".chrono-harness/linked.json")).unwrap();
+        fs::create_dir(root.join(".chrono-harness/real-dir")).unwrap();
+        symlink("real-dir", root.join(".chrono-harness/linked-dir")).unwrap();
+        let runner = Path::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"));
+        let invoke = |cwd: &std::path::Path, path: &std::path::Path| {
+            std::process::Command::new(&runner)
+                .current_dir(cwd)
+                .args([
+                    "check",
+                    "--config",
+                    path.to_str().unwrap(),
+                    "--base",
+                    &"a".repeat(40),
+                    "--candidate",
+                    &"b".repeat(40),
+                    "--context",
+                    ".chrono-harness/state/context.json",
+                ])
+                .output()
+                .unwrap()
+        };
+        for path in [
+            root.join(".chrono-harness/linked.json"),
+            alias.join(".chrono-harness/linked.json"),
+            alias.join(".chrono-harness/linked-dir/../config.json"),
+        ] {
+            let out = invoke(dir.path(), &path);
+            assert_eq!(out.status.code(), Some(2));
+            assert!(
+                String::from_utf8_lossy(&out.stderr).contains("symlink path"),
+                "{}: {}",
+                path.display(),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(!marker.exists(), "facts launched for {}", path.display());
+        }
+        let nested = root.join("nested");
+        fs::create_dir(&nested).unwrap();
+        for (cwd, path) in [
+            (
+                dir.path().to_path_buf(),
+                alias.join(".chrono-harness/config.json"),
+            ),
+            (
+                nested.clone(),
+                std::path::PathBuf::from("../.chrono-harness/config.json"),
+            ),
+            (
+                nested,
+                std::path::PathBuf::from("../../host/.chrono-harness/config.json"),
+            ),
+        ] {
+            let out = invoke(&cwd, &path);
+            assert_eq!(out.status.code(), Some(2));
+            assert!(
+                marker.exists(),
+                "legal control did not reach selected producer: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            fs::remove_file(&marker).unwrap();
+        }
+    }
+}
+
+#[test]
+fn scoped_signal_termination_reports_the_process_failure_before_empty_json() {
+    let (dir, path) = fixture(json!({}));
+    let mut config: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    config["schema"] = json!("chrono-ci-check/v3");
+    config["judge"]["program"] = json!(env!("CARGO_BIN_EXE_chrono-test-process-lifecycle"));
+    config["judge"]["args"] = json!(["terminated", "empty"]);
+    config["policy"]["units"] =
+        json!({"one":{"tests":["test:one"],"report_path":".chrono-harness/state/one/check.json"}});
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let result = dispatch(&[
+        "check",
+        "--config",
+        &path,
+        "--base",
+        &"a".repeat(40),
+        "--candidate",
+        &"b".repeat(40),
+        "--unit",
+        "one",
+    ]);
+    assert_eq!(result.exit_code, 2, "{result:?}");
+    let report: serde_json::Value = serde_json::from_str(&result.stdout).unwrap();
+    let pid = fs::read_to_string(dir.path().join("terminated.pid")).unwrap();
+    let expected = format!("process terminated by signal 9 (pid {pid})");
+    assert_eq!(report["transport_failure"], expected);
+    assert_eq!(report["judge"]["failure"], expected);
+    assert_eq!(report["judge"]["exit_code"], -1);
+    assert_eq!(report["judge"]["stdout_bytes"], json!([]));
+}
+
+#[test]
+fn prepared_initial_identity_requires_the_explicit_profile_and_standalone_scope() {
+    use chrono_harness::prepared::{self, InputRequest, PreparedCheck, ProfileBinding, Selection};
+    let mut request = InputRequest {
+        schema: prepared::REQUEST.into(),
+        host_root: Path::new("/host").into(),
+        source: "local".into(),
+        host_config: ".chrono-harness/config.json".into(),
+        host_config_sha256: "1".repeat(64),
+        effective_config: ".chrono-harness/config.json".into(),
+        effective_config_sha256: "1".repeat(64),
+        profile: ".chrono-harness/ci/delta.json".into(),
+        profile_sha256: "2".repeat(64),
+        initial_profile: Some(ProfileBinding {
+            path: ".chrono-harness/ci/initial.json".into(),
+            sha256: "3".repeat(64),
+        }),
+        selection: Selection::All,
+        native_artifacts: None,
+        prepared: None,
+    };
+    let mut result = PreparedCheck {
+        schema: prepared::RESPONSE.into(),
+        request_sha256: chrono_harness::sha256(&serde_json::to_vec(&request).unwrap()),
+        source: "local".into(),
+        profile: ".chrono-harness/ci/initial.json".into(),
+        base: None,
+        candidate: "a".repeat(40),
+        initial: true,
+        context: None,
+        scope: None,
+        evidence: json!({"report_path":"original"}),
+        originals: vec![],
+    };
+    prepared::validate_result_identity(&request, &result).unwrap();
+    result.profile = request.profile.clone();
+    assert!(
+        prepared::validate_result_identity(&request, &result).is_err(),
+        "initial may not certify the DELTA profile"
+    );
+    result.profile = ".chrono-harness/ci/initial.json".into();
+    request.initial_profile = None;
+    result.request_sha256 = chrono_harness::sha256(&serde_json::to_vec(&request).unwrap());
+    assert!(
+        prepared::validate_result_identity(&request, &result).is_err(),
+        "no implicit initial profile"
+    );
+    request.initial_profile = Some(ProfileBinding {
+        path: result.profile.clone(),
+        sha256: "3".repeat(64),
+    });
+    for selection in [
+        Selection::Unit {
+            unit: "business".into(),
+        },
+        Selection::Collect,
+    ] {
+        request.selection = selection;
+        result.request_sha256 = chrono_harness::sha256(&serde_json::to_vec(&request).unwrap());
+        assert!(
+            prepared::validate_result_identity(&request, &result).is_err(),
+            "initial is a standalone inventory"
+        );
+    }
+    request.selection = Selection::All;
+    result.request_sha256 = chrono_harness::sha256(&serde_json::to_vec(&request).unwrap());
+    result.initial = false;
+    result.base = Some("b".repeat(40));
+    assert!(
+        prepared::validate_result_identity(&request, &result).is_err(),
+        "DELTA cannot use the inventory profile"
+    );
+    result.profile = request.profile.clone();
+    prepared::validate_result_identity(&request, &result).unwrap();
+    request.initial_profile.as_mut().unwrap().sha256 = "4".repeat(64);
+    assert!(
+        prepared::validate_result_identity(&request, &result).is_err(),
+        "both profile identities are request-bound"
+    );
+}

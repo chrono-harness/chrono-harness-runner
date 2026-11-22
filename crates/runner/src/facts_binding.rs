@@ -1,0 +1,1041 @@
+//! Candidate-owned Git binding. Does not infer Git's delegated input closure.
+use std::collections::BTreeMap;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub open spec fn acquired_rows_prefix(
+    paths: Seq<String>, bytes: Map<String, Vec<u8>>, rows: Seq<(String, Vec<u8>)>, count: int,
+) -> bool {
+    0 <= count <= paths.len() && rows.len() == count
+        && (forall|j: int| 0 <= j < count ==>
+            bytes.contains_key(#[trigger] paths[j])
+            && rows[j].0@ == paths[j]@
+            && rows[j].1@ == bytes[paths[j]]@)
+}
+
+proof fn acquired_rows_append(
+    paths: Seq<String>, bytes: Map<String, Vec<u8>>, rows: Seq<(String, Vec<u8>)>,
+    count: int, row: (String, Vec<u8>),
+)
+    requires acquired_rows_prefix(paths, bytes, rows, count), count < paths.len(),
+        bytes.contains_key(paths[count]), row.0@ == paths[count]@,
+        row.1@ == bytes[paths[count]]@,
+    ensures acquired_rows_prefix(paths, bytes, rows.push(row), count + 1),
+{
+    let next = rows.push(row);
+    assert(0 <= count + 1 <= paths.len());
+    assert(next.len() == count + 1);
+    assert forall|j: int| 0 <= j < count + 1 implies
+        bytes.contains_key(#[trigger] paths[j])
+        && next[j].0@ == paths[j]@
+        && next[j].1@ == bytes[paths[j]]@ by {
+        if j < count { assert(next[j] == rows[j]); }
+        else { assert(j == count); }
+    }
+    assert(acquired_rows_prefix(paths, bytes, next, count + 1));
+}
+
+/// 按原请求顺序重建实际取得的字节，保留重复路径；缺少任一条时拒绝。
+pub fn ordered_acquired_blobs(paths: &[String], bytes: &BTreeMap<String, Vec<u8>>)
+    -> (out: Option<Vec<(String, Vec<u8>)>>)
+    requires vstd::laws_cmp::obeys_cmp::<String>(),
+    ensures match out {
+        Some(rows) => acquired_rows_prefix(paths@, bytes@, rows@, paths.len() as int),
+        None => exists|i: int| 0 <= i < paths.len() && !bytes@.contains_key(paths@[i]),
+    },
+{
+    broadcast use vstd::std_specs::btree::group_btree_axioms;
+    let mut rows: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut i = 0;
+    while i < paths.len()
+        invariant vstd::laws_cmp::obeys_cmp::<String>(),
+            0 <= i <= paths.len(), acquired_rows_prefix(paths@, bytes@, rows@, i as int),
+        decreases paths.len() - i,
+    {
+        let path = &paths[i];
+        let content = match bytes.get::<String>(path) {
+            Some(content) => {
+                proof {
+                    vstd::std_specs::btree::axiom_maps_deref_key_to_value(bytes@, path, *content);
+                    assert(bytes@.contains_key(paths@[i as int]));
+                    assert(*content == bytes@[paths@[i as int]]);
+                }
+                content
+            },
+            None => {
+                proof {
+                    vstd::std_specs::btree::axiom_contains_deref_key(bytes@, path);
+                    assert(!bytes@.contains_key(paths@[i as int]));
+                }
+                return None;
+            },
+        };
+        let name = paths[i].clone();
+        let copied = content.clone();
+        let ghost before = rows@;
+        proof { acquired_rows_append(paths@, bytes@, before, i as int, (name, copied)); }
+        rows.push((name, copied));
+        i += 1;
+    }
+    Some(rows)
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
+use crate::{
+    CommandSpec, ProcessResult, facts, no_symlink_parents, resolve_program, run_process_observed,
+    sha256, verified_git_binding, wire,
+};
+#[cfg(not(verus_keep_ghost))]
+use serde_json::{Value, json as value};
+#[cfg(not(verus_keep_ghost))]
+use std::{
+    cell::RefCell,
+    collections::BTreeSet,
+    fs,
+    path::{Path, PathBuf},
+};
+
+#[cfg(not(verus_keep_ghost))]
+pub const OBSERVATION_SCHEMA: &str = "chrono-git-facts/v2";
+
+#[cfg(not(verus_keep_ghost))]
+pub struct Reader {
+    bound: Option<Bound>,
+    processes: RefCell<Vec<ProcessResult>>,
+    // Exact immutable endpoint/path -> range of an original successful process. The root,
+    // tool and environment belong to this Reader's binding, never a global cache.
+    blobs: RefCell<BTreeMap<(String, String), BlobReceipt>>,
+    trees: RefCell<BTreeMap<String, usize>>,
+    verified_oids: RefCell<BTreeSet<String>>,
+}
+#[derive(Clone)]
+#[cfg(not(verus_keep_ghost))]
+struct BlobReceipt {
+    process: usize,
+    range: std::ops::Range<usize>,
+}
+#[cfg(not(verus_keep_ghost))]
+struct BlobObject {
+    oid: String,
+    length: usize,
+}
+#[cfg(not(verus_keep_ghost))]
+impl BlobObject {
+    fn header(&self) -> String {
+        format!("{} blob {}\n", self.oid, self.length)
+    }
+    fn matches(&self, bytes: &[u8]) -> bool {
+        use sha2::Digest;
+        crate::verified_status::git_blob_matches(
+            &self.oid,
+            self.length,
+            bytes,
+            |length, bytes| {
+                let header = format!("blob {length}\0");
+                let mut hash = sha1::Sha1::new();
+                hash.update(header.as_bytes());
+                hash.update(bytes);
+                format!("{:x}", hash.finalize())
+            },
+            |length, bytes| {
+                let header = format!("blob {length}\0");
+                let mut hash = sha2::Sha256::new();
+                hash.update(header.as_bytes());
+                hash.update(bytes);
+                format!("{:x}", hash.finalize())
+            },
+        )
+    }
+}
+/// One successful registered blob and its original acquisition coordinates.
+/// Callers retain the processes; no synthetic process receipt is produced here.
+#[cfg(not(verus_keep_ghost))]
+pub struct RegistryBlob {
+    pub path: String,
+    pub bytes: Vec<u8>,
+    receipt: BlobReceipt,
+}
+/// Acquire only explicit immutable registry paths through the caller's bounded
+/// Git transport. Metadata partitions requests under the same output limit.
+/// The callback returns its retained process index and exact stdout bytes.
+#[cfg(not(verus_keep_ghost))]
+pub fn acquire_registry_blobs(
+    oid: &str,
+    paths: &[String],
+    limit: usize,
+    mut git: impl FnMut(&[&str], &[u8]) -> Result<(usize, Vec<u8>), String>,
+    error: impl Fn(&str) -> String,
+) -> Result<Vec<RegistryBlob>, String> {
+    facts::full_oid(oid)?;
+    let mut unique = BTreeSet::new();
+    for path in paths {
+        crate::relative_path(path)?;
+        if !unique.insert(path) {
+            return Err(error("duplicate registered blob path"));
+        }
+    }
+    let mut acquired = vec![];
+    // The longest supported metadata header is 64 hex bytes, a blob
+    // type, a 20-digit length and LF. Tiny declared limits remain usable.
+    if paths.len() < 3 || paths.len().saturating_mul(91) > limit {
+        for path in paths {
+            let (process, original) = git(&["show", &format!("{oid}:{path}")], &[])?;
+            acquired.push(RegistryBlob {
+                path: path.clone(),
+                receipt: BlobReceipt {
+                    process,
+                    range: 0..original.len(),
+                },
+                bytes: original,
+            });
+        }
+    } else {
+        let input = paths
+            .iter()
+            .map(|path| format!("{oid}:{path}\n"))
+            .collect::<String>();
+        let (_, metadata) = git(&["cat-file", "--batch-check"], input.as_bytes())?;
+        let parse = || -> Result<Vec<BlobObject>, String> {
+            let text = std::str::from_utf8(&metadata).map_err(|_| "non UTF-8 batch metadata")?;
+            let rows = text
+                .strip_suffix('\n')
+                .ok_or("missing batch metadata terminator")?
+                .split('\n')
+                .collect::<Vec<_>>();
+            if rows.len() != paths.len() {
+                return Err("batch metadata count mismatch".into());
+            }
+            rows.iter()
+                .map(|row| {
+                    let fields = row.split(' ').collect::<Vec<_>>();
+                    if fields.len() != 3 || fields[1] != "blob" || fields[0].len() != oid.len() {
+                        return Err("expected exact blob metadata".into());
+                    }
+                    facts::full_oid(fields[0])?;
+                    let length = fields[2]
+                        .parse::<usize>()
+                        .map_err(|_| "invalid blob length")?;
+                    if length.to_string() != fields[2] {
+                        return Err("noncanonical blob length".into());
+                    }
+                    Ok(BlobObject {
+                        oid: fields[0].into(),
+                        length,
+                    })
+                })
+                .collect()
+        };
+        let objects = parse().map_err(|e| error(&e))?;
+        let mut first = 0;
+        while first < paths.len() {
+            let mut end = first;
+            let mut length = 0usize;
+            while end < paths.len() {
+                let object = &objects[end];
+                let framed = object
+                    .length
+                    .checked_add(object.header().len())
+                    .and_then(|n| n.checked_add(1));
+                let Some(total) = framed
+                    .and_then(|n| length.checked_add(n))
+                    .filter(|n| *n <= limit)
+                else {
+                    break;
+                };
+                length = total;
+                end += 1;
+            }
+            if end.saturating_sub(first) < 2 {
+                let path = &paths[first];
+                let (process, original) = git(&["show", &format!("{oid}:{path}")], &[])?;
+                if !objects[first].matches(&original) {
+                    return Err(error("blob bytes differ from batch metadata"));
+                }
+                acquired.push(RegistryBlob {
+                    path: path.clone(),
+                    receipt: BlobReceipt {
+                        process,
+                        range: 0..original.len(),
+                    },
+                    bytes: original,
+                });
+                first += 1;
+                continue;
+            }
+            let input = objects[first..end]
+                .iter()
+                .map(|object| format!("{}\n", object.oid))
+                .collect::<String>();
+            let (process, original) = git(&["cat-file", "--batch"], input.as_bytes())?;
+            let mut offset = 0;
+            for i in first..end {
+                let object = &objects[i];
+                let header = object.header();
+                if !original[offset..].starts_with(header.as_bytes()) {
+                    return Err(error("batch blob header mismatch"));
+                }
+                offset += header.len();
+                let stop = offset
+                    .checked_add(object.length)
+                    .ok_or_else(|| error("batch blob length overflow"))?;
+                let content = original
+                    .get(offset..stop)
+                    .ok_or_else(|| error("truncated batch blob"))?;
+                if original.get(stop) != Some(&b'\n') || !object.matches(content) {
+                    return Err(error("batch blob bytes/terminator mismatch"));
+                }
+                acquired.push(RegistryBlob {
+                    path: paths[i].clone(),
+                    receipt: BlobReceipt {
+                        process,
+                        range: offset..stop,
+                    },
+                    bytes: content.to_vec(),
+                });
+                offset = stop + 1;
+            }
+            if offset != original.len() {
+                return Err(error("trailing batch blob output"));
+            }
+            first = end;
+        }
+    }
+    Ok(acquired)
+}
+
+/// Read one explicitly declared immutable input. Metadata remains diagnostic
+/// traffic; only the object's exact stdout receives the declared data bound.
+/// Both original processes are retained by the caller, including failures.
+#[cfg(not(verus_keep_ghost))]
+pub fn acquire_immutable_input(
+    oid: &str,
+    path: &str,
+    limit: usize,
+    mut git: impl FnMut(&[&str], &[u8], Option<usize>) -> Result<Vec<u8>, String>,
+) -> Result<Vec<u8>, String> {
+    facts::full_oid(oid)?;
+    crate::relative_path(path)?;
+    if limit == 0 || limit > 64 * 1024 * 1024 {
+        return Err("invalid immutable input limit".into());
+    }
+    // NUL-framed queries preserve the exact registered path.
+    let query = format!("{oid}:{path}\0");
+    let metadata = git(&["cat-file", "--batch-check", "-z"], query.as_bytes(), None)?;
+    let text = std::str::from_utf8(&metadata).map_err(|_| "invalid immutable input metadata")?;
+    let fields: Vec<_> = text
+        .strip_suffix('\n')
+        .ok_or("missing immutable input metadata terminator")?
+        .split(' ')
+        .collect();
+    if fields.len() != 3 || fields[1] != "blob" || fields[0].len() != oid.len() {
+        return Err("expected exact immutable blob metadata".into());
+    }
+    facts::full_oid(fields[0])?;
+    let length = fields[2]
+        .parse::<usize>()
+        .map_err(|_| "invalid immutable input length")?;
+    if length.to_string() != fields[2] {
+        return Err("noncanonical immutable input length".into());
+    }
+    if length > limit {
+        return Err(format!(
+            "immutable input {path} has {length} bytes; declared limit is {limit}"
+        ));
+    }
+    let object = BlobObject {
+        oid: fields[0].into(),
+        length,
+    };
+    // Bind the data read to the observed object identity, never a moving ref.
+    // Empty blobs still need one byte of transport capacity to detect excess.
+    let bytes = git(&["cat-file", "blob", &object.oid], &[], Some(length.max(1)))?;
+    if !object.matches(&bytes) {
+        return Err("immutable input bytes differ from object metadata".into());
+    }
+    Ok(bytes)
+}
+
+/// Original binding observations when construction fails, without decoding diagnostics.
+#[derive(Debug)]
+#[cfg(not(verus_keep_ghost))]
+pub struct OpenFailure {
+    pub message: String,
+    pub observation: Value,
+}
+#[cfg(not(verus_keep_ghost))]
+struct Bound {
+    root: PathBuf,
+    config_path: String,
+    config_bytes: Vec<u8>,
+    binding: Value,
+    spec: CommandSpec,
+    environment: Value,
+    guard: Option<crate::facts_inputs::Guard>,
+    selection: Option<crate::facts_configs::Selection>,
+}
+#[cfg(not(verus_keep_ghost))]
+fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str, String> {
+    verified_git_binding::required_binding_text(v[key].as_str(), key)
+        .map_err(|missing| format!("{}{}", missing.prefix, missing.field))
+}
+
+#[cfg(not(verus_keep_ghost))]
+struct JsonBindingReferences<'a>(&'a [Value]);
+
+#[cfg(not(verus_keep_ghost))]
+impl verified_git_binding::BindingReferenceRows for JsonBindingReferences<'_> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn id(&self, index: usize) -> Option<&str> {
+        self.0[index]["id"].as_str()
+    }
+}
+
+/// Validate the new link without interpreting any historical config as v3.
+#[cfg(not(verus_keep_ghost))]
+pub fn declaration(config: &Value) -> Result<(&Value, Option<&Value>), String> {
+    if !matches!(config["schema_version"].as_u64(), Some(3 | 4)) {
+        return Err("facts_git requires config schema_version 3 or 4".into());
+    }
+    let link = config["facts_git"]
+        .as_object()
+        .ok_or("missing facts_git object")?;
+    if !verified_git_binding::valid_link(
+        config["schema_version"].as_u64().unwrap(),
+        link.contains_key("tool"),
+        link.contains_key("input"),
+        link.keys()
+            .any(|key| !matches!(key.as_str(), "tool" | "input" | "guard")),
+    ) {
+        return Err(
+            "facts_git requires tool and, for v3, input; only input and guard are optional in v4"
+                .into(),
+        );
+    }
+    let unique = |collection: &Value, id: &str| -> Result<usize, String> {
+        let rows = collection
+            .as_array()
+            .map(|rows| JsonBindingReferences(rows));
+        verified_git_binding::unique_binding_reference(rows.as_ref(), id)?
+            .ok_or_else(|| format!("missing/ambiguous facts_git reference {id}"))
+    };
+    let tool = &config["tools"][unique(&config["tools"], text(&config["facts_git"], "tool")?)?];
+    let input = link
+        .get("input")
+        .map(|_| {
+            unique(
+                &config["environment"]["inputs"],
+                text(&config["facts_git"], "input")?,
+            )
+            .map(|index| &config["environment"]["inputs"][index])
+        })
+        .transpose()?;
+    verified_git_binding::admit_binding_tool(
+        config["schema_version"].as_u64().unwrap(),
+        tool["program"].as_str(),
+        (
+            tool.get("expected_version").is_some(),
+            tool["expected_version"].is_null(),
+            tool["expected_version"].as_str(),
+        ),
+        tool["resolution"].as_str(),
+        input.map(|input| {
+            (
+                input["location"].as_str(),
+                input["presence"].as_str(),
+                input["sha256"].as_str(),
+            )
+        }),
+    )?;
+    let args: Vec<String> =
+        serde_json::from_value(tool["version_argv"].clone()).map_err(|e| e.to_string())?;
+    verified_git_binding::admit_binding_version_argv(args.len())?;
+    crate::facts_inputs::declaration(config)?;
+    Ok((tool, input))
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl Reader {
+    pub fn legacy() -> Self {
+        Self {
+            bound: None,
+            processes: RefCell::new(vec![]),
+            blobs: RefCell::new(BTreeMap::new()),
+            trees: RefCell::new(BTreeMap::new()),
+            verified_oids: RefCell::new(BTreeSet::new()),
+        }
+    }
+    pub fn for_config(root: &Path, config: &str) -> Result<Self, String> {
+        Self::open(root, config, None, None, None)
+    }
+    pub fn for_config_observed(root: &Path, config: &str) -> Result<Self, OpenFailure> {
+        let mut observation = Value::Null;
+        Self::open(root, config, None, None, Some(&mut observation)).map_err(|message| {
+            OpenFailure {
+                message,
+                observation,
+            }
+        })
+    }
+    pub fn for_request(req: &wire::Request) -> Result<Self, String> {
+        req.validate()?;
+        Self::from_observations(
+            &req.candidate.root,
+            &req.config_path,
+            &req.candidate.commit,
+            &req.observations,
+        )
+    }
+    pub fn from_observations(
+        root: &Path,
+        config: &str,
+        candidate: &str,
+        observations: &Value,
+    ) -> Result<Self, String> {
+        let reader = Self::open(
+            root,
+            config,
+            Some(&observations["environment"]),
+            Some(&observations["git_facts"]),
+            None,
+        )?;
+        reader.verify_config(root, candidate)?;
+        Ok(reader)
+    }
+    fn open(
+        root: &Path,
+        config: &str,
+        observed_env: Option<&Value>,
+        prior: Option<&Value>,
+        opening_observation: Option<&mut Value>,
+    ) -> Result<Self, String> {
+        let result = (|| {
+            let (config_path, bytes, cfg, selection) = crate::facts_configs::load(root, config)?;
+            if !matches!(cfg["schema_version"].as_u64(), Some(3 | 4)) {
+                if cfg.get("facts_git").is_some() || prior.is_some_and(|v| !v.is_null()) {
+                    return Err("legacy configuration cannot contain a Git facts binding".into());
+                }
+                return Ok(Self::legacy());
+            }
+            let (tool, input) = declaration(&cfg)?;
+            let credentials = if cfg["schema_version"] == 4 {
+                crate::prepared::credential_environment(&cfg)?
+            } else {
+                Default::default()
+            };
+            let mut inherited = BTreeMap::<String, Option<String>>::new();
+            let mut effective = BTreeMap::<String, String>::new();
+            for key in cfg["environment"]["inherit"]
+                .as_array()
+                .ok_or("environment.inherit")?
+            {
+                let key = key.as_str().ok_or("environment key")?;
+                let val = if credentials.contains(key) {
+                    None
+                } else if let Some(env) = observed_env {
+                    serde_json::from_value(
+                        env["inherited"]
+                            .get(key)
+                            .ok_or("missing inherited observation")?
+                            .clone(),
+                    )
+                    .map_err(|e| e.to_string())?
+                } else {
+                    match std::env::var(key) {
+                        Ok(v) => Some(v),
+                        Err(std::env::VarError::NotPresent) => None,
+                        Err(_) => return Err(format!("non UTF-8 inherited variable {key}")),
+                    }
+                };
+                if inherited.insert(key.into(), val.clone()).is_some() {
+                    return Err("duplicate inherited variable".into());
+                }
+                if let Some(v) = val {
+                    effective.insert(key.into(), v);
+                }
+            }
+            for (k, v) in cfg["environment"]["values"]
+                .as_object()
+                .ok_or("environment.values")?
+            {
+                effective.insert(k.clone(), v.as_str().ok_or("environment value")?.into());
+            }
+            let mut environment = value!({"inherited":inherited,"effective":effective});
+            if cfg["schema_version"] == 4 {
+                environment["omitted_credentials"] = value!(credentials);
+            }
+            if observed_env.is_some_and(|v| *v != environment) {
+                return Err("Git facts environment observation mismatch".into());
+            }
+            // These variables redirect the selected checkout. Reject rather than silently discard declarations.
+            for key in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"] {
+                if effective.contains_key(key) {
+                    return Err(format!("Git facts environment redirects checkout: {key}"));
+                }
+            }
+            let program = text(tool, "program")?;
+            if !program.contains('/') && !effective.contains_key("PATH") {
+                return Err("facts_git requires declared PATH for tool resolution".into());
+            }
+            let path = resolve_program(
+                root,
+                program,
+                Some(effective.get("PATH").map(String::as_str).unwrap_or("")),
+            )?;
+            let location = match input {
+                Some(input) => {
+                    let location = Path::new(text(input, "location")?);
+                    if location.is_absolute() {
+                        location.to_path_buf()
+                    } else {
+                        no_symlink_parents(root, location.to_str().ok_or("input UTF-8")?)?
+                    }
+                }
+                None => path.clone(),
+            };
+            if fs::canonicalize(&location).map_err(|e| e.to_string())?
+                != fs::canonicalize(&path).map_err(|e| e.to_string())?
+            {
+                return Err(
+                    "facts_git input location does not identify selected executable".into(),
+                );
+            }
+            let hash = sha256(&fs::read(&path).map_err(|e| e.to_string())?);
+            if !verified_git_binding::matches_expected(
+                &hash,
+                input.and_then(|v| v["sha256"].as_str()),
+            ) {
+                return Err("facts_git declared digest mismatch".into());
+            }
+            let timeout = cfg["protocol"]["timeout_seconds"]
+                .as_u64()
+                .filter(|n| *n > 0)
+                .ok_or("invalid facts timeout")?;
+            let limit = cfg["protocol"]["stdout_limit_bytes"]
+                .as_u64()
+                .filter(|n| *n > 0 && *n <= 64 * 1024 * 1024)
+                .ok_or("invalid facts output bound")? as usize;
+            let binding = value!({"tool":tool["id"],"input":input.map(|v| &v["id"]),"location":location,
+                "program":program,"path":path,"sha256":hash,"expected_version":tool["expected_version"],"version_argv":tool["version_argv"]});
+            let spec = CommandSpec {
+                program: path.to_str().ok_or("tool UTF-8")?.into(),
+                args: vec![],
+                env: effective,
+                timeout_seconds: timeout,
+                output_limit_bytes: limit,
+            };
+            let reader = Self {
+                bound: Some(Bound {
+                    root: fs::canonicalize(root).map_err(|e| e.to_string())?,
+                    config_path,
+                    config_bytes: bytes,
+                    binding,
+                    spec,
+                    environment,
+                    guard: crate::facts_inputs::Guard::open(
+                        &fs::canonicalize(root).map_err(|e| e.to_string())?,
+                        &cfg,
+                    )?,
+                    selection,
+                }),
+                processes: RefCell::new(vec![]),
+                blobs: RefCell::new(BTreeMap::new()),
+                trees: RefCell::new(BTreeMap::new()),
+                verified_oids: RefCell::new(BTreeSet::new()),
+            };
+            if let Some(prior) = prior {
+                if prior["schema"] != OBSERVATION_SCHEMA {
+                    return Err(reader.error(
+                        "unsupported request Git facts schema (requires chrono-git-facts/v2)",
+                    ));
+                }
+                let current = reader.observation();
+                for key in [
+                    "config_path",
+                    "config_sha256",
+                    "binding",
+                    "environment",
+                    "inputs",
+                    "selection",
+                ] {
+                    if prior.get(key) != current.get(key) {
+                        return Err(
+                            reader.error(&format!("missing/mismatched request Git facts {key}"))
+                        );
+                    }
+                }
+            }
+            let argv: Vec<String> =
+                serde_json::from_value(tool["version_argv"].clone()).map_err(|e| e.to_string())?;
+            let result = reader.invoke(root, argv, &[], false);
+            if let Some(observation) = opening_observation {
+                *observation = reader.observation();
+            }
+            let bytes = result?;
+            let version = std::str::from_utf8(&bytes)
+                .map_err(|_| reader.error("non UTF-8 version"))?
+                .trim_end();
+            if !verified_git_binding::matches_expected(version, tool["expected_version"].as_str()) {
+                return Err(reader.error("Git facts version mismatch"));
+            }
+            Ok(reader)
+        })();
+        result.map_err(|e: String| {
+            if e.starts_with("E_GIT_FACTS:") {
+                e
+            } else {
+                format!("E_GIT_FACTS: {e}")
+            }
+        })
+    }
+    /// V2 uses explicitly encoded lossless process streams. Request-bound readers
+    /// require v2 before invoking Git; v1 inline observations are historical data.
+    pub fn observation(&self) -> Value {
+        match &self.bound {
+            None => Value::Null,
+            Some(b) => {
+                let processes: Vec<_> = self
+                    .processes
+                    .borrow()
+                    .iter()
+                    .map(|process| {
+                        crate::full::compact_process(&value!(process))
+                            .expect("process engine preserves original stream identities")
+                    })
+                    .collect();
+                let mut observed = value!({"schema":OBSERVATION_SCHEMA,"config_path":b.config_path,
+                "config_sha256":sha256(&b.config_bytes),"binding":b.binding,"environment":b.environment,
+                "processes":processes,"input_closure_complete":false});
+                if let Some(guard) = &b.guard {
+                    observed["inputs"] = guard.observation.clone();
+                }
+                if let Some(selection) = &b.selection {
+                    observed["selection"] = selection.observation.clone();
+                }
+                observed
+            }
+        }
+    }
+    pub fn is_bound(&self) -> bool {
+        self.bound.is_some()
+    }
+    pub fn record(&self, response: &mut wire::Response) {
+        if self.bound.is_some() {
+            response
+                .outputs
+                .insert("git_facts".into(), self.observation());
+        }
+    }
+    fn error(&self, message: &str) -> String {
+        format!(
+            "E_GIT_FACTS: {}",
+            value!({"message":message,"observation":self.observation()})
+        )
+    }
+    fn unchanged(&self, check_executable_bytes: bool) -> Result<(), String> {
+        let b = self.bound.as_ref().ok_or("missing binding")?;
+        if let Some(selection) = &b.selection {
+            selection.unchanged(&b.root)?;
+        }
+        if fs::read(no_symlink_parents(&b.root, &b.config_path)?).map_err(|e| e.to_string())?
+            != b.config_bytes
+        {
+            return Err("Git facts configuration changed".into());
+        }
+        let path = resolve_program(
+            &b.root,
+            text(&b.binding, "program")?,
+            Some(b.spec.env.get("PATH").map(String::as_str).unwrap_or("")),
+        )?;
+        if path != Path::new(&b.spec.program)
+            || (check_executable_bytes
+                && sha256(&fs::read(&path).map_err(|e| e.to_string())?) != b.binding["sha256"])
+            || fs::canonicalize(text(&b.binding, "location")?).map_err(|e| e.to_string())?
+                != fs::canonicalize(&path).map_err(|e| e.to_string())?
+        {
+            return Err("Git facts executable/input changed".into());
+        }
+        if let Some(guard) = &b.guard {
+            guard.unchanged(&b.root)?;
+        }
+        Ok(())
+    }
+    fn check_root(&self, root: &Path) -> Result<(), String> {
+        let b = self.bound.as_ref().ok_or("missing binding")?;
+        if fs::canonicalize(root).map_err(|e| self.error(&e.to_string()))? != b.root {
+            return Err(self.error("Git facts root mismatch"));
+        }
+        Ok(())
+    }
+    pub(crate) fn blob_with_reuse(
+        &self,
+        root: &Path,
+        oid: &str,
+        path: &str,
+    ) -> Result<Vec<u8>, String> {
+        // Legacy environments are not bound. Refs and expressions must always
+        // be observed anew, retaining the existing Git success/error semantics.
+        if !self.can_reuse_oid(oid) {
+            return self.git(root, &["show", &format!("{oid}:{path}")]);
+        }
+        self.check_root(root)?;
+        let key = (oid.to_string(), path.to_string());
+        let prior = self.blobs.borrow().get(&key).cloned();
+        if let Some(receipt) = prior {
+            self.unchanged(true).map_err(|e| self.error(&e))?;
+            let processes = self.processes.borrow();
+            let bytes = processes[receipt.process].stdout_bytes[receipt.range].to_vec();
+            self.check_root(root)?;
+            self.unchanged(true).map_err(|e| self.error(&e))?;
+            return Ok(bytes);
+        }
+        let bytes = self.git(root, &["show", &format!("{oid}:{path}")])?;
+        // invoke retains the real receipt and completes both guards before
+        // returning success. Never index failures, absence or drifted reads.
+        let index = self.processes.borrow().len() - 1;
+        self.blobs.borrow_mut().insert(
+            key,
+            BlobReceipt {
+                process: index,
+                range: 0..bytes.len(),
+            },
+        );
+        Ok(bytes)
+    }
+    pub(crate) fn tree_with_reuse(&self, root: &Path, oid: &str) -> Result<facts::Tree, String> {
+        let eligible = self.can_reuse_oid(oid);
+        if eligible {
+            self.check_root(root)?;
+            let prior = self.trees.borrow().get(oid).copied();
+            if let Some(process) = prior {
+                self.unchanged(true).map_err(|e| self.error(&e))?;
+                let tree = facts::parse_tree(&self.processes.borrow()[process].stdout_bytes)?;
+                self.check_root(root)?;
+                self.unchanged(true).map_err(|e| self.error(&e))?;
+                return Ok(tree);
+            }
+        }
+        let raw = self.git(root, &["ls-tree", "-rz", "--full-tree", oid])?;
+        let tree = facts::parse_tree(&raw)?;
+        if eligible {
+            // Keep only the original successful process address. Mutable index
+            // and physical checkout observations never enter this cache.
+            self.trees
+                .borrow_mut()
+                .insert(oid.into(), self.processes.borrow().len() - 1);
+        }
+        Ok(tree)
+    }
+    pub(crate) fn can_reuse_oid(&self, oid: &str) -> bool {
+        crate::verified_status::can_reuse_oid(
+            self.bound.is_some(),
+            &self.verified_oids,
+            oid,
+            |cache, oid| {
+                let hit = cache.borrow().contains(oid);
+                (cache, hit)
+            },
+        )
+        .1
+    }
+    /// Resolved registry or snapshot paths in an already verified immutable
+    /// commit retain framing, guards and original process receipts.
+    pub(crate) fn immutable_blobs(
+        &self,
+        root: &Path,
+        oid: &str,
+        paths: &[String],
+    ) -> Result<Vec<(String, Vec<u8>)>, String> {
+        let mut bytes = BTreeMap::new();
+        for blob in self.acquire_missing_blobs(root, oid, paths)? {
+            bytes.insert(blob.path, blob.bytes);
+        }
+        for path in paths {
+            if !bytes.contains_key(path) {
+                bytes.insert(path.clone(), self.blob_with_reuse(root, oid, path)?);
+            }
+        }
+        Ok(ordered_acquired_blobs(paths, &bytes).expect("acquired explicit registry"))
+    }
+    /// Fill the original-receipt cache, returning only newly acquired bytes.
+    /// Prefetch consumers need no copies of cached bytes or ordered output rows.
+    pub(crate) fn acquire_missing_blobs(
+        &self,
+        root: &Path,
+        oid: &str,
+        paths: &[String],
+    ) -> Result<Vec<RegistryBlob>, String> {
+        self.check_root(root)?;
+        self.unchanged(true).map_err(|e| self.error(&e))?;
+        let mut pending = vec![];
+        let mut unique = BTreeSet::new();
+        for path in paths {
+            crate::relative_path(path)?;
+            if !unique.insert(path) {
+                continue;
+            }
+            if !self
+                .blobs
+                .borrow()
+                .contains_key(&(oid.into(), path.clone()))
+            {
+                pending.push(path.clone());
+            }
+        }
+        let limit = self
+            .bound
+            .as_ref()
+            .ok_or("missing binding")?
+            .spec
+            .output_limit_bytes;
+        let acquired = acquire_registry_blobs(
+            oid,
+            &pending,
+            limit,
+            |args, input| {
+                let bytes = self.git_input(root, args, input, false)?;
+                Ok((self.processes.borrow().len() - 1, bytes))
+            },
+            |message| self.error(message),
+        )?;
+        for blob in &acquired {
+            self.blobs
+                .borrow_mut()
+                .insert((oid.into(), blob.path.clone()), blob.receipt.clone());
+        }
+        self.check_root(root)?;
+        self.unchanged(true).map_err(|e| self.error(&e))?;
+        Ok(acquired)
+    }
+    pub(crate) fn record_verified_oid(&self, oid: &str) {
+        // Only verify_oid's existing successful commit/tree observations may
+        // enable reuse. Never acquire another identity just to populate this set.
+        crate::verified_status::record_verified_oid(
+            self.bound.is_some(),
+            &self.verified_oids,
+            oid,
+            |cache, oid| {
+                cache.borrow_mut().insert(oid.into());
+                cache
+            },
+        );
+    }
+    fn invoke(
+        &self,
+        root: &Path,
+        args: Vec<String>,
+        input: &[u8],
+        literal_inventory: bool,
+    ) -> Result<Vec<u8>, String> {
+        let b = self.bound.as_ref().ok_or("missing binding")?;
+        self.check_root(root)?;
+        // The same process engine checks the bound executable digest before
+        // spawn. Keep the other guards here without reading that file twice.
+        self.unchanged(false).map_err(|e| self.error(&e))?;
+        let mut spec = CommandSpec {
+            args,
+            ..b.spec.clone()
+        };
+        if literal_inventory {
+            for key in facts::LITERAL_PATHSPEC_CONTROLS {
+                spec.env.insert(key.into(), "0".into());
+            }
+        }
+        let result = run_process_observed(root, &spec, input, text(&b.binding, "sha256")?)
+            .map_err(|e| self.error(&e))?;
+        let index = self.processes.borrow().len();
+        self.processes.borrow_mut().push(result);
+        self.check_root(root)?;
+        self.unchanged(true).map_err(|e| self.error(&e))?;
+        let processes = self.processes.borrow();
+        let result = &processes[index];
+        if let Some(failure) = &result.failure {
+            return Err(self.error(failure));
+        }
+        if result.exit_code != 0 {
+            return Err(self.error(&format!("Git facts process exit {}", result.exit_code)));
+        }
+        Ok(result.stdout_bytes.clone())
+    }
+    pub fn verify_config(&self, root: &Path, candidate: &str) -> Result<(), String> {
+        if let Some(b) = &self.bound {
+            facts::full_oid(candidate)?;
+            if let Some(selection) = &b.selection {
+                if self.blob(root, candidate, &selection.path)? != selection.bytes {
+                    return Err(self.error("Git config selector differs from fixed candidate"));
+                }
+            }
+            if self.blob(root, candidate, &b.config_path)? != b.config_bytes {
+                return Err(self.error("Git facts config differs from fixed candidate"));
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn registry_target(
+        &self,
+        entry: &str,
+    ) -> Option<crate::facts_configs::RegistryTarget<'_>> {
+        let bound = self.bound.as_ref()?;
+        let selected = bound.selection.as_ref()?;
+        (selected.path == entry).then_some(crate::facts_configs::RegistryTarget {
+            path: &selected.registry_path,
+            sha256: bound.binding["sha256"].as_str(),
+        })
+    }
+    pub fn git(&self, root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+        if self.bound.is_none() {
+            return facts::git(root, args);
+        }
+        self.git_input(root, args, &[], false)
+    }
+    pub(crate) fn literal_inventory(&self, root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+        if self.bound.is_none() {
+            return facts::git_inventory(root, args, true);
+        }
+        self.git_input(root, args, &[], true)
+    }
+    /// Only an exact successful batch response proves absence. Process errors,
+    /// wrong types and malformed responses are never converted to missing history.
+    pub fn commit_available(&self, root: &Path, oid: &str) -> Result<bool, String> {
+        facts::full_oid(oid)?;
+        let bytes = self.git_input(
+            root,
+            &["cat-file", "--batch-check=%(objectname) %(objecttype)"],
+            format!("{oid}\n").as_bytes(),
+            false,
+        )?;
+        if bytes == format!("{oid} commit\n").as_bytes() {
+            Ok(true)
+        } else if bytes == format!("{oid} missing\n").as_bytes() {
+            Ok(false)
+        } else {
+            Err(self.error("expected exact commit or missing object response"))
+        }
+    }
+    fn git_input(
+        &self,
+        root: &Path,
+        args: &[&str],
+        input: &[u8],
+        literal_inventory: bool,
+    ) -> Result<Vec<u8>, String> {
+        let bound = self.bound.as_ref().ok_or("missing binding")?;
+        let argv = [
+            "--no-optional-locks",
+            "--no-replace-objects",
+            "-C",
+            bound.root.to_str().ok_or("root UTF-8")?,
+        ]
+        .into_iter()
+        .chain(args.iter().copied())
+        .map(str::to_string)
+        .collect();
+        self.invoke(root, argv, input, literal_inventory)
+    }
+}

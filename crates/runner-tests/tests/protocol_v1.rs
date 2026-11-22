@@ -1,0 +1,3857 @@
+#![allow(unexpected_cfgs)]
+#[cfg(not(verus_keep_ghost))]
+use chrono_harness::verus;
+#[cfg(not(verus_keep_ghost))]
+#[path = "support/cli_child.rs"]
+mod cli_child;
+#[cfg(verus_keep_ghost)]
+use crate::cli_child;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd::vpanic as panic;
+
+#[path = "support/git_fixture.rs"]
+#[cfg(not(verus_keep_ghost))]
+mod git_fixture;
+#[path = "support/native_executable.rs"]
+#[cfg(not(verus_keep_ghost))]
+mod native_executable;
+#[path = "support/retention_state.rs"]
+#[cfg(not(verus_keep_ghost))]
+mod retention_state;
+
+#[cfg(not(verus_keep_ghost))]
+use chrono_harness::{json, sha256, wire};
+#[cfg(not(verus_keep_ghost))]
+use serde_json::json as value;
+#[cfg(not(verus_keep_ghost))]
+use std::fs;
+
+// Isolated launch helpers reject allocator use between fork and exec, including
+// error paths. This observes real child execution, independent of its diagnostics.
+#[cfg(not(verus_keep_ghost))]
+struct ForkCheckedAllocator;
+#[cfg(not(verus_keep_ghost))]
+static LAUNCH_PARENT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+#[cfg(not(verus_keep_ghost))]
+unsafe extern "C" {
+    fn getpid() -> i32;
+    fn _exit(status: i32) -> !;
+}
+#[cfg(not(verus_keep_ghost))]
+fn check_fork_allocator() {
+    let parent = LAUNCH_PARENT.load(std::sync::atomic::Ordering::Relaxed);
+    if parent != 0 && unsafe { getpid() } != parent {
+        unsafe { _exit(97) };
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+fn check_launch_allocations() {
+    LAUNCH_PARENT.store(unsafe { getpid() }, std::sync::atomic::Ordering::Relaxed);
+}
+#[cfg(not(verus_keep_ghost))]
+unsafe impl std::alloc::GlobalAlloc for ForkCheckedAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        check_fork_allocator();
+        unsafe { std::alloc::System.alloc(layout) }
+    }
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        check_fork_allocator();
+        unsafe { std::alloc::System.alloc_zeroed(layout) }
+    }
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: std::alloc::Layout) {
+        check_fork_allocator();
+        unsafe { std::alloc::System.dealloc(pointer, layout) }
+    }
+    unsafe fn realloc(&self, pointer: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
+        check_fork_allocator();
+        unsafe { std::alloc::System.realloc(pointer, layout, size) }
+    }
+}
+#[global_allocator]
+#[cfg(not(verus_keep_ghost))]
+static ALLOCATOR: ForkCheckedAllocator = ForkCheckedAllocator;
+
+// Ordinary protocol cases test responses, not startup latency. Real child
+// startup has exceeded five seconds on the shared host. Deliberate timeout
+// cases below keep their separate two-second bound and thirty-second stall.
+#[cfg(not(verus_keep_ghost))]
+const FIXTURE_TIMEOUT_SECONDS: u64 = 30;
+#[cfg(not(verus_keep_ghost))]
+const PROCESS_FIXTURE: &str = env!("CARGO_BIN_EXE_chrono-test-process-lifecycle");
+#[cfg(not(verus_keep_ghost))]
+const PROTOCOL_FIXTURE: &str = env!("CARGO_BIN_EXE_chrono-test-protocol-judge");
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn live_forwarding_error_keeps_both_original_streams_and_actual_child_status() {
+    struct Closed;
+    impl std::io::Write for Closed {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "closed live consumer",
+            ))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    for exit in [0, 41] {
+        let root = tempfile::tempdir().unwrap();
+        let stdout = vec![7u8; 100000];
+        let stderr = vec![254u8, 0, 10];
+        fs::write(
+            root.path().join("judge-case.json"),
+            serde_json::to_vec(&value!({
+                "kind":"raw", "stdout":stdout, "stderr":stderr, "exit":exit,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let spec = chrono_harness::CommandSpec {
+            program: PROTOCOL_FIXTURE.into(),
+            args: vec![],
+            env: Default::default(),
+            timeout_seconds: FIXTURE_TIMEOUT_SECONDS,
+            output_limit_bytes: 131072,
+        };
+        let mut live_stderr = Vec::new();
+        let result = chrono_harness::run_process_observed_forwarded_for(
+            root.path(),
+            &spec,
+            b"",
+            &sha256(&fs::read(PROTOCOL_FIXTURE).unwrap()),
+            std::time::Duration::from_secs(FIXTURE_TIMEOUT_SECONDS),
+            chrono_harness::ProcessForward {
+                stdout: &mut Closed,
+                stderr: &mut live_stderr,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.exit_code, exit);
+        assert_eq!(result.exit_signal, None);
+        assert_eq!(result.stdout_bytes, stdout);
+        assert_eq!(result.stderr_bytes, stderr);
+        assert_eq!(live_stderr, stderr);
+        assert!(result.stdout_complete && result.stderr_complete);
+        assert!(
+            result
+                .failure
+                .as_deref()
+                .unwrap()
+                .contains("closed live consumer")
+        );
+        assert!(
+            serde_json::to_value(result.failure_record.unwrap())
+                .unwrap()
+                .to_string()
+                .contains("E_PROCESS_FORWARD")
+        );
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn installed_fixture_permissions_are_independent() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("source");
+    let changed = directory.path().join("changed");
+    let sibling = directory.path().join("sibling");
+    fs::copy(PROTOCOL_FIXTURE, &source).unwrap();
+    let original_mode = fs::metadata(&source).unwrap().permissions().mode();
+    assert_ne!(original_mode & 0o111, 0);
+    native_executable::install(&source, &changed).unwrap();
+    native_executable::install(&source, &sibling).unwrap();
+    fs::set_permissions(&changed, fs::Permissions::from_mode(0o600)).unwrap();
+    for path in [&source, &sibling] {
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode(),
+            original_mode
+        );
+        assert_eq!(fs::read(path).unwrap(), fs::read(PROTOCOL_FIXTURE).unwrap());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn published_rfc8785_vectors() {
+    // RFC 8785 §3.2.2 and §3.2.3, not produced by this implementation.
+    let v =
+        json(br#"{"numbers":[333333333.33333329,1E30,4.50,2e-3,0.000000000000000000000000001]}"#)
+            .unwrap();
+    assert_eq!(
+        String::from_utf8(wire::canonical(&v).unwrap()).unwrap(),
+        r#"{"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27]}"#
+    );
+    let v = value!({"\u{20ac}":1,"\r":2,"\u{fb33}":3,"1":4,"\u{1f600}":5,"\u{80}":6,"ö":7});
+    assert_eq!(
+        String::from_utf8(wire::canonical(&v).unwrap()).unwrap(),
+        "{\"\\r\":2,\"1\":4,\"\u{80}\":6,\"ö\":7,\"€\":1,\"😀\":5,\"דּ\":3}"
+    );
+    assert_eq!(
+        wire::canonical(&value!([-0.0, 1e-6, 1e21])).unwrap(),
+        b"[0,0.000001,1e+21]"
+    );
+}
+#[cfg(not(verus_keep_ghost))]
+fn fixture_request(root: &std::path::Path) -> wire::Request {
+    let mut r: wire::Request = serde_json::from_value(value!({
+        "protocol":"chrono-judge/v1", "request_id":"", "judge_id":"fixture", "mode":"evaluate",
+        "base":{"commit":"a".repeat(40),"tree":"c".repeat(40),"root":root},
+        "candidate":{"commit":"b".repeat(40),"tree":"d".repeat(40),"root":root},
+        "delta":[],"registries":{"base":root,"candidate":root,"digest":"e".repeat(64)},
+        "context":{"path":root.join("context.json"),"sha256":"f".repeat(64)},
+        "impact":{"seeds":[],"edges":[],"tests":[],"retired_tests":[]},"prior_results":[],
+        "config_path":".chrono-harness/config.json",
+        "checkout":{"head":"b".repeat(40),"tracked":[],"untracked":[],"index_flags":[]},
+        "runner":{"path":"runner","sha256":"e".repeat(64),"version":"0.1.0"}
+    }))
+    .unwrap();
+    r.seal().unwrap();
+    r
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn fixture(case: serde_json::Value) -> (tempfile::TempDir, wire::Request, wire::Binding) {
+    let dir = tempfile::Builder::new()
+        .prefix("v1 host spaces ")
+        .tempdir_in(
+            fs::canonicalize(std::path::Path::new(PROTOCOL_FIXTURE).parent().unwrap()).unwrap(),
+        )
+        .unwrap();
+    let path = dir.path().join("judge");
+    // The protocol requires a regular file with the completed build bytes;
+    // installation closes all writable handles before launching the fixture.
+    native_executable::install(PROTOCOL_FIXTURE, &path).unwrap();
+    fs::write(
+        dir.path().join("judge-case.json"),
+        serde_json::to_vec(&case).unwrap(),
+    )
+    .unwrap();
+    let r = fixture_request(dir.path());
+    let binding = wire::Binding {
+        id: "fixture".into(),
+        executable: "judge".into(),
+        version: "fixture".into(),
+        sha256: Some(sha256(&fs::read(path).unwrap())),
+        argv: vec![],
+        selector: "every-delta".into(),
+        after: vec![],
+        modes: vec!["evaluate".into()],
+    };
+    (dir, r, binding)
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn replace_judge(directory: &std::path::Path, executable: &str) {
+    let path = directory.join("judge");
+    fs::remove_file(&path).unwrap();
+    native_executable::install(executable, path).unwrap();
+}
+#[cfg(not(verus_keep_ghost))]
+fn initial_fixture(
+    case: serde_json::Value,
+) -> (
+    tempfile::TempDir,
+    chrono_harness::initial::Request,
+    wire::Binding,
+) {
+    let (dir, old, mut binding) = fixture(case);
+    binding.selector = "every-initial".into();
+    binding.modes = vec!["inventory".into()];
+    let mut request = chrono_harness::initial::Request {
+        protocol: chrono_harness::initial::PROTOCOL.into(),
+        request_id: String::new(),
+        judge_id: old.judge_id,
+        mode: "inventory".into(),
+        candidate: old.candidate,
+        profile_path: ".chrono-harness/initial.json".into(),
+        profile_sha256: "a".repeat(64),
+        config_path: old.config_path,
+        registry_digest: old.registries.digest,
+        checkout: old.checkout,
+        runner: old.runner,
+        observations: value!({}),
+        prior_results: vec![],
+    };
+    request.seal().unwrap();
+    (dir, request, binding)
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn initial_transport_has_one_endpoint_and_preserves_real_response_failures() {
+    for (name, mut case) in [
+        ("pass", value!({})),
+        (
+            "invalid-json",
+            value!({"kind":"raw", "consume_request":true, "stdout":b"invalid json\n"}),
+        ),
+        (
+            "wrong-protocol",
+            value!({"fields":{"protocol":"chrono-judge/v1"}}),
+        ),
+        ("nonzero", value!({"exit":3})),
+    ] {
+        case["initial_only"] = value!(true);
+        let (dir, request, binding) = initial_fixture(case);
+        let result = chrono_harness::initial::invoke(
+            &request,
+            &binding,
+            &Default::default(),
+            FIXTURE_TIMEOUT_SECONDS,
+            8192,
+        );
+        if name == "pass" {
+            let (response, process) = result.unwrap();
+            assert_eq!(response.status, wire::Status::Pass);
+            assert_eq!(process.exit_code, 0);
+            assert_eq!(response.protocol, "chrono-initial-judge/v1");
+        } else {
+            let failure = result.unwrap_err();
+            assert!(failure.process.is_some(), "{failure:?}");
+        }
+        let mut value = serde_json::to_value(&request).unwrap();
+        value["base"] = value!({"commit":"f".repeat(40),"root":dir.path(),"tree":"e".repeat(40)});
+        assert!(serde_json::from_value::<chrono_harness::initial::Request>(value).is_err());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn initial_transport_rejects_wrong_mode_digest_and_base_placeholder_before_launch() {
+    let (dir, request, original) = initial_fixture(value!({"marker":"ran"}));
+    for case in ["mode", "digest", "base", "request"] {
+        let mut binding = original.clone();
+        let mut request = request.clone();
+        match case {
+            "mode" => binding.modes = vec!["evaluate".into()],
+            "digest" => binding.sha256 = Some("0".repeat(64)),
+            "base" => binding.argv.push("{base}".into()),
+            "request" => request.candidate.commit = "f".repeat(40),
+            _ => unreachable!(),
+        }
+        assert!(
+            chrono_harness::initial::invoke(
+                &request,
+                &binding,
+                &Default::default(),
+                FIXTURE_TIMEOUT_SECONDS,
+                8192
+            )
+            .is_err(),
+            "{case}"
+        );
+        assert!(!dir.path().join("ran").exists(), "{case}");
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+fn configure_bound_fixture(
+    dir: &std::path::Path,
+    binding: &mut wire::Binding,
+    protocol: &str,
+    request_id: &str,
+    timeout: bool,
+) {
+    let response = value!({"protocol":protocol,"request_id":request_id,"judge_id":"fixture",
+        "status":"pass","findings":[],"evidence":[],"outputs":{}});
+    fs::write(
+        dir.join("judge-case.json"),
+        serde_json::to_vec(&value!({
+            "kind":"bound", "response":response, "timeout":timeout
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    binding.sha256 = Some(sha256(&fs::read(dir.join("judge")).unwrap()));
+}
+#[cfg(not(verus_keep_ghost))]
+fn assert_bound_evidence(failure: wire::TransportFailure, timeout: bool) {
+    let expected = if timeout {
+        "process timed out"
+    } else {
+        "process output limit exceeded"
+    };
+    assert!(failure.message.contains(expected), "{failure:?}");
+    let process = failure
+        .process
+        .expect("a launched bounded judge must retain its process evidence");
+    assert_eq!(process.failure.as_deref(), Some(expected));
+    assert_eq!(process.stdout_sha256, sha256(&process.stdout_bytes));
+    assert_eq!(process.stderr_sha256, sha256(&process.stderr_bytes));
+    assert!(process.stdout_bytes.len() <= 1024 && process.stderr_bytes.len() <= 1024);
+    if timeout {
+        // A timeout can precede child output. Preserve the actual record without
+        // assuming wall-clock progress of the child.
+        assert_eq!(process.exit_code, -1);
+        if !process.stdout_bytes.is_empty() {
+            assert_eq!(json(&process.stdout_bytes).unwrap()["status"], "pass");
+        }
+    } else {
+        assert!(
+            process
+                .stderr_bytes
+                .starts_with(b"diagnostic-before-bound\n")
+        );
+        assert_eq!(
+            json(&process.stdout_bytes).unwrap()["status"],
+            "pass",
+            "a valid-looking response cannot hide a process bound"
+        );
+        assert_eq!(process.stderr_bytes.len(), 1024);
+    }
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn bounded_delta_transport_retains_process_evidence() {
+    for timeout in [true, false] {
+        let (dir, request, mut binding) = fixture(value!({}));
+        configure_bound_fixture(
+            dir.path(),
+            &mut binding,
+            &request.protocol,
+            &request.request_id,
+            timeout,
+        );
+        // Match ordinary protocol fixtures' startup guard when testing output;
+        // the deliberately shorter timeout is only the timeout case's subject.
+        let seconds = if timeout { 2 } else { FIXTURE_TIMEOUT_SECONDS };
+        let failure = wire::invoke_detailed(&request, &binding, &Default::default(), seconds, 1024)
+            .expect_err("a process bound is an error despite a valid response");
+        assert_bound_evidence(failure, timeout);
+    }
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn bounded_initial_transport_retains_process_evidence() {
+    for timeout in [true, false] {
+        let (dir, request, mut binding) = initial_fixture(value!({}));
+        configure_bound_fixture(
+            dir.path(),
+            &mut binding,
+            &request.protocol,
+            &request.request_id,
+            timeout,
+        );
+        let seconds = if timeout { 2 } else { FIXTURE_TIMEOUT_SECONDS };
+        let failure =
+            chrono_harness::initial::invoke(&request, &binding, &Default::default(), seconds, 1024)
+                .expect_err("an initial process bound cannot complete inventory");
+        assert_bound_evidence(failure, timeout);
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+fn invoke(case: serde_json::Value) -> Result<wire::Response, String> {
+    let (_dir, r, b) = fixture(case);
+    wire::invoke(&r, &b, &Default::default(), FIXTURE_TIMEOUT_SECONDS, 8192).map(|v| v.0)
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn four_statuses_exact_exits_and_identity() {
+    for (status, exit) in [("pass", 0), ("warn", 0), ("fail", 1), ("error", 2)] {
+        let findings = if status == "pass" {
+            value!([])
+        } else {
+            value!([{"code":"FIXTURE", "level":if ["fail","error"].contains(&status) {"error"} else {"warning"},
+                "message":"actual fixture result", "delta_refs":["/fixture"], "causes":[]}])
+        };
+        let mut case = value!({"fields":{"status":status,"findings":findings},"exit":exit});
+        assert_eq!(invoke(case.clone()).unwrap().status.exit_code(), exit);
+        case["exit"] = value!(9);
+        assert!(invoke(case).is_err());
+    }
+    for (field, value) in [
+        ("request_id", value!("wrong")),
+        ("judge_id", value!("wrong")),
+        ("protocol", value!("wrong")),
+        ("status", value!("unknown")),
+        ("extra", value!(true)),
+    ] {
+        let mut case = value!({"fields":{}});
+        case["fields"][field] = value;
+        assert!(invoke(case).is_err());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn malformed_stdout_crash_and_bounds() {
+    for (name, case) in [
+        (
+            "empty",
+            value!({"kind":"raw", "consume_request":true,"stdout":[]}),
+        ),
+        (
+            "invalid-json",
+            value!({"kind":"raw", "consume_request":true,"stdout":b"no json\n"}),
+        ),
+        (
+            "missing-fields",
+            value!({"kind":"raw", "consume_request":true,"stdout":b"{}\n"}),
+        ),
+        ("extra-json", value!({"suffix":b"{}\n"})),
+        (
+            "duplicate-keys",
+            value!({"kind":"raw", "consume_request":true,"stdout":b"{\"protocol\":1,\"protocol\":2}\n"}),
+        ),
+        (
+            "invalid-utf8",
+            value!({"kind":"raw", "consume_request":true,"stdout":[255]}),
+        ),
+        (
+            "crash",
+            value!({"kind":"raw", "consume_request":true,"stdout":[],"exit":9}),
+        ),
+        (
+            "output-limit",
+            value!({"kind":"raw", "consume_request":true,"stdout":format!("{}\n", "x".repeat(10000)).as_bytes()}),
+        ),
+    ] {
+        assert!(invoke(case).is_err(), "{name}");
+    }
+    let (_dir, r, b) = fixture(value!({"kind":"sleep","seconds":60}));
+    assert!(
+        wire::invoke(&r, &b, &Default::default(), 1, 8192)
+            .unwrap_err()
+            .contains("timed out")
+    );
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn evidence_exists_and_is_bound_to_bytes() {
+    let (dir, r, b) = fixture(value!({"fields":{"evidence":[{
+        "path":".chrono-harness/state/proof", "sha256":sha256(b"proof"), "kind":"fixture"
+    }]}}));
+    let call = || wire::invoke(&r, &b, &Default::default(), FIXTURE_TIMEOUT_SECONDS, 8192);
+    assert!(call().is_err());
+    fs::create_dir_all(dir.path().join(".chrono-harness/state")).unwrap();
+    fs::write(dir.path().join(".chrono-harness/state/proof"), "tampered").unwrap();
+    assert!(call().is_err());
+    fs::write(dir.path().join(".chrono-harness/state/proof"), "proof").unwrap();
+    assert!(call().is_ok());
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn digest_checked_before_launch_environment_cleared_and_literal_argv() {
+    let literal = "literal $HOME `whoami` ' \"";
+    let (dir, r, mut b) = fixture(value!({"kind":"environment", "argument":literal}));
+    b.argv = vec![literal.into()];
+    let env = std::collections::BTreeMap::from([("EXPLICIT".into(), "yes".into())]);
+    let outcome = wire::invoke(&r, &b, &env, FIXTURE_TIMEOUT_SECONDS, 8192);
+    assert!(outcome.is_ok(), "{outcome:?}");
+    let replacement_digest = sha256(&fs::read(PROCESS_FIXTURE).unwrap());
+    assert_ne!(b.sha256.as_deref(), Some(replacement_digest.as_str()));
+    replace_judge(dir.path(), PROCESS_FIXTURE);
+    b.argv = vec!["marker".into(), "launched".into()];
+    assert!(
+        wire::invoke(&r, &b, &env, FIXTURE_TIMEOUT_SECONDS, 8192)
+            .unwrap_err()
+            .contains("digest")
+    );
+    assert!(!dir.path().join("launched").exists());
+    // The substituted native executable can actually produce the forbidden
+    // effect; an invalid executable must not make the negative check vacuous.
+    b.sha256 = Some(replacement_digest);
+    assert!(wire::invoke(&r, &b, &env, FIXTURE_TIMEOUT_SECONDS, 8192).is_err());
+    assert_eq!(fs::read(dir.path().join("launched")).unwrap(), b"yes");
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn endpoint_argv_placeholders_replace_only_complete_arguments() {
+    let literals = [
+        "",
+        "prefix{base}",
+        "{candidate}suffix",
+        "{base}{candidate}",
+        " {base}",
+        "{candidate} ",
+        "{{base}}",
+        "{BASE}",
+        "{tree}",
+        "literal with spaces\nand a newline",
+        "é 😀",
+        "$HOME ${base} `whoami` $(touch expanded) ; & | > < * ? ' \" \\",
+    ];
+    let (dir, r, mut b) = fixture(value!({"kind":"argv"}));
+    b.argv = vec!["{candidate}".into(), "{base}".into()];
+    b.argv.extend(literals.iter().map(|s| s.to_string()));
+    b.argv.push("{base}".into());
+    let (response, process) =
+        wire::invoke(&r, &b, &Default::default(), FIXTURE_TIMEOUT_SECONDS, 8192).unwrap();
+    assert_eq!(process.exit_code, 0);
+    let mut expected = vec![r.candidate.commit.clone(), r.base.commit.clone()];
+    expected.extend(literals.iter().map(|s| s.to_string()));
+    expected.push(r.base.commit.clone());
+    assert_eq!(response.outputs["argv"], value!(expected));
+    assert!(!dir.path().join("expanded").exists());
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn request_identity_is_deterministic_and_binds_facts() {
+    let (_dir, mut r, _b) = fixture(value!({}));
+    let old = r.request_id.clone();
+    r.seal().unwrap();
+    assert_eq!(r.request_id, old);
+    r.config_path = ".chrono-harness/other.json".into();
+    assert!(r.validate().is_err());
+    r.seal().unwrap();
+    assert_ne!(r.request_id, old);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn request_identity_matches_original_projection_for_scopes_and_opaque_evidence() {
+    let (_dir, mut request, _binding) = fixture(value!({}));
+    request.observations = value!({
+        "opaque":{"😀":"escaped \\\"\n", "דּ":[-0.0, 1e-27, 1e30, null, true]},
+        "bytes":(0..=255).collect::<Vec<u8>>()
+    });
+    for scope in [
+        None,
+        Some(chrono_harness::units::Scope::Unit { unit: "one".into() }),
+        Some(chrono_harness::units::Scope::Collect {
+            manifest: ".chrono-harness/state/m.json".into(),
+        }),
+    ] {
+        request.scope = scope;
+        let mut original = serde_json::to_value(&request).unwrap();
+        original.as_object_mut().unwrap().remove("request_id");
+        let expected = wire::digest(&original).unwrap();
+        request.seal().unwrap();
+        assert_eq!(request.request_id, expected);
+        assert_eq!(
+            request.canonical().unwrap(),
+            wire::canonical(&request).unwrap()
+        );
+        request.validate().unwrap();
+        let mut changed = request.clone();
+        changed.observations["bytes"][255] = value!(254);
+        assert!(changed.validate().is_err());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn canonical_request_preserves_number_boundaries_unicode_and_original_streams() {
+    let (_dir, mut request, _binding) = fixture(value!({}));
+    // Independent RFC vectors and the fixed generic JCS implementation remain
+    // the oracle, including values outside the exact-integer fast path.
+    let mut numbers = vec![
+        value!(i64::MIN),
+        value!(i64::MAX),
+        value!(u64::MAX),
+        value!(-9007199254740993_i64),
+        value!(-9007199254740992_i64),
+        value!(9007199254740992_u64),
+        value!(9007199254740993_u64),
+        value!(-0.0),
+        value!(1e-6),
+        value!(1e21),
+        value!(1e-27),
+    ];
+    let mut bits = 0x123456789abcdef0_u64;
+    for _ in 0..1024 {
+        bits = bits.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let number = f64::from_bits(bits);
+        if number.is_finite() {
+            numbers.push(value!(number));
+        }
+    }
+    request.observations = value!({
+        "numbers": numbers,
+        "object": {"\u{ffff}": [], "😀": {}, "\r": null, "€": true},
+        "strings": ["\u{0000}\u{0001}\u{0008}\u{000c}\n\r\t\\\"/", "中文 λ 😀"],
+        "stdout_bytes": (0..=255).cycle().take(65536).collect::<Vec<u8>>()
+    });
+    let mut prior = request.response(wire::Status::Pass);
+    prior
+        .outputs
+        .insert("original".into(), request.observations.clone());
+    request.prior_results.push(prior);
+    for scope in [
+        None,
+        Some(chrono_harness::units::Scope::Unit { unit: "one".into() }),
+    ] {
+        request.scope = scope;
+        let mut identity = serde_json::to_value(&request).unwrap();
+        identity.as_object_mut().unwrap().remove("request_id");
+        request.seal().unwrap();
+        assert_eq!(request.request_id, wire::digest(&identity).unwrap());
+        assert_eq!(
+            request.canonical().unwrap(),
+            wire::canonical(&request).unwrap()
+        );
+        request.validate().unwrap();
+        let mut changed = request.clone();
+        changed.prior_results[0]
+            .outputs
+            .get_mut("original")
+            .unwrap()["stdout_bytes"][65535] = value!(0);
+        assert!(changed.validate().is_err());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn prepared_live_dag_rejects_invalid_headers_before_process_effects() {
+    let (dir, request, binding) = fixture(value!({"marker":"ran"}));
+    for field in ["protocol", "mode"] {
+        let mut bad = request.clone();
+        match field {
+            "protocol" => bad.protocol = "wrong".into(),
+            "mode" => bad.mode = "inventory".into(),
+            _ => unreachable!(),
+        }
+        let (status, rows) = chrono_harness::full::execute(
+            &bad,
+            &[binding.clone()],
+            &Default::default(),
+            FIXTURE_TIMEOUT_SECONDS,
+            16384,
+        )
+        .unwrap();
+        assert_eq!(status, wire::Status::Error);
+        assert_eq!(rows[0]["state"], "error");
+        chrono_harness::full::validate_execution(
+            &bad,
+            std::slice::from_ref(&binding),
+            &status,
+            &rows,
+        )
+        .unwrap();
+        assert!(
+            rows[0]["transport_failure"]
+                .as_str()
+                .unwrap()
+                .contains("E_PROTOCOL")
+        );
+        assert!(!dir.path().join("ran").exists());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn dag_forwards_only_direct_predecessors_and_named_outputs() {
+    let (_dir, mut r, b) = fixture(value!({"kind":"dag"}));
+    r.impact = serde_json::Value::Null;
+    let binding = |id: &str, after: &[&str]| {
+        let mut v = b.clone();
+        v.id = id.into();
+        v.after = after.iter().map(|s| s.to_string()).collect();
+        v
+    };
+    let plan = vec![
+        binding("c", &["b"]),
+        binding("independent", &[]),
+        binding("b", &["a"]),
+        binding("a", &[]),
+    ];
+    let (status, records) = chrono_harness::full::execute(
+        &r,
+        &plan,
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    assert_eq!(status, wire::Status::Pass, "{records:#?}");
+    assert_eq!(records.len(), 4);
+    assert!(records.iter().all(|r| r["state"] == "executed"));
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn execution_self_diagnostic_rejects_mutated_records_and_status() {
+    let (_dir, request, binding) = fixture(value!({"kind":"response"}));
+    let (status, records) = chrono_harness::full::execute(
+        &request,
+        std::slice::from_ref(&binding),
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    chrono_harness::full::validate_execution(&request, &[binding.clone()], &status, &records)
+        .unwrap();
+
+    for (pointer, changed) in [
+        ("/response/request_id", value!("0".repeat(64))),
+        ("/response/outputs", value!({"unobserved":true})),
+        (
+            "/process/failure",
+            value!("process ownership cleanup failed"),
+        ),
+        ("/process/environment", value!({"FORGED":"yes"})),
+        ("/process/environment_digest", value!("forged")),
+        ("/process/stdout_sha256", value!("forged")),
+        ("/process/stdout", value!("forged")),
+    ] {
+        let mut changed_records = records.clone();
+        *changed_records[0].pointer_mut(pointer).unwrap() = changed;
+        let result = chrono_harness::full::validate_execution(
+            &request,
+            std::slice::from_ref(&binding),
+            &status,
+            &changed_records,
+        );
+        assert!(result.is_err(), "undetected mutation: {pointer}");
+        assert!(result.unwrap_err().starts_with("E_SELF_DIAGNOSTIC:"));
+    }
+
+    let mut response_mutation = records.clone();
+    response_mutation[0]["response"]["judge_id"] = value!("forged");
+    let error = chrono_harness::full::validate_execution(
+        &request,
+        &[binding.clone()],
+        &status,
+        &response_mutation,
+    )
+    .unwrap_err();
+    assert!(error.starts_with("E_SELF_DIAGNOSTIC:"), "{error}");
+
+    let mut process_mutation = records.clone();
+    process_mutation[0]["process"]["sha256"] = value!("forged");
+    let error = chrono_harness::full::validate_execution(
+        &request,
+        &[binding.clone()],
+        &status,
+        &process_mutation,
+    )
+    .unwrap_err();
+    assert!(error.starts_with("E_SELF_DIAGNOSTIC:"), "{error}");
+
+    let mut status_mutation = records.clone();
+    status_mutation[0]["response"]["status"] = value!("fail");
+    let error = chrono_harness::full::validate_execution(
+        &request,
+        &[binding],
+        &wire::Status::Pass,
+        &status_mutation,
+    )
+    .unwrap_err();
+    assert!(error.starts_with("E_SELF_DIAGNOSTIC:"), "{error}");
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn execution_self_diagnostic_rejects_forged_transport_failure_for_valid_execution() {
+    let (_dir, request, binding) = fixture(value!({"kind":"response"}));
+    let (status, records) = chrono_harness::full::execute(
+        &request,
+        std::slice::from_ref(&binding),
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    assert_eq!(status, wire::Status::Pass);
+
+    // A caller that edits both the row and aggregate status must not be able
+    // to turn a valid response into a fabricated transport failure.  The
+    // process receipt is otherwise unchanged, so this mutation specifically
+    // exercises the relation between retained stdout and the failure state.
+    let mut forged = records;
+    forged[0]["transport_failure"] = value!("forged transport failure");
+    forged[0].as_object_mut().unwrap().remove("response");
+    let error = chrono_harness::full::validate_execution(
+        &request,
+        std::slice::from_ref(&binding),
+        &wire::Status::Error,
+        &forged,
+    )
+    .unwrap_err();
+    assert!(error.starts_with("E_SELF_DIAGNOSTIC:"), "{error}");
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn execution_self_diagnostic_rejects_mutated_prelaunch_error_records() {
+    let (_dir, request, mut binding) = fixture(value!({}));
+    // A bad executable digest fails before a child is launched and therefore
+    // exercises the error-record branch rather than the executed branch.
+    binding.sha256 = Some("0".repeat(64));
+    let (status, records) = chrono_harness::full::execute(
+        &request,
+        std::slice::from_ref(&binding),
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    assert_eq!(status, wire::Status::Error);
+    assert_eq!(records[0]["state"], "error");
+    chrono_harness::full::validate_execution(
+        &request,
+        std::slice::from_ref(&binding),
+        &status,
+        &records,
+    )
+    .unwrap();
+
+    for (pointer, changed) in [
+        ("/request_id", value!("forged")),
+        ("/exit_code", value!(1)),
+        ("/response", value!({"status":"pass"})),
+        ("/process", value!({"exit_code":0})),
+        ("/request_digest", value!("forged")),
+        ("/transport_failure", value!("")),
+    ] {
+        let mut changed_records = records.clone();
+        changed_records[0][pointer.trim_start_matches('/')] = changed;
+        let error = chrono_harness::full::validate_execution(
+            &request,
+            std::slice::from_ref(&binding),
+            &status,
+            &changed_records,
+        )
+        .unwrap_err();
+        assert!(
+            error.starts_with("E_SELF_DIAGNOSTIC:"),
+            "{pointer}: {error}"
+        );
+    }
+}
+
+// Expectations come from the native operations and sealed request, rather
+// than parsing the compatibility transport_failure message.
+#[cfg(unix)]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn prelaunch_diagnostics_retain_native_causes_and_unstarted_context() {
+    use std::os::unix::fs::PermissionsExt;
+    for case in ["missing", "permission", "digest"] {
+        let (dir, request, mut binding) = fixture(value!({"marker":"must-not-run"}));
+        let path = dir.path().join("judge");
+        match case {
+            "missing" => fs::remove_file(&path).unwrap(),
+            "permission" => fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap(),
+            "digest" => binding.sha256 = Some("0".repeat(64)),
+            _ => unreachable!(),
+        }
+        let (status, rows) = chrono_harness::full::execute(
+            &request,
+            std::slice::from_ref(&binding),
+            &Default::default(),
+            FIXTURE_TIMEOUT_SECONDS,
+            8192,
+        )
+        .unwrap();
+        assert_eq!(status, wire::Status::Error);
+        assert_eq!(rows[0]["state"], "error");
+        assert!(rows[0]["process"].is_null());
+        assert!(rows[0]["exit_code"].is_null());
+        let diagnostic = &rows[0]["transport_diagnostic"];
+        assert_eq!(
+            diagnostic["schema"], "chrono-runner-transport-failure/v1",
+            "{case}: {rows:#?}"
+        );
+        assert_eq!(diagnostic["error"]["schema"], "chrono-error/v1");
+        let error = &diagnostic["error"]["error"];
+        assert_eq!(error["context"]["request_id"], rows[0]["request_id"]);
+        assert_eq!(error["context"]["judge_id"], "fixture");
+        assert_eq!(error["context"]["operation"], "judge.invoke");
+        assert_eq!(error["context"]["operation_started"], false);
+        let cause = &error["source"];
+        assert_eq!(
+            cause["code"],
+            match case {
+                "missing" => "E_PROCESS_EXECUTABLE_READ",
+                "permission" => "E_PROCESS_SPAWN",
+                _ => "E_PROCESS_EXECUTABLE_DIGEST",
+            }
+        );
+        if case == "digest" {
+            assert!(cause["source"].is_null());
+        } else {
+            assert_eq!(cause["source"]["source"]["type"], "std::io::Error");
+            assert_eq!(
+                cause["source"]["source"]["native_code"],
+                if case == "missing" {
+                    libc::ENOENT
+                } else {
+                    libc::EACCES
+                }
+            );
+        }
+        let failure = wire::invoke_detailed(
+            &request,
+            &binding,
+            &Default::default(),
+            FIXTURE_TIMEOUT_SECONDS,
+            8192,
+        )
+        .unwrap_err();
+        let mut source: &dyn std::error::Error = &failure;
+        let mut native = None;
+        while let Some(next) = source.source() {
+            source = next;
+            if let Some(io) = source.downcast_ref::<std::io::Error>() {
+                native = io.raw_os_error();
+            }
+        }
+        assert_eq!(
+            native,
+            match case {
+                "missing" => Some(libc::ENOENT),
+                "permission" => Some(libc::EACCES),
+                _ => None,
+            }
+        );
+        for (pointer, changed) in [
+            ("/schema", value!("chrono-runner-transport-failure/v2")),
+            ("/error/error/context/judge_id", value!("other")),
+            ("/error/error/context/operation_started", value!(true)),
+            ("/error/schema", value!("chrono-error/v2")),
+        ] {
+            let mut bad = rows.clone();
+            *bad[0]["transport_diagnostic"].pointer_mut(pointer).unwrap() = changed;
+            assert!(
+                chrono_harness::full::validate_execution(
+                    &request,
+                    std::slice::from_ref(&binding),
+                    &status,
+                    &bad
+                )
+                .is_err(),
+                "{pointer}"
+            );
+        }
+        chrono_harness::full::validate_execution(&request, &[binding], &status, &rows).unwrap();
+        assert!(!dir.path().join("must-not-run").exists());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn prelaunch_diagnostics_reach_real_full_reports_with_healthy_control() {
+    if !git_fixture::isolated("prelaunch_diagnostics_reach_real_full_reports_with_healthy_control")
+    {
+        return;
+    }
+    use std::process::Command;
+    for case in [
+        "missing",
+        "digest",
+        "healthy",
+        "publication",
+        "publication-both",
+        "publication-healthy",
+        "healthy-adopted",
+        "publication-adopted",
+        "publication-healthy-adopted",
+        "missing-adopted",
+        "digest-adopted",
+    ] {
+        let adopted = case.ends_with("-adopted");
+        let case = case.strip_suffix("-adopted").unwrap_or(case);
+        let child_case = if matches!(case, "publication" | "publication-both") {
+            value!({"kind":"raw","consume_request":true,"stdout":[255,0,10],"stderr":[254,0,10],"exit":17,"block_report":".chrono-harness/state/report.json","block_retained_report":case == "publication-both"})
+        } else if case == "publication-healthy" {
+            value!({"block_report":".chrono-harness/state/report.json"})
+        } else {
+            value!({})
+        };
+        let (dir, _, mut binding) = fixture(child_case);
+        let root = dir.path();
+        if adopted {
+            // The composed publisher must retain exact originals even when the
+            // fixed current-slot write fails after an actual judge failure.
+            let policy = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/retention.json");
+            fs::create_dir_all(root.join(".chrono-harness")).unwrap();
+            fs::copy(policy, root.join(".chrono-harness/retention.json")).unwrap();
+        }
+        let git = |args: &[&str]| {
+            let output = Command::new(git_fixture::program())
+                .arg("-C")
+                .arg(root)
+                .args([
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                ])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            String::from_utf8(output.stdout).unwrap().trim().to_string()
+        };
+        fs::create_dir_all(root.join(".chrono-harness/state")).unwrap();
+        fs::write(root.join(".gitignore"), ".chrono-harness/state/\n").unwrap();
+        if case == "missing" {
+            binding.executable = "unstarted-judge".into();
+        }
+        if case == "digest" {
+            binding.sha256 = Some("0".repeat(64));
+        }
+        let mut blocked = binding.clone();
+        blocked.id = "dependent".into();
+        blocked.after = vec![binding.id.clone()];
+        for (name, bytes) in [
+            (
+                "config",
+                value!({"schema_version":2,"registries":{"judges":".chrono-harness/judges.json","projects":".chrono-harness/projects.json","filemap":".chrono-harness/filemap.json","workflow":".chrono-harness/workflow.json"},"environment":{"inherit":[],"values":{}},"protocol":{"id":"chrono-judge/v1","encoding":"UTF-8","timeout_seconds":30,"stdout_limit_bytes":16384},"artifacts":[{"path":".chrono-harness/state/"}]}),
+            ),
+            ("judges", value!({"judges":[binding,blocked]})),
+            ("projects", value!({})),
+            ("filemap", value!({})),
+            ("workflow", value!({})),
+        ] {
+            fs::write(
+                root.join(format!(".chrono-harness/{name}.json")),
+                serde_json::to_vec(&bytes).unwrap(),
+            )
+            .unwrap();
+        }
+        fs::write(root.join(".chrono-harness/state/context.json"), b"{}").unwrap();
+        git(&["init", "-q"]);
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        let base = git(&["rev-parse", "HEAD"]);
+        git(&["commit", "--allow-empty", "-qm", "candidate"]);
+        let candidate = git(&["rev-parse", "HEAD"]);
+        let result = chrono_harness::full::check_prepared(
+            root,
+            ".chrono-harness/config.json",
+            &base,
+            &candidate,
+            std::path::Path::new(".chrono-harness/state/context.json"),
+            value!(null),
+            None,
+            None,
+        );
+        if case.starts_with("publication") {
+            let error = result.unwrap_err();
+            let retained: serde_json::Value =
+                serde_json::from_str(error.strip_prefix("E_REPORT_EVIDENCE: ").expect(
+                    "the original judge failure must survive report publication IO failure",
+                ))
+                .unwrap();
+            assert_eq!(
+                retained["schema"],
+                "chrono-full-report-publication-failure/v1"
+            );
+            let report = &retained["report"];
+            if case == "publication-healthy" {
+                assert_eq!(report["status"], "pass");
+                assert_eq!(
+                    retained["error"]["error"]["source"]["source"]["native_code"],
+                    libc::EISDIR
+                );
+            } else {
+                assert_eq!(
+                    retained["error"]["error"]["source"],
+                    report["judges"][0]["transport_diagnostic"]["error"]["error"]
+                );
+                assert_eq!(
+                    retained["error"]["error"]["related"]
+                        .as_array()
+                        .unwrap()
+                        .len(),
+                    if case == "publication-both" { 2 } else { 1 }
+                );
+                for error in retained["error"]["error"]["related"].as_array().unwrap() {
+                    assert_eq!(error["role"], "report_publication");
+                    assert_eq!(
+                        error["error"]["source"]["source"]["native_code"],
+                        libc::EISDIR
+                    );
+                }
+            }
+            assert_eq!(
+                retained["published"].as_array().unwrap().len(),
+                if case == "publication-both" { 0 } else { 1 }
+            );
+            if adopted {
+                let inventory: serde_json::Value = retention_state::snapshot(root);
+                let original = report["report_path"].as_str().unwrap();
+                let output = inventory["outputs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|output| output["path"] == original)
+                    .unwrap();
+                assert_eq!(output["outcome"]["status"], report["status"]);
+                let id = output["id"].as_str().unwrap();
+                assert!(
+                    inventory["roots"]
+                        .as_object()
+                        .unwrap()
+                        .contains_key(&format!("consumer:report-recheck:{id}"))
+                );
+                assert!(
+                    inventory["roots"]
+                        .as_object()
+                        .unwrap()
+                        .values()
+                        .any(|ids| ids.as_array().is_some_and(|ids| ids.contains(&value!(id))))
+                );
+            }
+            if case != "publication-both" {
+                let original: serde_json::Value = serde_json::from_slice(
+                    &fs::read(root.join(report["report_path"].as_str().unwrap())).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(&original, report);
+            }
+            let process =
+                chrono_harness::full::expand_process(&report["judges"][0]["process"]).unwrap();
+            if case != "publication-healthy" {
+                assert_eq!(process["stdout_bytes"], value!([255, 0, 10]));
+                assert_eq!(process["stderr_bytes"], value!([254, 0, 10]));
+                assert_eq!(process["exit_code"], 17);
+            }
+            if adopted {
+                let inventory: serde_json::Value = retention_state::snapshot(root);
+                let path = report["report_path"].as_str().unwrap();
+                let output = inventory["outputs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|output| output["path"] == path)
+                    .unwrap();
+                let consumer = format!("report-recheck:{}", output["id"].as_str().unwrap());
+                let original = chrono_harness::prepared::Original {
+                    path: path.into(),
+                    sha256: output["sha256"].as_str().unwrap().into(),
+                };
+                let raw = chrono_harness::prepared::read_original(root, &original, None).unwrap();
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&raw).unwrap(),
+                    *report
+                );
+                let declaration = serde_json::to_vec(&value!({
+                    "schema":"chrono-retention-consumer/v1","consumer":consumer,
+                    "purpose":"Recheck the exact full original after failed current-slot publication",
+                    "originals":[{"id":output["id"],"path":path,"identity":output["identity"]}]
+                })).unwrap();
+                fs::write(root.join("recheck-consumer.json"), &declaration).unwrap();
+                let receipt = serde_json::to_vec(&value!({
+                    "release":{"consumer":consumer,"declaration_sha256":sha256(&declaration),
+                    "state":"released"},"observed_original_sha256":sha256(&raw)
+                }))
+                .unwrap();
+                fs::write(root.join("recheck-result.json"), &receipt).unwrap();
+                fs::write(root.join("recheck-request.json"), serde_json::to_vec(&value!({
+                    "operation":"release-consumer",
+                    "declaration":{"path":"recheck-consumer.json","sha256":sha256(&declaration)},
+                    "receipt":{"path":"recheck-result.json","sha256":sha256(&receipt)},"pointer":"/release"
+                })).unwrap()).unwrap();
+                let result = chrono_harness::dispatch(&[
+                    "retention",
+                    "--host-root",
+                    root.to_str().unwrap(),
+                    "--request",
+                    "recheck-request.json",
+                ]);
+                assert_eq!(result.exit_code, 0, "{}", result.stderr);
+                let inventory: serde_json::Value = retention_state::snapshot(root);
+                assert!(
+                    !inventory["roots"]
+                        .as_object()
+                        .unwrap()
+                        .contains_key(&format!("consumer:{consumer}"))
+                );
+                let consumed = inventory["outputs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|record| record["id"] == output["id"])
+                    .unwrap();
+                for field in ["identity", "sha256", "outcome"] {
+                    assert_eq!(consumed[field], output[field]);
+                }
+                assert_eq!(fs::read(root.join(path)).unwrap(), raw);
+
+                // Resume the sealed result across CLI calls. The judge is now
+                // unavailable: recovery must only publish these exact bytes.
+                fs::remove_file(root.join("judge")).unwrap();
+                fs::write(
+                    root.join("recover-report.json"),
+                    serde_json::to_vec(&value!({
+                        "operation":"recover-report",
+                        "report":{"path":path,"sha256":sha256(&raw)}
+                    }))
+                    .unwrap(),
+                )
+                .unwrap();
+                let recover = || {
+                    chrono_harness::dispatch(&[
+                        "retention",
+                        "--host-root",
+                        root.to_str().unwrap(),
+                        "--request",
+                        "recover-report.json",
+                    ])
+                };
+                let blocked = recover();
+                assert_eq!(blocked.exit_code, 2, "{}", blocked.stdout);
+                assert_eq!(fs::read(root.join(path)).unwrap(), raw);
+                fs::remove_dir(root.join(".chrono-harness/state/report.json")).unwrap();
+                let recovered = recover();
+                assert_eq!(recovered.exit_code, 0, "{}", recovered.stderr);
+                let receipt: serde_json::Value = serde_json::from_str(&recovered.stdout).unwrap();
+                assert_eq!(receipt["status"], "recovered");
+                assert_eq!(receipt["request_id"], output["outcome"]["request_id"]);
+                assert_eq!(report["operation_request_id"], receipt["request_id"]);
+                assert_ne!(receipt["request_id"], report["request"]["request_id"]);
+                assert_eq!(
+                    receipt["original_exit_code"],
+                    if case == "publication-healthy" { 0 } else { 2 }
+                );
+                assert_eq!(
+                    fs::read(root.join(".chrono-harness/state/report.json")).unwrap(),
+                    raw
+                );
+                assert_eq!(recover().exit_code, 0, "recovery is idempotent");
+                fs::write(
+                    root.join(".chrono-harness/state/report.json"),
+                    b"newer report",
+                )
+                .unwrap();
+                assert_eq!(recover().exit_code, 2, "must not overwrite a newer result");
+                assert_eq!(
+                    fs::read(root.join(".chrono-harness/state/report.json")).unwrap(),
+                    b"newer report"
+                );
+            }
+            continue;
+        }
+        let (exit, text) = result.unwrap();
+        assert_eq!(exit, if case == "healthy" { 0 } else { 2 }, "{text}");
+        let report: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join(report["report_path"].as_str().unwrap())).unwrap(),
+            text
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(".chrono-harness/state/report.json")).unwrap(),
+            text
+        );
+        if adopted {
+            let inventory: serde_json::Value = retention_state::snapshot(root);
+            let output = inventory["outputs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|output| output["path"] == report["report_path"])
+                .unwrap();
+            assert_eq!(output["outcome"]["status"], report["status"]);
+            let id = output["id"].as_str().unwrap();
+            assert_eq!(
+                inventory["roots"]
+                    .as_object()
+                    .unwrap()
+                    .contains_key(&format!("consumer:report-recheck:{id}")),
+                false
+            );
+            if exit != 0 {
+                assert!(output["expires"].as_u64().unwrap() > 0);
+            }
+        }
+        let judge = &report["judges"][0];
+        if case == "healthy" {
+            assert!(judge.get("transport_diagnostic").is_none());
+            let process = chrono_harness::full::expand_process(&judge["process"]).unwrap();
+            assert_eq!(process["stdin_sha256"], judge["request_digest"]);
+            assert_eq!(process["exit_code"], 0);
+        } else {
+            assert_eq!(
+                judge["transport_diagnostic"]["error"]["error"]["context"]["request_id"],
+                judge["request_id"]
+            );
+            assert_eq!(
+                judge["transport_diagnostic"]["error"]["error"]["context"]["operation_started"],
+                false
+            );
+            assert_eq!(report["judges"][1]["state"], "blocked");
+            assert!(report["judges"][1].get("process").is_none());
+        }
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn prelaunch_diagnostics_keep_executed_originals_and_strict_judge_v1() {
+    let (_dir, request, binding) = fixture(
+        value!({"kind":"raw","consume_request":true,"stdout":[255,0,10],"stderr":[254,0,10],"exit":17}),
+    );
+    let (status, rows) = chrono_harness::full::execute(
+        &request,
+        std::slice::from_ref(&binding),
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    let row = &rows[0];
+    assert_eq!(row["state"], "executed");
+    assert_eq!(row["exit_code"], 17);
+    assert_eq!(row["process"]["stdout_bytes"], value!([255, 0, 10]));
+    assert_eq!(row["process"]["stderr_bytes"], value!([254, 0, 10]));
+    assert_eq!(
+        row["transport_diagnostic"]["error"]["error"]["context"]["operation_started"],
+        true
+    );
+    chrono_harness::full::validate_execution(&request, &[binding], &status, &rows).unwrap();
+    let mut response = value!(request.response(wire::Status::Pass));
+    response["transport_diagnostic"] = row["transport_diagnostic"].clone();
+    assert!(
+        serde_json::from_value::<wire::Response>(response).is_err(),
+        "the report extension must not widen strict judge-v1"
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn dag_blocks_dependents_and_continues_independent_branch() {
+    let (_dir, r, b) = fixture(value!({"kind":"blocked-dag"}));
+    let binding = |id: &str, after: &[&str]| {
+        let mut v = b.clone();
+        v.id = id.into();
+        v.after = after.iter().map(|s| s.to_string()).collect();
+        v
+    };
+    let plan = vec![
+        binding("blocked", &["bad"]),
+        binding("independent", &[]),
+        binding("bad", &[]),
+    ];
+    let (status, records) = chrono_harness::full::execute(
+        &r,
+        &plan,
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    assert_eq!(status, wire::Status::Error);
+    assert_eq!(records[1]["state"], "blocked");
+    assert_eq!(records[2]["id"], "independent");
+    assert_eq!(records[2]["response"]["status"], "pass");
+    chrono_harness::full::validate_execution(&r, &plan, &status, &records).unwrap();
+    let mut broken = plan.clone();
+    broken[0].after = vec!["missing".into()];
+    assert!(chrono_harness::full::schedule(&broken).is_err());
+    broken[0].after = vec!["blocked".into()];
+    assert!(chrono_harness::full::schedule(&broken).is_err());
+    assert!(chrono_harness::full::schedule(&[]).is_err());
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn execution_self_diagnostic_preserves_conflicting_predecessor_failure() {
+    let (_dir, request, binding) = fixture(value!({"kind":"distinct-impacts"}));
+    let plan: Vec<_> = [("a", vec![]), ("b", vec![]), ("c", vec!["a", "b"])]
+        .into_iter()
+        .map(|(id, after)| wire::Binding {
+            id: id.into(),
+            after: after.into_iter().map(String::from).collect(),
+            ..binding.clone()
+        })
+        .collect();
+    let (status, records) = chrono_harness::full::execute(
+        &request,
+        &plan,
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    assert_eq!(status, wire::Status::Error);
+    assert_eq!(records[2]["state"], "blocked");
+    assert_eq!(
+        records[2]["transport_failure"],
+        "conflicting predecessor impact outputs"
+    );
+    chrono_harness::full::validate_execution(&request, &plan, &status, &records).unwrap();
+    let mut changed = records.clone();
+    changed[2]["transport_failure"] = value!("different failure");
+    assert!(
+        chrono_harness::full::validate_execution(&request, &plan, &status, &changed)
+            .unwrap_err()
+            .starts_with("E_SELF_DIAGNOSTIC:")
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn invalid_response_retains_actual_process_exit_in_report() {
+    let (_dir, r, b) = fixture(value!({"kind":"raw", "stdout":b"invalid JSON\n", "exit":9}));
+    let (status, records) = chrono_harness::full::execute(
+        &r,
+        std::slice::from_ref(&b),
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    assert_eq!(status, wire::Status::Error);
+    assert_eq!(records[0]["state"], "executed");
+    assert_eq!(records[0]["exit_code"], 9);
+    assert_eq!(records[0]["process"]["stdout"], "invalid JSON\n");
+    // A transport/protocol failure may retain the real process receipt without
+    // a request_digest field. The independent audit must accept that record
+    // while still checking the process stdin identity.
+    chrono_harness::full::validate_execution(&r, std::slice::from_ref(&b), &status, &records)
+        .unwrap();
+
+    let mut forged_digest = records.clone();
+    forged_digest[0]["request_digest"] = value!("forged");
+    let error = chrono_harness::full::validate_execution(
+        &r,
+        std::slice::from_ref(&b),
+        &status,
+        &forged_digest,
+    )
+    .unwrap_err();
+    assert!(error.starts_with("E_SELF_DIAGNOSTIC:"), "{error}");
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn embedded_invalid_utf8_is_protocol_error_and_valid_replacement_passes() {
+    for (bytes, accepted) in [(vec![239, 191, 189], true), (vec![255], false)] {
+        let (_dir, r, b) = fixture(value!({
+            "fields":{"outputs":{"note":"MARKER"}}, "replace_marker":bytes
+        }));
+        let (status, records) = chrono_harness::full::execute(
+            &r,
+            &[b],
+            &Default::default(),
+            FIXTURE_TIMEOUT_SECONDS,
+            8192,
+        )
+        .unwrap();
+        assert_eq!(
+            status,
+            if accepted {
+                wire::Status::Pass
+            } else {
+                wire::Status::Error
+            },
+            "original protocol bytes must determine UTF-8 validity"
+        );
+        let raw: Vec<u8> =
+            serde_json::from_value(records[0]["process"]["stdout_bytes"].clone()).unwrap();
+        assert_eq!(std::str::from_utf8(&raw).is_ok(), accepted);
+        assert_eq!(records[0]["process"]["exit_code"], 0);
+        if accepted {
+            assert_eq!(records[0]["response"]["outputs"]["note"], "�");
+        }
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn later_judge_receives_actual_prior_process_identity_not_configured_metadata() {
+    let (_dir, req, mut producer) = fixture(value!({"kind":"prior-process"}));
+    producer.id = "producer".into();
+    let mut consumer = producer.clone();
+    consumer.id = "consumer".into();
+    consumer.after = vec!["producer".into()];
+    let (status, rows) = chrono_harness::full::execute(
+        &req,
+        &[consumer, producer],
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        16384,
+    )
+    .unwrap();
+    assert_eq!(status, wire::Status::Pass, "{rows:#?}");
+    assert_eq!(rows.len(), 2);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn process_encoding_preserves_actual_binary_failure_and_rejects_conflicting_views() {
+    for original in [
+        value!({"id":"blocked"}),
+        value!({"id":"error","process":null}),
+    ] {
+        assert_eq!(
+            chrono_harness::full::expand_record(&original).unwrap(),
+            original
+        );
+    }
+    let stdout: Vec<u8> = (0..=255).collect();
+    let stderr: Vec<u8> = (0..=255).rev().collect();
+    let (_dir, request, binding) = fixture(value!({"kind":"raw", "consume_request":true,
+        "stdout":stdout, "stderr":stderr, "exit":17}));
+    let failure = wire::invoke_detailed(
+        &request,
+        &binding,
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        4096,
+    )
+    .unwrap_err();
+    let process = failure.process.unwrap();
+    assert_eq!(process.exit_code, 17);
+    assert_eq!(process.stdout_bytes, stdout);
+    assert_eq!(process.stderr_bytes, stderr);
+    let original = serde_json::to_value(&process).unwrap();
+    let compact = chrono_harness::full::compact_process(&original).unwrap();
+    assert_eq!(
+        chrono_harness::full::expand_process(&compact).unwrap(),
+        original
+    );
+    assert_eq!(
+        chrono_harness::full::compact_process(&compact).unwrap(),
+        compact
+    );
+    assert_eq!(
+        chrono_harness::full::expand_process(&original).unwrap(),
+        original
+    );
+    for alias in ["stdout", "stderr", "stdout_bytes", "stderr_bytes"] {
+        let mut conflict = compact.clone();
+        conflict[alias] = original[alias].clone();
+        assert!(chrono_harness::full::expand_process(&conflict).is_err());
+    }
+    let mut legacy = original.clone();
+    for stream in ["stdout", "stderr"] {
+        let raw: Vec<u8> =
+            serde_json::from_value(legacy[format!("{stream}_bytes")].clone()).unwrap();
+        legacy[format!("{stream}_hex")] = chrono_harness::full::artifact(&raw)["hex"].clone();
+        legacy.as_object_mut().unwrap().remove(stream);
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove(&format!("{stream}_bytes"));
+    }
+    legacy["encoding"] = value!("chrono-retained-process/v1");
+    assert_eq!(
+        chrono_harness::full::expand_process(&legacy).unwrap(),
+        original
+    );
+    for field in [
+        "stdout_length",
+        "stdout_zlib_hex",
+        "stdout_sha256",
+        "stdout_hex",
+    ] {
+        let mut corrupt = compact.clone();
+        corrupt[field] = match field {
+            "stdout_length" => value!(64 * 1024 * 1024 + 1u64),
+            "stdout_zlib_hex" => value!(format!("{}00", compact[field].as_str().unwrap())),
+            "stdout_hex" => value!("00"),
+            _ => value!("0".repeat(64)),
+        };
+        assert!(
+            chrono_harness::full::expand_process(&corrupt).is_err(),
+            "{field}"
+        );
+    }
+    let mut truncated = compact.clone();
+    truncated["stdout_zlib_hex"] = value!(&compact["stdout_zlib_hex"].as_str().unwrap()[..8]);
+    assert!(chrono_harness::full::expand_process(&truncated).is_err());
+    let mut short_length = compact.clone();
+    short_length["stdout_length"] = value!(1);
+    assert!(chrono_harness::full::expand_process(&short_length).is_err());
+    let report = value!({"judges":[{"process":compact}]});
+    let metadata_bytes = serde_json::to_vec(&report).unwrap().len() as u64;
+    assert_eq!(
+        chrono_harness::full::report_transport_bytes(&report, metadata_bytes).unwrap(),
+        metadata_bytes + stdout.len() as u64 + stderr.len() as u64
+    );
+    let historic = value!({"judges":[{"process":legacy}]});
+    let historic_bytes = serde_json::to_vec(&historic).unwrap().len() as u64;
+    assert_eq!(
+        chrono_harness::full::report_transport_bytes(&historic, historic_bytes).unwrap(),
+        historic_bytes
+    );
+    for stream_bytes in [vec![], vec![b'x'; 65536]] {
+        let mut streams = original.clone();
+        for stream in ["stdout", "stderr"] {
+            streams[format!("{stream}_bytes")] = value!(stream_bytes);
+            streams[stream] = value!(String::from_utf8_lossy(&stream_bytes));
+            streams[format!("{stream}_sha256")] = value!(sha256(&stream_bytes));
+        }
+        let packed = chrono_harness::full::compact_process(&streams).unwrap();
+        assert_eq!(
+            chrono_harness::full::expand_process(&packed).unwrap(),
+            streams
+        );
+        assert_eq!(packed["stdout_length"], stream_bytes.len());
+        if !stream_bytes.is_empty() {
+            assert!(serde_json::to_vec(&packed).unwrap().len() < stream_bytes.len());
+        }
+    }
+    let mut inconsistent = original.clone();
+    inconsistent["stdout"] = value!("a different text view");
+    assert!(chrono_harness::full::compact_process(&inconsistent).is_err());
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn original_hex_bytes_cover_empty_and_every_byte_and_reject_corruption() {
+    let bytes: Vec<u8> = (0..=255).collect();
+    let expected = concat!(
+        "000102030405060708090a0b0c0d0e0f",
+        "101112131415161718191a1b1c1d1e1f",
+        "202122232425262728292a2b2c2d2e2f",
+        "303132333435363738393a3b3c3d3e3f",
+        "404142434445464748494a4b4c4d4e4f",
+        "505152535455565758595a5b5c5d5e5f",
+        "606162636465666768696a6b6c6d6e6f",
+        "707172737475767778797a7b7c7d7e7f",
+        "808182838485868788898a8b8c8d8e8f",
+        "909192939495969798999a9b9c9d9e9f",
+        "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+        "c0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+        "d0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+        "e0e1e2e3e4e5e6e7e8e9eaebecedeeef",
+        "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+    );
+    for (bytes, hex) in [(&bytes[..], expected), (&[][..], "")] {
+        let artifact = chrono_harness::full::artifact(bytes);
+        assert_eq!(artifact["hex"], hex);
+        assert_eq!(artifact["length"], bytes.len());
+        assert_eq!(artifact["sha256"], sha256(bytes));
+        let originals = value!({"original":artifact});
+        assert_eq!(
+            chrono_harness::full::artifact_bytes(&originals, "original").unwrap(),
+            bytes
+        );
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(
+            chrono_harness::retained_artifacts::bytes(root.path(), &originals, "original", None)
+                .unwrap(),
+            bytes
+        );
+        assert_eq!(
+            chrono_harness::retained_artifacts::identity(root.path(), &originals, "original", None)
+                .unwrap(),
+            (sha256(bytes), bytes.len() as u64)
+        );
+        for field in ["hex", "length", "sha256"] {
+            let mut corrupt = originals.clone();
+            corrupt["original"][field] = match field {
+                "hex" => "0g".into(),
+                "length" => (bytes.len() + 1).into(),
+                _ => "0".repeat(64).into(),
+            };
+            assert!(chrono_harness::full::artifact_bytes(&corrupt, "original").is_err());
+            assert!(
+                chrono_harness::retained_artifacts::identity(
+                    root.path(),
+                    &corrupt,
+                    "original",
+                    None
+                )
+                .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn scoped_predecessors_keep_exact_originals_through_live_and_retained_dag() {
+    for scoped in [true, false] {
+        for current in [false, true] {
+            predecessor_originals(scoped, current);
+        }
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+fn predecessor_originals(scoped: bool, current: bool) {
+    let (_dir, mut req, mut first) = fixture(value!({"kind":"retained-process"}));
+    req.candidate.root = fs::canonicalize(&req.candidate.root).unwrap();
+    req.base.root = req.candidate.root.clone();
+    req.scope = scoped.then(|| chrono_harness::units::Scope::Unit { unit: "one".into() });
+    req.observations = value!({"environment":{"effective":{}}});
+    if current {
+        req.observations["process_encoding"] = value!("chrono-retained-process/v2");
+    }
+    first.id = "a".into();
+    let bindings: Vec<_> = [
+        ("a", vec![]),
+        ("b", vec!["a"]),
+        ("c", vec!["b"]),
+        ("d", vec!["a"]),
+    ]
+    .into_iter()
+    .map(|(id, after)| {
+        let mut binding = first.clone();
+        binding.id = id.into();
+        binding.after = after.into_iter().map(str::to_owned).collect();
+        binding
+    })
+    .collect();
+    let template = chrono_harness::full::judge_request(&req, &first, &[]).unwrap();
+    let (status, records) = chrono_harness::full::execute(
+        &template,
+        &bindings,
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        16384,
+    )
+    .unwrap();
+    assert_eq!(status, wire::Status::Pass, "{records:#?}");
+    let parsed = chrono_harness::full::retained_judges(&template, &bindings, &records).unwrap();
+    assert_eq!(parsed.len(), 4);
+    for (index, binding) in bindings.iter().enumerate() {
+        let rebuilt =
+            chrono_harness::full::judge_request(&template, binding, &records[..index]).unwrap();
+        assert_eq!(records[index]["request_id"], rebuilt.request_id);
+        assert_eq!(
+            records[index]["request_digest"],
+            wire::digest(&rebuilt).unwrap()
+        );
+        assert_eq!(
+            parsed[&binding.id].3.stderr_bytes,
+            (0..=255).collect::<Vec<u8>>()
+        );
+    }
+    for field in [
+        "stdin_sha256",
+        "stdout_bytes",
+        "stderr_bytes",
+        "environment",
+        "exit_code",
+    ] {
+        let mut corrupt = records.clone();
+        corrupt[0]["process"][field] = match field {
+            "stdout_bytes" | "stderr_bytes" => value!([1]),
+            "environment" => value!({"changed":"yes"}),
+            "exit_code" => value!(7),
+            _ => value!("0".repeat(64)),
+        };
+        assert!(
+            chrono_harness::full::retained_judges(&template, &bindings, &corrupt).is_err(),
+            "{field}"
+        );
+    }
+}
+// Real nested runner launch: the outer process must finish only after its owned
+// operation has been terminated. The PID is produced by that actual operation.
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn retained_nested_helper() {
+    let Ok(root) = std::env::var("CHRONO_RETAINED_FIXTURE") else {
+        return;
+    };
+    let root = std::path::Path::new(&root);
+    let spec = chrono_harness::CommandSpec {
+        program: PROCESS_FIXTURE.into(),
+        args: vec![
+            "retained".into(),
+            std::env::var("CHRONO_RETAINED_CASE").unwrap(),
+        ],
+        env: Default::default(),
+        timeout_seconds: 30,
+        output_limit_bytes: 4096,
+    };
+    let result = chrono_harness::run_process_observed_retained(
+        root,
+        &spec,
+        &[],
+        &sha256(&fs::read(PROCESS_FIXTURE).unwrap()),
+        &chrono_harness::ProcessEvidence {
+            root,
+            stdout: &root.join("original.stdout"),
+            stderr: &root.join("original.stderr"),
+            launch: &root.join("launch.json"),
+            publication: None,
+        },
+    )
+    .unwrap();
+    let mut terminal = tempfile::NamedTempFile::new_in(root).unwrap();
+    serde_json::to_writer(&mut terminal, &result).unwrap();
+    terminal
+        .persist_noclobber(root.join("terminal.json"))
+        .unwrap();
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn retained_launch_publication_failure_preserves_original_process() {
+    let stdout: Vec<u8> = (0..=255).collect();
+    let stderr: Vec<u8> = (0..=255).rev().collect();
+    let (dir, _, binding) =
+        fixture(value!({"kind":"raw", "stdout":stdout, "stderr":stderr, "exit":17}));
+    let spec = chrono_harness::CommandSpec {
+        program: dir.path().join("judge").to_string_lossy().into_owned(),
+        args: vec![],
+        env: [("BOUND_VALUE".into(), "retained".into())].into(),
+        timeout_seconds: FIXTURE_TIMEOUT_SECONDS,
+        output_limit_bytes: 4096,
+    };
+    let launch = dir.path().join("launch.json");
+    fs::write(&launch, b"existing launch original").unwrap();
+    let result = chrono_harness::run_process_observed_retained(
+        dir.path(),
+        &spec,
+        &[],
+        binding.sha256.as_deref().unwrap(),
+        &chrono_harness::ProcessEvidence {
+            root: dir.path(),
+            stdout: &dir.path().join("original.stdout"),
+            stderr: &dir.path().join("original.stderr"),
+            launch: &launch,
+            publication: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(result.exit_code, 17);
+    assert_eq!(result.stdout_bytes, stdout);
+    assert_eq!(result.stderr_bytes, stderr);
+    assert_eq!(result.argv, [spec.program]);
+    assert_eq!(result.cwd, fs::canonicalize(dir.path()).unwrap());
+    assert_eq!(result.environment, spec.env);
+    assert_eq!(result.sha256, binding.sha256.unwrap());
+    assert!(
+        result
+            .failure
+            .as_deref()
+            .unwrap()
+            .contains("launch original:")
+    );
+    assert!(chrono_harness::observation::process_success(&result).is_err());
+    let launch_evidence: serde_json::Value = serde_json::from_str(
+        result
+            .failure
+            .as_deref()
+            .unwrap()
+            .split_once("; launch evidence: ")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(
+        launch_evidence["launcher_pid"],
+        value!(result.launcher_pid.unwrap())
+    );
+    assert!(launch_evidence["child_pid"].as_u64().unwrap() > 0);
+    assert_eq!(launch_evidence["argv"], value!(result.argv));
+    assert_eq!(launch_evidence["sha256"], result.sha256);
+    assert_eq!(
+        launch_evidence["environment_digest"],
+        result.environment_digest
+    );
+    assert_eq!(fs::read(launch).unwrap(), b"existing launch original");
+    assert_eq!(
+        fs::read(dir.path().join("original.stdout")).unwrap(),
+        stdout
+    );
+    assert_eq!(
+        fs::read(dir.path().join("original.stderr")).unwrap(),
+        stderr
+    );
+    fs::write(dir.path().join(".chrono-harness"), b"blocked publication").unwrap();
+    let error = chrono_harness::scoped_report::retain_process(
+        dir.path(),
+        ".chrono-harness/state/preparation/",
+        &result,
+    )
+    .unwrap_err();
+    let evidence: serde_json::Value =
+        serde_json::from_str(error.strip_prefix("E_PROCESS_EVIDENCE: ").unwrap()).unwrap();
+    assert_eq!(
+        chrono_harness::full::expand_process(&evidence["process"]).unwrap(),
+        value!(result),
+        "a second publication error must keep the original exit, failure and binary streams"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+fn retained_stream_publication_failure_helper() {
+    let Ok(root) = std::env::var("CHRONO_RETAINED_IO_FIXTURE") else {
+        return;
+    };
+    let root = std::path::Path::new(&root);
+    let spec = chrono_harness::CommandSpec {
+        program: root.join("judge").to_string_lossy().into_owned(),
+        args: vec![],
+        env: [("BOUND_VALUE".into(), "retained".into())].into(),
+        timeout_seconds: FIXTURE_TIMEOUT_SECONDS,
+        output_limit_bytes: 2 * 1024 * 1024,
+    };
+    let digest = sha256(&fs::read(&spec.program).unwrap());
+    // Keep the engine's ownership mapping and launch publication usable; fail
+    // only after a MiB of each original stream has really reached its file.
+    // The limit is isolated in this joined subprocess, without a mocked sink.
+    let limit = libc::rlimit {
+        rlim_cur: 1024 * 1024,
+        rlim_max: 1024 * 1024,
+    };
+    assert_ne!(
+        unsafe { libc::signal(libc::SIGXFSZ, libc::SIG_IGN) },
+        libc::SIG_ERR
+    );
+    assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_FSIZE, &limit) }, 0);
+    let result = chrono_harness::run_process_observed_retained(
+        root,
+        &spec,
+        &[],
+        &digest,
+        &chrono_harness::ProcessEvidence {
+            root,
+            stdout: &root.join("original.stdout"),
+            stderr: &root.join("original.stderr"),
+            launch: &root.join("launch.json"),
+            publication: None,
+        },
+    )
+    .unwrap();
+    println!(
+        "RETAINED_IO_RECEIPT:{}",
+        serde_json::to_string(&result).unwrap()
+    );
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+fn retained_stream_publication_failure_preserves_bytes_after_partial_write() {
+    let file_limit = 1024 * 1024;
+    let stdout: Vec<u8> = (0..=255).cycle().take(file_limit + 8192).collect();
+    let stderr: Vec<u8> = (0..=255).rev().cycle().take(file_limit + 8192).collect();
+    let (dir, _, binding) =
+        fixture(value!({"kind":"raw", "stdout":stdout, "stderr":stderr, "exit":17}));
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "retained_stream_publication_failure_helper",
+            "--nocapture",
+        ])
+        .env("CHRONO_RETAINED_IO_FIXTURE", dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let text = std::str::from_utf8(&output.stdout).unwrap();
+    let result: chrono_harness::ProcessResult = serde_json::from_str(
+        text.lines()
+            .find_map(|line| line.strip_prefix("RETAINED_IO_RECEIPT:"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result.exit_code, 17);
+    assert_eq!(result.stdout_bytes, stdout);
+    assert_eq!(result.stderr_bytes, stderr);
+    assert_eq!(result.stdout_sha256, sha256(&stdout));
+    assert_eq!(result.stderr_sha256, sha256(&stderr));
+    assert_eq!(result.argv, [dir.path().join("judge").to_string_lossy()]);
+    assert_eq!(result.cwd, fs::canonicalize(dir.path()).unwrap());
+    assert_eq!(result.environment["BOUND_VALUE"], "retained");
+    assert_eq!(result.sha256, binding.sha256.unwrap());
+    let failure = result.failure.as_deref().unwrap();
+    for source in ["stdout original:", "stderr original:"] {
+        assert!(failure.contains(source), "{failure}");
+    }
+    let record = result.failure_record.as_ref().unwrap();
+    assert_eq!(record.error.code, "E_PROCESS_EVIDENCE");
+    assert_eq!(
+        record
+            .error
+            .source
+            .as_ref()
+            .unwrap()
+            .source
+            .as_ref()
+            .unwrap()
+            .native_code,
+        Some(libc::EFBIG.into())
+    );
+    assert_eq!(record.error.related.len(), 1);
+    assert_eq!(record.error.related[0].role, "process_evidence");
+    assert_eq!(record.error.related[0].error.context["stream"], "stderr");
+    assert_eq!(
+        record.error.related[0]
+            .error
+            .source
+            .as_ref()
+            .unwrap()
+            .source
+            .as_ref()
+            .unwrap()
+            .native_code,
+        Some(libc::EFBIG.into())
+    );
+    assert!(chrono_harness::observation::process_success(&result).is_err());
+    assert_eq!(
+        fs::read(dir.path().join("original.stdout")).unwrap(),
+        stdout[..file_limit]
+    );
+    assert_eq!(
+        fs::read(dir.path().join("original.stderr")).unwrap(),
+        stderr[..file_limit]
+    );
+    let launch: serde_json::Value =
+        serde_json::from_slice(&fs::read(dir.path().join("launch.json")).unwrap()).unwrap();
+    assert_eq!(launch["argv"], value!(result.argv));
+    assert_eq!(launch["sha256"], result.sha256);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn retained_originals_match_complete_streams_and_launch_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let working = tempfile::tempdir().unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: PROCESS_FIXTURE.into(),
+        args: vec!["retained".into(), "normal".into()],
+        env: [(
+            "GH_TOKEN".into(),
+            "fixture-launch-secret-never-retain".into(),
+        )]
+        .into_iter()
+        .collect(),
+        timeout_seconds: 30,
+        output_limit_bytes: 4096,
+    };
+    let digest = sha256(&fs::read(PROCESS_FIXTURE).unwrap());
+    let paths = chrono_harness::ProcessEvidence {
+        root: root.path(),
+        stdout: &root.path().join("original.stdout"),
+        stderr: &root.path().join("original.stderr"),
+        launch: &root.path().join("launch.json"),
+        publication: None,
+    };
+    let result = chrono_harness::run_process_observed_retained(
+        working.path(),
+        &spec,
+        b"original stdin",
+        &digest,
+        &paths,
+    )
+    .unwrap();
+    assert_eq!(result.exit_code, 0);
+    assert!(result.failure.is_none());
+    assert_eq!(fs::read(paths.stdout).unwrap(), b"original stdout\xff\n");
+    assert_eq!(fs::read(paths.stderr).unwrap(), result.stderr_bytes);
+    assert_eq!(
+        sha256(&fs::read(paths.stdout).unwrap()),
+        result.stdout_sha256
+    );
+    assert_eq!(
+        sha256(&fs::read(paths.stderr).unwrap()),
+        result.stderr_sha256
+    );
+    let launch: serde_json::Value =
+        serde_json::from_slice(&fs::read(paths.launch).unwrap()).unwrap();
+    assert_eq!(launch["launcher_pid"], value!(result.launcher_pid.unwrap()));
+    assert_eq!(launch["argv"], value!(result.argv));
+    assert_eq!(launch["cwd"], value!(result.cwd));
+    assert_eq!(result.cwd, fs::canonicalize(working.path()).unwrap());
+    assert_eq!(
+        result.launch_original.as_ref().unwrap()["path"],
+        "launch.json"
+    );
+    assert_eq!(launch["sha256"], digest);
+    assert_eq!(launch["schema"], "chrono-process-launch/v2");
+    assert!(launch.get("environment").is_none());
+    assert_eq!(
+        result.environment["GH_TOKEN"],
+        "fixture-launch-secret-never-retain"
+    );
+    assert!(
+        !fs::read(paths.launch)
+            .unwrap()
+            .windows(b"fixture-launch-secret-never-retain".len())
+            .any(|w| w == b"fixture-launch-secret-never-retain")
+    );
+    assert_eq!(launch["environment_digest"], result.environment_digest);
+    assert_eq!(launch["stdin_sha256"], sha256(b"original stdin"));
+    assert_eq!(launch["timeout_seconds"], 30);
+    assert_eq!(launch["output_limit_bytes"], 4096);
+    assert_eq!(
+        launch["child_pid"].as_u64().unwrap().to_string(),
+        fs::read_to_string(working.path().join("retained.pid")).unwrap()
+    );
+    assert!(
+        chrono_harness::run_process_observed_retained(working.path(), &spec, &[], &digest, &paths)
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(paths.stdout).unwrap(),
+        result.stdout_bytes,
+        "existing originals must not be overwritten"
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn tampered_launch_evidence_fails_closed_before_scoped_publication() {
+    let mut root = tempfile::tempdir().unwrap();
+    root.disable_cleanup(true);
+    eprintln!("launch tamper originals: {}", root.path().display());
+    fs::create_dir_all(root.path().join(".chrono-harness/state")).unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: PROCESS_FIXTURE.into(),
+        args: vec![
+            "retained-tamper-launch".into(),
+            ".chrono-harness/state/launch.json".into(),
+        ],
+        env: Default::default(),
+        timeout_seconds: 30,
+        output_limit_bytes: 4096,
+    };
+    let stdout = root.path().join(".chrono-harness/state/original.stdout");
+    let stderr = root.path().join(".chrono-harness/state/original.stderr");
+    let launch = root.path().join(".chrono-harness/state/launch.json");
+    let result = chrono_harness::run_process_observed_retained(
+        root.path(),
+        &spec,
+        &[],
+        &sha256(&fs::read(PROCESS_FIXTURE).unwrap()),
+        &chrono_harness::ProcessEvidence {
+            root: root.path(),
+            stdout: &stdout,
+            stderr: &stderr,
+            launch: &launch,
+            publication: None,
+        },
+    )
+    .unwrap();
+    assert!(result.owned_work_joined, "{result:?}");
+    assert!(
+        result
+            .failure
+            .as_deref()
+            .is_some_and(|error| error.contains("launch evidence")),
+        "{result:?}"
+    );
+    let error = chrono_harness::scoped_report::retain_process_evidence(
+        root.path(),
+        &result,
+        ".chrono-harness/state/original.stdout",
+        ".chrono-harness/state/original.stderr",
+        ".chrono-harness/state/launch.json",
+    )
+    .unwrap_err();
+    assert!(error.contains("launch evidence"), "{error}");
+    root.disable_cleanup(false);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn retained_originals_survive_enclosing_timeout_even_without_terminal_publication() {
+    for case in ["stall", "pause-launcher"] {
+        let mut root = tempfile::tempdir().unwrap();
+        root.disable_cleanup(true);
+        eprintln!(
+            "retained timeout originals ({case}): {}",
+            root.path().display()
+        );
+        let exe = std::env::current_exe().unwrap();
+        let spec = chrono_harness::CommandSpec {
+            program: exe.to_string_lossy().into(),
+            args: vec![
+                "--exact".into(),
+                "retained_nested_helper".into(),
+                "--nocapture".into(),
+            ],
+            env: [
+                (
+                    "CHRONO_RETAINED_FIXTURE".into(),
+                    root.path().to_string_lossy().into(),
+                ),
+                ("CHRONO_RETAINED_CASE".into(), case.into()),
+            ]
+            .into(),
+            timeout_seconds: 2,
+            output_limit_bytes: 4096,
+        };
+        let result = chrono_harness::run_process_observed(
+            root.path(),
+            &spec,
+            &[],
+            &sha256(&fs::read(&exe).unwrap()),
+        )
+        .unwrap();
+        eprintln!("retained timeout process ({case}): {result:?}");
+        assert!(
+            result
+                .failure
+                .as_deref()
+                .unwrap()
+                .starts_with("process timed out"),
+            "{result:?}"
+        );
+        // The cooperative helper can return before enclosing cleanup kills it.
+        // Preserve that observed exit independently from the enclosing failure.
+        if case == "pause-launcher" {
+            assert_ne!(result.exit_code, 0);
+        }
+        assert_eq!(
+            fs::read(root.path().join("original.stdout")).unwrap(),
+            b"original stdout\xff\n"
+        );
+        assert_eq!(fs::read(root.path().join("original.stderr")).unwrap(), b"CHRONO_CARGO_PHASE {\"phase\":\"consumer\",\"event\":\"begin\"}\noriginal stderr\xfe\n");
+        let launch: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.path().join("launch.json")).unwrap()).unwrap();
+        assert_eq!(
+            launch["timeout_seconds"], 30,
+            "the enclosing deadline, not the child's bound, fired"
+        );
+        if case == "pause-launcher" {
+            assert!(
+                !root.path().join("terminal.json").exists(),
+                "no unobserved child terminal may be fabricated"
+            );
+        } else if root.path().join("terminal.json").exists() {
+            let terminal: chrono_harness::ProcessResult =
+                serde_json::from_slice(&fs::read(root.path().join("terminal.json")).unwrap())
+                    .unwrap();
+            assert_ne!(terminal.exit_code, 0);
+            assert!(
+                terminal
+                    .failure
+                    .as_deref()
+                    .unwrap()
+                    .contains("enclosing owner")
+            );
+        }
+        assert!(!root.path().join("escaped").exists());
+        let pid: libc::pid_t = fs::read_to_string(root.path().join("retained.pid"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        let presence = unsafe { libc::kill(pid, 0) };
+        let presence_error = std::io::Error::last_os_error();
+        if presence != -1 {
+            root.disable_cleanup(true);
+            eprintln!(
+                "retained failure ({case}), pid {pid}, originals: {}, result: {result:?}",
+                root.path().display()
+            );
+            #[cfg(target_os = "macos")]
+            {
+                let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+                let observed = unsafe {
+                    libc::proc_pidinfo(
+                        pid,
+                        libc::PROC_PIDTBSDINFO,
+                        0,
+                        (&mut info as *mut libc::proc_bsdinfo).cast(),
+                        std::mem::size_of_val(&info) as i32,
+                    )
+                };
+                eprintln!(
+                    "kernel process observation: bytes={observed}, status={}, parent={}, exit_status={}, error={}",
+                    info.pbi_status,
+                    info.pbi_ppid,
+                    info.pbi_xstatus,
+                    std::io::Error::last_os_error()
+                );
+            }
+        }
+        assert_eq!(
+            presence, -1,
+            "owned child survived enclosing completion ({case})"
+        );
+        assert_eq!(presence_error.raw_os_error(), Some(libc::ESRCH));
+        root.disable_cleanup(false);
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn retained_originals_keep_the_existing_stream_limit_and_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: PROCESS_FIXTURE.into(),
+        args: vec!["retained".into(), "normal".into()],
+        env: Default::default(),
+        timeout_seconds: 30,
+        output_limit_bytes: 8,
+    };
+    let paths = chrono_harness::ProcessEvidence {
+        root: root.path(),
+        stdout: &root.path().join("original.stdout"),
+        stderr: &root.path().join("original.stderr"),
+        launch: &root.path().join("launch.json"),
+        publication: None,
+    };
+    let result = chrono_harness::run_process_observed_retained(
+        root.path(),
+        &spec,
+        &[],
+        &sha256(&fs::read(PROCESS_FIXTURE).unwrap()),
+        &paths,
+    )
+    .unwrap();
+    assert_eq!(
+        result.failure.as_deref(),
+        Some("process output limit exceeded")
+    );
+    assert_eq!(fs::read(paths.stdout).unwrap(), result.stdout_bytes);
+    assert_eq!(fs::read(paths.stderr).unwrap(), result.stderr_bytes);
+    assert_eq!(result.stdout_bytes, b"original");
+    // The stdout overflow can terminate the child before all stderr is read.
+    assert!(b"CHRONO_C".starts_with(&result.stderr_bytes));
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn owned_nested_helper() {
+    let Ok(root) = std::env::var("CHRONO_NESTED_FIXTURE") else {
+        return;
+    };
+    let root = std::path::Path::new(&root);
+    let spec = chrono_harness::CommandSpec {
+        program: PROCESS_FIXTURE.into(),
+        args: vec!["nested".into()],
+        env: Default::default(),
+        timeout_seconds: 30,
+        output_limit_bytes: 4096,
+    };
+    let _ = chrono_harness::run_process_observed(
+        root,
+        &spec,
+        &[],
+        &sha256(&fs::read(PROCESS_FIXTURE).unwrap()),
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn outer_timeout_contains_nested_owned_operation() {
+    for helper in ["owned_nested_helper", "owned_nested_middle_helper"] {
+        let d = tempfile::tempdir().unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let spec = chrono_harness::CommandSpec {
+            program: exe.to_string_lossy().into_owned(),
+            args: vec!["--exact".into(), helper.into(), "--nocapture".into()],
+            env: [
+                (
+                    "CHRONO_NESTED_FIXTURE".into(),
+                    d.path().to_string_lossy().into_owned(),
+                ),
+                ("PATH".into(), std::env::var("PATH").unwrap()),
+            ]
+            .into(),
+            timeout_seconds: 2,
+            output_limit_bytes: 4096,
+        };
+        let p = chrono_harness::run_process_observed(
+            d.path(),
+            &spec,
+            &[],
+            &chrono_harness::sha256(&std::fs::read(&exe).unwrap()),
+        )
+        .unwrap();
+        assert_eq!(p.failure.as_deref(), Some("process timed out"), "{p:?}");
+        let pid = std::fs::read_to_string(d.path().join("nested.pid")).unwrap();
+        let pid: libc::pid_t = pid.parse().unwrap();
+        let observation =
+            &p.failure_record.as_ref().unwrap().error.context["ownership_at_monitor_end"];
+        let launches = observation["launches"]
+            .as_array()
+            .expect("timeout retains the explicitly owned launch identities");
+        let outer = launches
+            .iter()
+            .find(|launch| launch["child_pid"] == value!(p.child_pid))
+            .expect("the timed-out launch remains identified before cleanup");
+        assert_eq!(outer["slot"], observation["slot"]);
+        assert_eq!(outer["generation"], observation["generation"]);
+        // A canonical runner check itself has an inherited launch ancestry.
+        // Standalone tests start a new tree; both must retain their real links.
+        if !outer["parent_slot"].is_null() {
+            assert!(
+                launches
+                    .iter()
+                    .any(|launch| launch["slot"] == outer["parent_slot"])
+            );
+        }
+        let nested = launches
+            .iter()
+            .find(|launch| launch["child_pid"] == pid)
+            .expect("the actual live nested child is identified before cleanup");
+        assert_eq!(nested["terminal"], false);
+        assert_eq!(nested["launcher_terminal"], false);
+        assert_eq!(nested["state"], 2);
+        let parent = launches
+            .iter()
+            .find(|launch| launch["slot"] == nested["parent_slot"])
+            .expect("nested launch keeps its explicit parent identity");
+        assert_eq!(parent["state"], 2);
+        let mut ancestor = nested;
+        for _ in 0..launches.len() {
+            if ancestor["slot"] == outer["slot"] {
+                break;
+            }
+            ancestor = launches
+                .iter()
+                .find(|launch| launch["slot"] == ancestor["parent_slot"])
+                .expect("the nested child must retain its path to the timed-out owner");
+        }
+        assert_eq!(ancestor["slot"], outer["slot"]);
+        let state = unsafe { libc::kill(pid, 0) };
+        let error = std::io::Error::last_os_error();
+        if state == 0 {
+            // Always terminate the exact fixture child before reporting a failure.
+            assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0);
+        }
+        assert_eq!(state, -1, "nested process survived outer completion");
+        assert_eq!(error.raw_os_error(), Some(libc::ESRCH));
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn owned_nested_middle_helper() {
+    let Ok(root) = std::env::var("CHRONO_NESTED_FIXTURE") else {
+        return;
+    };
+    let exe = std::env::current_exe().unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: exe.to_string_lossy().into_owned(),
+        args: vec![
+            "--exact".into(),
+            "owned_nested_helper".into(),
+            "--nocapture".into(),
+        ],
+        env: std::env::vars().collect(),
+        timeout_seconds: 30,
+        output_limit_bytes: 4096,
+    };
+    let _ = chrono_harness::run_process_observed(
+        std::path::Path::new(&root),
+        &spec,
+        &[],
+        &chrono_harness::sha256(&std::fs::read(exe).unwrap()),
+    );
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn owned_timeout_helper_keeps_unrelated_sibling() {
+    let Ok(root) = std::env::var("CHRONO_SIBLING_FIXTURE") else {
+        return;
+    };
+    let root = std::path::Path::new(&root);
+    let digest = sha256(&fs::read(PROCESS_FIXTURE).unwrap());
+    std::thread::scope(|scope| {
+        let slow = scope.spawn(|| {
+            chrono_harness::run_process_observed(
+                root,
+                &chrono_harness::CommandSpec {
+                    program: PROCESS_FIXTURE.into(),
+                    args: vec!["slow".into()],
+                    env: Default::default(),
+                    timeout_seconds: 1,
+                    output_limit_bytes: 4096,
+                },
+                &[],
+                &digest,
+            )
+            .unwrap()
+        });
+        let sibling = chrono_harness::run_process_observed(
+            root,
+            &chrono_harness::CommandSpec {
+                program: PROCESS_FIXTURE.into(),
+                args: vec!["sibling".into()],
+                env: Default::default(),
+                timeout_seconds: 5,
+                output_limit_bytes: 4096,
+            },
+            &[],
+            &digest,
+        )
+        .unwrap();
+        assert_eq!(
+            slow.join().unwrap().failure.as_deref(),
+            Some("process timed out")
+        );
+        assert_eq!(sibling.exit_code, 0);
+        assert!(sibling.failure.is_none());
+        assert_eq!(sibling.stdout_bytes, b"original\n");
+    });
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn nested_operation_timeout_does_not_cancel_owned_sibling() {
+    let d = tempfile::tempdir().unwrap();
+    let exe = std::env::current_exe().unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: exe.to_string_lossy().into_owned(),
+        args: vec![
+            "--exact".into(),
+            "owned_timeout_helper_keeps_unrelated_sibling".into(),
+            "--nocapture".into(),
+        ],
+        env: [
+            (
+                "CHRONO_SIBLING_FIXTURE".into(),
+                d.path().to_string_lossy().into_owned(),
+            ),
+            ("PATH".into(), std::env::var("PATH").unwrap()),
+        ]
+        .into(),
+        timeout_seconds: 5,
+        output_limit_bytes: 4096,
+    };
+    let p = chrono_harness::run_process_observed(
+        d.path(),
+        &spec,
+        &[],
+        &chrono_harness::sha256(&std::fs::read(exe).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(p.exit_code, 0, "{p:?}");
+    assert!(p.failure.is_none());
+    assert_eq!(
+        std::fs::read_to_string(d.path().join("sibling")).unwrap(),
+        "joined"
+    );
+    assert_eq!(p.environment, spec.env);
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn interrupted_launch_child_owner_helper() {
+    let Ok(root) = std::env::var("CHRONO_INTERRUPTED_LAUNCH") else {
+        return;
+    };
+    let root = std::path::Path::new(&root);
+    let complete = std::env::var("CHRONO_INTERRUPTED_COMPLETE").unwrap();
+    let _ = chrono_harness::run_process_observed(
+        root,
+        &chrono_harness::CommandSpec {
+            program: PROCESS_FIXTURE.into(),
+            args: vec!["interrupted-child".into(), complete],
+            env: Default::default(),
+            timeout_seconds: 30,
+            output_limit_bytes: 4096,
+        },
+        &[],
+        &sha256(&fs::read(PROCESS_FIXTURE).unwrap()),
+    );
+    panic!("the child must interrupt this launcher");
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn interrupted_launch_survivor_helper() {
+    use std::os::unix::process::ExitStatusExt;
+    let Ok(root) = std::env::var("CHRONO_INTERRUPTED_LAUNCH") else {
+        return;
+    };
+    let original = std::path::Path::new(&root).join("original");
+    let bytes = fs::File::create(&original).unwrap();
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "interrupted_launch_child_owner_helper",
+            "--nocapture",
+        ])
+        .stdout(bytes.try_clone().unwrap())
+        .stderr(bytes)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(status.signal(), Some(9));
+    fs::write(
+        std::path::Path::new(&root).join("interruption"),
+        "signal 9 joined by surviving parent",
+    )
+    .unwrap();
+    if std::env::var("CHRONO_INTERRUPTED_COMPLETE").unwrap() == "yes" {
+        let start = std::time::Instant::now();
+        while !std::path::Path::new(&root).join("completed").exists() {
+            assert!(start.elapsed() < std::time::Duration::from_secs(3));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    print!("{}", fs::read_to_string(original).unwrap());
+    if let Ok(bytes) = fs::read_to_string(std::path::Path::new(&root).join("child-original")) {
+        print!("{bytes}");
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn interrupted_launch(complete: bool) -> (tempfile::TempDir, chrono_harness::ProcessResult) {
+    let d = tempfile::tempdir().unwrap();
+    let exe = std::env::current_exe().unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: exe.to_string_lossy().into_owned(),
+        args: vec![
+            "--exact".into(),
+            "interrupted_launch_survivor_helper".into(),
+            "--nocapture".into(),
+        ],
+        env: [
+            (
+                "CHRONO_INTERRUPTED_LAUNCH".into(),
+                d.path().to_string_lossy().into_owned(),
+            ),
+            (
+                "CHRONO_INTERRUPTED_COMPLETE".into(),
+                if complete { "yes" } else { "no" }.into(),
+            ),
+            ("PATH".into(), std::env::var("PATH").unwrap()),
+        ]
+        .into(),
+        timeout_seconds: 5,
+        output_limit_bytes: 4096,
+    };
+    // An independent process binds the child's live kernel identity before the
+    // interruption and observes its actual exit. File readiness alone cannot
+    // satisfy this oracle, including the abandoned-child cleanup case.
+    let observer = std::process::Command::new(PROCESS_FIXTURE)
+        .arg("interrupted-observer")
+        .current_dir(d.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let result = chrono_harness::run_process_observed(
+        d.path(),
+        &spec,
+        &[],
+        &sha256(&fs::read(exe).unwrap()),
+    );
+    let observed = observer.wait_with_output().unwrap();
+    assert!(
+        observed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&observed.stderr)
+    );
+    assert_eq!(
+        fs::read(d.path().join("ready")).unwrap(),
+        fs::read(d.path().join("kernel-terminal")).unwrap()
+    );
+    let p = result.unwrap();
+    assert_eq!(p.environment, spec.env);
+    assert_eq!(p.argv[1..], spec.args);
+    (d, p)
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn interrupted_nested_launcher_with_terminal_child_completes_enclosing_owner() {
+    let (d, p) = interrupted_launch(true);
+    assert!(d.path().join("ready").exists());
+    assert_eq!(
+        fs::read_to_string(d.path().join("interruption")).unwrap(),
+        "signal 9 joined by surviving parent"
+    );
+    assert_eq!(
+        fs::read_to_string(d.path().join("completed")).unwrap(),
+        "child reached exit"
+    );
+    assert!(p.stdout.contains("original child bytes"));
+    assert_eq!(p.exit_code, 0, "{p:?}");
+    assert!(p.owned_work_joined, "{p:?}");
+    assert!(p.failure.is_none(), "{p:?}");
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn interrupted_nested_launcher_with_live_child_retains_cleanup_failure() {
+    let (d, p) = interrupted_launch(false);
+    assert!(d.path().join("ready").exists());
+    assert_eq!(p.exit_code, 0, "{p:?}");
+    assert!(!p.owned_work_joined, "{p:?}");
+    assert!(
+        p.failure
+            .as_deref()
+            .is_some_and(|s| s.contains("joined completion")),
+        "{p:?}"
+    );
+    assert!(!d.path().join("escaped").exists());
+    let record = p.failure_record.as_ref().unwrap();
+    assert_eq!(record.error.code, "E_PROCESS_OWNERSHIP_CLEANUP");
+    assert_eq!(record.error.context["child_joined"], true);
+    let observed = &record.error.context["ownership_after_cleanup"];
+    assert_eq!(observed["child_pid"], value!(p.child_pid));
+    assert_eq!(observed["consistency"], "independent atomic reads");
+    assert_eq!(observed["cancelled"], true);
+    assert!(observed["generation"].as_u64().unwrap() > 0);
+    assert!(observed["launches"].as_array().unwrap().iter().any(|slot| {
+        slot["slot"] == observed["slot"] && slot["generation"] == observed["generation"]
+    }));
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn owned_launch_burst_helper() {
+    let Ok(root) = std::env::var("CHRONO_LAUNCH_BURST") else {
+        return;
+    };
+    check_launch_allocations();
+    let root = std::path::Path::new(&root);
+    let digest = sha256(&fs::read(PROCESS_FIXTURE).unwrap());
+    std::thread::scope(|scope| {
+        let mut tasks = Vec::new();
+        for index in 0..64 {
+            let digest = &digest;
+            tasks.push(scope.spawn(move || {
+                let spec = chrono_harness::CommandSpec {
+                    program: PROCESS_FIXTURE.into(),
+                    args: vec!["burst".into(), index.to_string()],
+                    env: Default::default(),
+                    timeout_seconds: 30,
+                    output_limit_bytes: 4096,
+                };
+                let p = chrono_harness::run_process_observed(root, &spec, &[], digest).unwrap();
+                assert_eq!(p.exit_code, 0);
+                assert!(p.failure.is_none(), "{p:?}");
+                assert_eq!(p.stdout, format!("original-{index}\n"));
+            }));
+        }
+        for task in tasks {
+            task.join().unwrap();
+        }
+    });
+}
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn concurrent_live_identity_handoffs_complete_each_real_child_once() {
+    let d = tempfile::tempdir().unwrap();
+    let exe = std::env::current_exe().unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: exe.to_string_lossy().into(),
+        args: vec![
+            "--exact".into(),
+            "owned_launch_burst_helper".into(),
+            "--nocapture".into(),
+        ],
+        env: [
+            (
+                "CHRONO_LAUNCH_BURST".into(),
+                d.path().to_string_lossy().into(),
+            ),
+            ("PATH".into(), std::env::var("PATH").unwrap()),
+        ]
+        .into(),
+        timeout_seconds: 30,
+        output_limit_bytes: 65536,
+    };
+    let p = chrono_harness::run_process_observed(
+        d.path(),
+        &spec,
+        &[],
+        &sha256(&fs::read(exe).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(p.exit_code, 0, "{} {} {:?}", p.stdout, p.stderr, p.failure);
+    assert!(p.failure.is_none());
+    for index in 0..64 {
+        assert_eq!(
+            fs::read_to_string(d.path().join(format!("child-{index}"))).unwrap(),
+            "once"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn delayed_monitor_helper() {
+    let Ok(root) = std::env::var("CHRONO_DELAYED_MONITOR") else {
+        return;
+    };
+    let root = std::path::Path::new(&root);
+    let executable = PROCESS_FIXTURE;
+    let digest = sha256(&fs::read(executable).unwrap());
+    let spec = chrono_harness::CommandSpec {
+        program: executable.into(),
+        args: vec!["child".into()],
+        env: Default::default(),
+        timeout_seconds: 1,
+        output_limit_bytes: 4096,
+    };
+    // Complete this launcher's first owned process handoff before the short
+    // experiment. The probe uses the same executable,
+    // ownership engine and bounds, and leaves no child or readiness marker.
+    let mut readiness = spec.clone();
+    readiness.args = vec!["exit".into(), "0".into()];
+    let ready = chrono_harness::run_process_observed(root, &readiness, &[], &digest).unwrap();
+    assert_eq!(ready.exit_code, 0, "{ready:?}");
+    assert!(ready.failure.is_none(), "{ready:?}");
+    assert!(ready.stdout_bytes.is_empty(), "{ready:?}");
+    assert!(ready.stderr_bytes.is_empty(), "{ready:?}");
+    // The launcher already runs in root. Its retained absolute path can exceed
+    // sockaddr_un's limit, so use the same relative address as the controller.
+    let stream = std::os::unix::net::UnixStream::connect("monitor.sock").unwrap();
+    let logger = chrono_diagnostics::logging::Logger::new(
+        "delayed-monitor",
+        chrono_diagnostics::logging::Level::DEBUG,
+        stream,
+    );
+    logger.run(|| {
+        let result = chrono_harness::run_process_observed(root, &spec, &[], &digest).unwrap();
+        fs::write(
+            root.join("result.json"),
+            serde_json::to_vec(&result).unwrap(),
+        )
+        .unwrap();
+    });
+    logger.finish().unwrap();
+}
+
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+fn delayed_monitor(case: &str) -> chrono_harness::ProcessResult {
+    // CI's retained fixture roots can exceed sockaddr_un's path limit. The
+    // protocol must keep working from such a directory using relative sockets.
+    let prefix = "delayed-monitor-".repeat(8);
+    let mut root = tempfile::Builder::new().prefix(&prefix).tempdir().unwrap();
+    root.disable_cleanup(true);
+    eprintln!(
+        "delayed monitor originals ({case}): {}",
+        root.path().display()
+    );
+    let exe = std::env::current_exe().unwrap();
+    let digest = sha256(&fs::read(&exe).unwrap());
+    // Only the nested launcher is suspended. The child and independent kernel
+    // observer remain runnable; the late-exit control rejects a monitor that
+    // merely tests try_wait before checking its deadline.
+    let mut controller = std::process::Command::new(PROCESS_FIXTURE)
+        .args(["controller", case])
+        .current_dir(root.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // The independent observer publishes readiness before the timed launch and
+    // reads that launch's actual monitor deadline from the existing logger.
+    use std::{
+        io::{BufRead, BufReader},
+        os::fd::AsRawFd,
+    };
+    let ready = controller.stdout.take().unwrap();
+    let mut event = libc::pollfd {
+        fd: ready.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    if unsafe { libc::poll(&mut event, 1, 5000) } != 1 {
+        let _ = controller.kill();
+        let original = controller.wait_with_output().unwrap();
+        panic!("controller did not become ready: {original:?}");
+    }
+    let mut line = String::new();
+    BufReader::new(ready).read_line(&mut line).unwrap();
+    assert_eq!(line, "ready\n");
+    let spec = chrono_harness::CommandSpec {
+        program: exe.to_string_lossy().into(),
+        args: vec![
+            "--exact".into(),
+            "delayed_monitor_helper".into(),
+            "--nocapture".into(),
+        ],
+        env: [
+            (
+                "CHRONO_DELAYED_MONITOR".into(),
+                root.path().to_string_lossy().into(),
+            ),
+            ("PATH".into(), std::env::var("PATH").unwrap()),
+        ]
+        .into(),
+        timeout_seconds: 8,
+        output_limit_bytes: 16384,
+    };
+    let result = chrono_harness::run_process_observed(root.path(), &spec, &[], &digest);
+    fs::write(
+        root.path().join("launcher.original.json"),
+        serde_json::to_vec(&result).unwrap(),
+    )
+    .unwrap();
+    let observed = controller.wait_with_output().unwrap();
+    assert!(
+        observed.status.success(),
+        "controller: {}; launcher original: {}",
+        String::from_utf8_lossy(&observed.stderr),
+        root.path().join("launcher.original.json").display()
+    );
+    let result = result.unwrap();
+    assert_eq!(result.exit_code, 0, "{result:?}");
+    assert!(result.failure.is_none(), "{result:?}");
+    let observed: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.path().join("kernel-terminal.json")).unwrap())
+            .unwrap();
+    eprintln!("delayed monitor kernel evidence ({case}): {observed}");
+    assert!(observed["resumed"].as_f64().unwrap() - observed["stopped"].as_f64().unwrap() > 1.0);
+    let result: chrono_harness::ProcessResult =
+        serde_json::from_slice(&fs::read(root.path().join("result.json")).unwrap()).unwrap();
+    assert_eq!(result.exit_code, 7, "{result:?}; kernel: {observed}");
+    if case == "overflow" {
+        assert_eq!(result.stdout_bytes, vec![b'x'; 4096]);
+    } else {
+        assert!(result.stdout_bytes.is_empty());
+    }
+    assert!(result.stderr_bytes.is_empty());
+    root.disable_cleanup(false);
+    result
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn delayed_monitor_preserves_on_time_child_exit() {
+    let result = delayed_monitor("on-time");
+    assert!(result.failure.is_none(), "{result:?}");
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn delayed_monitor_retains_late_child_timeout() {
+    let result = delayed_monitor("late");
+    assert_eq!(
+        result.failure.as_deref(),
+        Some("process timed out"),
+        "{result:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn delayed_monitor_preserves_output_bound() {
+    let result = delayed_monitor("overflow");
+    assert_eq!(
+        result.failure.as_deref(),
+        Some("process output limit exceeded"),
+        "{result:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn closed_output_streams_preserve_child_exit_and_timeout() {
+    for (delay, expected_exit) in [(50, Some(7)), (20_000, None)] {
+        let root = tempfile::tempdir().unwrap();
+        let spec = chrono_harness::CommandSpec {
+            program: PROCESS_FIXTURE.into(),
+            args: vec!["closed-streams".into(), delay.to_string()],
+            env: Default::default(),
+            timeout_seconds: 1,
+            output_limit_bytes: 4096,
+        };
+        let result = chrono_harness::run_process_observed(
+            root.path(),
+            &spec,
+            &[],
+            &sha256(&fs::read(&spec.program).unwrap()),
+        )
+        .unwrap();
+        assert!(result.stdout_bytes.is_empty());
+        assert!(result.stderr_bytes.is_empty());
+        let markers = (
+            fs::read_to_string(root.path().join("started")),
+            fs::read_to_string(root.path().join("completed")),
+        );
+        if let Some(exit) = expected_exit {
+            assert_eq!(result.exit_code, exit, "{result:?}; markers={markers:?}");
+            assert!(result.failure.is_none(), "{result:?}; markers={markers:?}");
+            assert!(root.path().join("completed").exists());
+        } else {
+            assert_eq!(
+                result.failure.as_deref(),
+                Some("process timed out"),
+                "{result:?}; markers={markers:?}"
+            );
+            let record = result.failure_record.as_ref().unwrap();
+            let observed = &record.error.context["ownership_at_monitor_end"];
+            assert_eq!(observed["child_pid"], value!(result.child_pid));
+            assert_eq!(observed["state"], 2);
+            assert_eq!(observed["terminal"], false);
+            assert_eq!(observed["cancelled"], false);
+            assert!(observed["generation"].as_u64().unwrap() > 0);
+            assert!(!root.path().join("completed").exists());
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn kernel_exit_with_pending_child_join_needs_no_further_advisory_hint() {
+    let output = std::process::Command::new(PROCESS_FIXTURE)
+        .arg("ordered-completion")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("actual joined exit=7"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("expired=true"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn unexpected_exec_helper() {
+    if std::env::var_os("CHRONO_UNEXPECTED_EXEC").is_some() {
+        fs::File::create_new("unexpected-exec").unwrap();
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn completion_wait_probe_helper() {
+    let Ok(root) = std::env::var("CHRONO_WAIT_PROBE_FIXTURE") else {
+        return;
+    };
+    let root = std::path::Path::new(&root);
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: PROCESS_FIXTURE.into(),
+        args: vec![
+            "closed-streams".into(),
+            "1500".into(),
+            listener.local_addr().unwrap().to_string(),
+        ],
+        env: Default::default(),
+        timeout_seconds: 10,
+        output_limit_bytes: 4096,
+    };
+    let (result, status_probes) = std::thread::scope(|scope| {
+        let engine = scope.spawn(|| {
+            chrono_harness::run_process_observed(
+                root,
+                &spec,
+                &[],
+                &sha256(&fs::read(PROCESS_FIXTURE).unwrap()),
+            )
+            .unwrap()
+        });
+        // Start the observation only after the actual child has launched and
+        // closed its output streams. Executable loading, hashing and ownership
+        // setup have no relation to periodic completion probes.
+        use std::os::fd::AsRawFd;
+        let mut ready = libc::pollfd {
+            fd: listener.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        assert_eq!(unsafe { libc::poll(&mut ready, 1, 10_000) }, 1);
+        let (mut child, _) = listener.accept().unwrap();
+        let before = chrono_harness::direct_child_status_probe_count();
+        std::io::Write::write_all(&mut child, b"begin quiet delay").unwrap();
+        let result = engine.join().unwrap();
+        (
+            result,
+            chrono_harness::direct_child_status_probe_count() - before,
+        )
+    });
+    fs::write(
+        root.join("wait-probes.json"),
+        value!({"status_probes": status_probes, "process": result}).to_string(),
+    )
+    .unwrap();
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn completion_wait_blocks_without_periodic_status_probes() {
+    // Isolate actual DirectChild probes from other Rust test workers. Count
+    // this engine invocation after the real child closes both streams, until
+    // the engine joins it; scheduler context switches do not measure probes.
+    // A finite allowance accommodates launch/EOF/exit/join events; 2-ms and
+    // 10-ms periodic waits exceed it even when the child is entirely quiet.
+    use std::os::unix::process::CommandExt;
+    let root = tempfile::tempdir().unwrap();
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", "completion_wait_probe_helper", "--nocapture"])
+        .env("CHRONO_WAIT_PROBE_FIXTURE", root.path());
+    unsafe {
+        command.pre_exec(|| {
+            // Start this probe window with its own native exit observer.
+            // Preserve every inherited worktree capability descriptor.
+            for fd in [198, 199, 200] {
+                if libc::close(fd) < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.raw_os_error() != Some(libc::EBADF) {
+                        return Err(error);
+                    }
+                }
+            }
+            Ok(())
+        });
+    }
+    let original = command.output().unwrap();
+    assert!(original.status.success(), "{original:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.path().join("wait-probes.json")).unwrap()).unwrap();
+    assert_eq!(report["process"]["exit_code"], 7, "{report}");
+    assert_eq!(
+        report["process"]["failure"],
+        serde_json::Value::Null,
+        "{report}"
+    );
+    assert!(root.path().join("completed").exists(), "{report}");
+    let probes = report["status_probes"].as_u64().unwrap();
+    println!(
+        "quiet completion wait: {probes} DirectChild status probes over a 1500-ms child delay"
+    );
+    assert!((1..64).contains(&probes), "{report}");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn failed_live_identity_registration_helper() {
+    use std::os::fd::AsRawFd;
+    let Ok(root) = std::env::var("CHRONO_FAILED_HANDOFF") else {
+        return;
+    };
+    check_launch_allocations();
+    // The independent Rust parent fixes this process's descriptor budget.
+    // Leave the ownership transport free, while exhausting the observer's
+    // remaining kernel descriptor when it receives the live handoff.
+    let mut held = Vec::new();
+    loop {
+        let file = fs::File::open("/dev/null").unwrap();
+        let fd = file.as_raw_fd();
+        held.push(file);
+        if fd >= 195 {
+            break;
+        }
+    }
+    let spec = chrono_harness::CommandSpec {
+        program: std::env::current_exe().unwrap().to_str().unwrap().into(),
+        args: vec![
+            "--exact".into(),
+            "unexpected_exec_helper".into(),
+            "--nocapture".into(),
+        ],
+        env: [("CHRONO_UNEXPECTED_EXEC".into(), "1".into())].into(),
+        timeout_seconds: 30,
+        output_limit_bytes: 4096,
+    };
+    let error = chrono_harness::run_process_observed(
+        std::path::Path::new(&root),
+        &spec,
+        &[],
+        &sha256(&fs::read(&spec.program).unwrap()),
+    )
+    .expect_err("kernel registration exhaustion must prevent exec");
+    println!("{error}");
+    assert!(
+        error.contains("process ownership live exit registration"),
+        "{error}"
+    );
+    assert!(error.contains("os error 24"), "{error}");
+    assert!(
+        error.split(';').next().unwrap().contains("os error 24"),
+        "spawn must preserve the actual errno independently of its diagnostic: {error}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn failed_live_identity_registration_preserves_actual_kernel_error_before_exec() {
+    failed_live_identity_handoff(210, "failed_live_identity_registration_helper");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn failed_handoff_receive_preserves_original_transport_failure_before_exec() {
+    failed_live_identity_handoff(256, "failed_handoff_receive_helper");
+}
+
+#[cfg(target_os = "macos")]
+#[cfg(not(verus_keep_ghost))]
+fn failed_live_identity_handoff(descriptor_limit: libc::rlim_t, helper: &str) {
+    use std::os::unix::process::CommandExt;
+    let root = tempfile::tempdir().unwrap();
+    let descriptors: Vec<i32> = std::env::var("CHRONO_PROCESS_FDS")
+        .ok()
+        .map(|value| value.split(',').map(|fd| fd.parse().unwrap()).collect())
+        .unwrap_or_default();
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", helper, "--nocapture"])
+        .env("CHRONO_FAILED_HANDOFF", root.path())
+        .env_remove("CHRONO_PROCESS_FDS");
+    unsafe {
+        command.pre_exec(move || {
+            // Keep inherited leases open above the fixed allocation budget.
+            // F_DUPFD creates inheritable copies; this helper omits their carrier.
+            for fd in &descriptors {
+                if libc::fcntl(*fd, libc::F_DUPFD, descriptor_limit as i32) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            for fd in &descriptors {
+                if libc::close(*fd) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            for fd in [198, 199, 200] {
+                if libc::close(fd) < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.raw_os_error() != Some(libc::EBADF) {
+                        return Err(error);
+                    }
+                }
+            }
+            let limit = libc::rlimit {
+                rlim_cur: descriptor_limit,
+                rlim_max: descriptor_limit,
+            };
+            if libc::setrlimit(libc::RLIMIT_NOFILE, &limit) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let out = command.output().unwrap();
+    assert!(
+        out.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!root.path().join("unexpected-exec").exists());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn fixed_descriptor_exhaustion_keeps_inherited_capabilities_outside_its_budget() {
+    use std::os::fd::AsFd;
+    let root = tempfile::tempdir().unwrap();
+    let capability = fs::File::open(root.path()).unwrap();
+    let _ownership = chrono_harness::process_fds::Scope::new(&[capability.as_fd()]).unwrap();
+    let executable = std::env::current_exe().unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: executable.to_str().unwrap().into(),
+        args: vec![
+            "--exact".into(),
+            "failed_live_identity_registration_preserves_actual_kernel_error_before_exec".into(),
+            "--nocapture".into(),
+        ],
+        env: Default::default(),
+        timeout_seconds: FIXTURE_TIMEOUT_SECONDS,
+        output_limit_bytes: 4096,
+    };
+    let result = chrono_harness::run_process_observed(
+        root.path(),
+        &spec,
+        &[],
+        &sha256(&fs::read(&executable).unwrap()),
+    )
+    .unwrap();
+    assert!(result.ownership_fds.is_some(), "{result:?}");
+    assert!(result.failure.is_none(), "{result:?}");
+    assert_eq!(result.exit_code, 0, "{result:?}");
+    assert!(result.stdout.contains("1 passed; 0 failed"), "{result:?}");
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn signal_termination_preserves_actual_pid_and_streams_without_reclassifying_normal_exits() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: PROCESS_FIXTURE.into(),
+        args: vec!["terminated".into(), "streams".into()],
+        env: Default::default(),
+        timeout_seconds: FIXTURE_TIMEOUT_SECONDS,
+        output_limit_bytes: 4096,
+    };
+    let identity = sha256(&fs::read(PROCESS_FIXTURE).unwrap());
+    let result = chrono_harness::run_process_observed(dir.path(), &spec, &[], &identity).unwrap();
+    let pid = fs::read_to_string(dir.path().join("terminated.pid")).unwrap();
+    assert!(pid.parse::<u32>().unwrap() > 0);
+    assert_eq!(result.exit_code, -1);
+    assert_eq!(
+        result.failure,
+        Some(format!("process terminated by signal 9 (pid {pid})"))
+    );
+    assert_eq!(result.stdout_bytes, b"original stdout\xff");
+    assert_eq!(result.stderr_bytes, b"original stderr\xfe");
+    assert_eq!(result.stdout_sha256, sha256(&result.stdout_bytes));
+    assert_eq!(result.stderr_sha256, sha256(&result.stderr_bytes));
+    for code in [0, 7] {
+        let mut ordinary = spec.clone();
+        ordinary.args = vec!["exit".into(), code.to_string()];
+        let result =
+            chrono_harness::run_process_observed(dir.path(), &ordinary, &[], &identity).unwrap();
+        assert_eq!(result.exit_code, code);
+        assert_eq!(result.failure, None);
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn signal_termination_precedes_json_decode_for_delta_and_initial_transport() {
+    let (dir, request, mut binding) = fixture(value!({}));
+    replace_judge(dir.path(), PROCESS_FIXTURE);
+    binding.sha256 = Some(sha256(&fs::read(PROCESS_FIXTURE).unwrap()));
+    binding.argv = vec!["terminated".into(), "empty".into()];
+    let failure = wire::invoke_detailed(
+        &request,
+        &binding,
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        4096,
+    )
+    .unwrap_err();
+    let pid = fs::read_to_string(dir.path().join("terminated.pid")).unwrap();
+    let expected = format!("process terminated by signal 9 (pid {pid})");
+    assert!(failure.message.contains(&expected), "{failure:?}");
+    let process = failure.process.unwrap();
+    assert_eq!(process.failure.as_deref(), Some(expected.as_str()));
+    assert_eq!(process.exit_code, -1);
+    assert!(process.stdout_bytes.is_empty());
+
+    let (dir, request, mut binding) = initial_fixture(value!({}));
+    replace_judge(dir.path(), PROCESS_FIXTURE);
+    binding.sha256 = Some(sha256(&fs::read(PROCESS_FIXTURE).unwrap()));
+    binding.argv = vec!["terminated".into(), "empty".into()];
+    let failure = chrono_harness::initial::invoke(
+        &request,
+        &binding,
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        4096,
+    )
+    .unwrap_err();
+    let pid = fs::read_to_string(dir.path().join("terminated.pid")).unwrap();
+    let expected = format!("process terminated by signal 9 (pid {pid})");
+    assert!(failure.message.contains(&expected), "{failure:?}");
+    let process = failure.process.unwrap();
+    assert_eq!(process.failure.as_deref(), Some(expected.as_str()));
+    assert_eq!(process.exit_code, -1);
+    assert!(process.stdout_bytes.is_empty());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn failed_handoff_receive_helper() {
+    use std::io::{Read, Write};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::FileExt;
+    let Ok(root) = std::env::var("CHRONO_FAILED_HANDOFF") else {
+        return;
+    };
+    let root = std::path::Path::new(&root);
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let spec = chrono_harness::CommandSpec {
+        program: std::env::current_exe().unwrap().to_str().unwrap().into(),
+        args: vec![
+            "--exact".into(),
+            "failed_handoff_receive_child_helper".into(),
+            "--nocapture".into(),
+        ],
+        env: [
+            (
+                "CHRONO_FAILED_HANDOFF".into(),
+                root.to_string_lossy().into(),
+            ),
+            (
+                "CHRONO_HANDOFF_READY".into(),
+                listener.local_addr().unwrap().to_string(),
+            ),
+        ]
+        .into(),
+        timeout_seconds: 30,
+        output_limit_bytes: 65536,
+    };
+    let digest = sha256(&fs::read(&spec.program).unwrap());
+    let release = fs::File::create_new(root.join("release")).unwrap();
+    let errno_original = fs::File::create_new(root.join("receive-errno")).unwrap();
+    // Independently observe this kernel's SCM_RIGHTS receive failure under
+    // the same exhausted descriptor table. Kernel versions need not return
+    // one hard-coded errno, but the engine must retain the exact actual errno.
+    let (probe_sender, probe_receiver) = std::os::unix::net::UnixDatagram::pair().unwrap();
+    let mut probe_data = [0usize; 4];
+    let mut probe_control = [0usize; 8];
+    let mut probe_iov = libc::iovec {
+        iov_base: probe_data.as_mut_ptr().cast(),
+        iov_len: std::mem::size_of_val(&probe_data),
+    };
+    let mut probe_msg: libc::msghdr = unsafe { std::mem::zeroed() };
+    probe_msg.msg_iov = &mut probe_iov;
+    probe_msg.msg_iovlen = 1;
+    probe_msg.msg_control = probe_control.as_mut_ptr().cast();
+    probe_msg.msg_controllen = unsafe { libc::CMSG_SPACE(std::mem::size_of::<i32>() as _) } as _;
+    unsafe {
+        let header = libc::CMSG_FIRSTHDR(&probe_msg);
+        (*header).cmsg_level = libc::SOL_SOCKET;
+        (*header).cmsg_type = libc::SCM_RIGHTS;
+        (*header).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as _) as _;
+        *libc::CMSG_DATA(header).cast::<i32>() = release.as_raw_fd();
+        assert_eq!(
+            libc::sendmsg(probe_sender.as_raw_fd(), &probe_msg, 0),
+            std::mem::size_of_val(&probe_data) as isize
+        );
+    }
+    let result = std::thread::scope(|scope| {
+        let task = scope.spawn(|| chrono_harness::run_process_observed(root, &spec, &[], &digest));
+        let mut ready = libc::pollfd {
+            fd: listener.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        assert_eq!(unsafe { libc::poll(&mut ready, 1, 10_000) }, 1);
+        let (mut child, _) = listener.accept().unwrap();
+        child
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
+        let mut eof = [0];
+        child.read_exact(&mut eof).unwrap();
+        assert_eq!(&eof, b"E");
+        // Close setup-only descriptors before filling the observer's table.
+        // Child readiness follows stdin EOF, so that close cannot free a slot
+        // after exhaustion and let the real ownership receive succeed.
+        drop(listener);
+        // Only the observer process exhausts descriptors. The already-running
+        // nested launcher retains its independent descriptor budget.
+        let mut held = Vec::new();
+        loop {
+            match fs::File::open("/dev/null") {
+                Ok(file) => held.push(file),
+                Err(error) => {
+                    assert_eq!(error.raw_os_error(), Some(libc::EMFILE));
+                    break;
+                }
+            }
+        }
+        let received = unsafe { libc::recvmsg(probe_receiver.as_raw_fd(), &mut probe_msg, 0) };
+        let actual_errno = std::io::Error::last_os_error();
+        assert_eq!(received, -1, "descriptor exhaustion must fail raw recvmsg");
+        errno_original
+            .write_all_at(
+                actual_errno.raw_os_error().unwrap().to_string().as_bytes(),
+                0,
+            )
+            .unwrap();
+        child.write_all(b"go").unwrap();
+        let result = task.join().unwrap();
+        drop(held);
+        result
+    })
+    .unwrap();
+    assert_eq!(
+        result.exit_code, 0,
+        "{} {} {:?}",
+        result.stdout, result.stderr, result.failure
+    );
+    assert!(result.failure.is_none(), "{result:?}");
+    assert!(!root.join("unexpected-exec").exists());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn failed_handoff_receive_child_helper() {
+    use std::io::{Read, Write};
+    let Ok(root) = std::env::var("CHRONO_FAILED_HANDOFF") else {
+        return;
+    };
+    check_launch_allocations();
+    let root = std::path::Path::new(&root);
+    let mut input = Vec::new();
+    std::io::stdin().read_to_end(&mut input).unwrap();
+    assert!(input.is_empty());
+    let address = std::env::var("CHRONO_HANDOFF_READY").unwrap();
+    let mut observer = std::net::TcpStream::connect_timeout(
+        &address.parse().unwrap(),
+        std::time::Duration::from_secs(10),
+    )
+    .unwrap();
+    observer
+        .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .unwrap();
+    observer.write_all(b"E").unwrap();
+    let mut release = [0; 2];
+    observer.read_exact(&mut release).unwrap();
+    assert_eq!(&release, b"go");
+    let spec = chrono_harness::CommandSpec {
+        program: std::env::current_exe().unwrap().to_str().unwrap().into(),
+        args: vec![
+            "--exact".into(),
+            "unexpected_exec_helper".into(),
+            "--nocapture".into(),
+        ],
+        env: [("CHRONO_UNEXPECTED_EXEC".into(), "1".into())].into(),
+        timeout_seconds: 30,
+        output_limit_bytes: 4096,
+    };
+    let error = chrono_harness::run_process_observed(
+        root,
+        &spec,
+        &[],
+        &sha256(&fs::read(&spec.program).unwrap()),
+    )
+    .expect_err("unreceived identity must prevent exec");
+    println!("{error}");
+    assert!(error.contains("poll timeout"), "{error}");
+    assert!(
+        error.contains("observer receive"),
+        "missing receiving endpoint diagnostic: {error}"
+    );
+    let actual_errno: i32 = fs::read_to_string(root.join("receive-errno"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(
+        error.contains(&format!("os error {actual_errno}")),
+        "missing original recvmsg errno: {error}"
+    );
+    assert!(error.contains("observer incomplete handoffs"), "{error}");
+    assert!(
+        error.contains("not attributed to this child"),
+        "shared transport observations must not become a child-specific cause: {error}"
+    );
+    assert!(
+        error.split(';').next().unwrap().contains("os error 22"),
+        "observer diagnostics must preserve the actual spawn errno: {error}"
+    );
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn producer_host() -> (tempfile::TempDir, wire::Request) {
+    let root = tempfile::tempdir().unwrap();
+    let request = fixture_request(root.path());
+    (root, request)
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn producer_command(root: &std::path::Path, args: &[&str], input: &[u8]) -> std::process::Command {
+    let marker = root.join("producer-evaluated");
+    if marker.exists() {
+        fs::remove_file(marker).unwrap();
+    }
+    fs::write(root.join("producer-input"), input).unwrap();
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_chrono-test-cli-child"));
+    command
+        .env("CHRONO_TEST_PRODUCER", "1")
+        .current_dir(root)
+        .args(args)
+        .stdin(fs::File::open(root.join("producer-input")).unwrap());
+    command
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn producer_arguments_and_strict_decode_prevent_evaluation() {
+    let (root, request) = producer_host();
+    let output = producer_command(root.path(), &["--version"], b"invalid input")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"chrono-test-producer fixture.1\n");
+    assert!(output.stderr.is_empty());
+    assert!(!root.path().join("producer-evaluated").exists());
+    for args in [
+        vec![],
+        vec!["--protocol"],
+        vec!["--protocol", "wrong"],
+        vec!["--version", "extra"],
+        vec!["--protocol", "chrono-judge/v1", "extra"],
+    ] {
+        let output = producer_command(root.path(), &args, &request.canonical().unwrap())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert_eq!(output.stderr, b"E_USAGE: --protocol chrono-judge/v1\n");
+        assert!(!root.path().join("producer-evaluated").exists());
+    }
+    let valid = request.canonical().unwrap();
+    let mut duplicate = b"{\"protocol\":\"chrono-judge/v1\",".to_vec();
+    duplicate.extend_from_slice(&valid[1..]);
+    let mut unknown = b"{\"unexpected\":true,".to_vec();
+    unknown.extend_from_slice(&valid[1..]);
+    let mut trailing = valid.clone();
+    trailing.extend_from_slice(b"{}");
+    for input in [
+        vec![],
+        vec![255],
+        b"{invalid".to_vec(),
+        duplicate,
+        unknown,
+        trailing,
+    ] {
+        let output = producer_command(root.path(), &["--protocol", "chrono-judge/v1"], &input)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.starts_with(b"E_PROTOCOL: "));
+        assert!(!root.path().join("producer-evaluated").exists());
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn producer_canonical_response_preserves_all_domain_exit_codes() {
+    let (root, mut request) = producer_host();
+    for (mode, exit) in [("pass", 0), ("warn", 0), ("fail", 1), ("error", 2)] {
+        request.mode = mode.into();
+        request.seal().unwrap();
+        let output = producer_command(
+            root.path(),
+            &["--protocol", "chrono-judge/v1"],
+            &request.canonical().unwrap(),
+        )
+        .output()
+        .unwrap();
+        assert_eq!(output.status.code(), Some(exit));
+        assert!(output.stderr.is_empty());
+        // 直接核对独立定义的字段顺序和原字节。
+        let expected = format!(
+            "{{\"evidence\":[],\"findings\":[],\"judge_id\":\"fixture\",\"outputs\":{{\"a\":\"é\",\"z\":2}},\"protocol\":\"chrono-judge/v1\",\"request_id\":\"{}\",\"status\":\"{mode}\"}}",
+            request.request_id
+        );
+        assert_eq!(output.stdout, expected.as_bytes());
+        assert_eq!(
+            fs::read(root.path().join("producer-evaluated")).unwrap(),
+            b"call\n"
+        );
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn producer_real_input_bound_accepts_exact_limit_and_rejects_one_more_byte() {
+    let (root, request) = producer_host();
+    let mut input = request.canonical().unwrap();
+    input.resize(64 * 1024 * 1024, b' ');
+    let accepted = producer_command(root.path(), &["--protocol", "chrono-judge/v1"], &input)
+        .output()
+        .unwrap();
+    assert_eq!(accepted.status.code(), Some(0));
+    assert!(accepted.stderr.is_empty());
+    assert_eq!(
+        fs::read(root.path().join("producer-evaluated")).unwrap(),
+        b"call\n"
+    );
+    input.push(b' ');
+    let refused = producer_command(root.path(), &["--protocol", "chrono-judge/v1"], &input)
+        .output()
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(refused.stdout.is_empty());
+    assert_eq!(refused.stderr, b"E_PROTOCOL: request read/bound\n");
+    assert!(!root.path().join("producer-evaluated").exists());
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+fn producer_native_read_failure_keeps_transport_exit() {
+    use std::io::Read;
+    let (root, _) = producer_host();
+    let mut command = producer_command(root.path(), &["--protocol", "chrono-judge/v1"], b"");
+    let directory = fs::File::open(root.path()).unwrap();
+    assert!(directory.try_clone().unwrap().read(&mut [0]).is_err());
+    command.stdin(directory);
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert_eq!(output.stderr, b"E_PROTOCOL: request read/bound\n");
+    assert!(!root.path().join("producer-evaluated").exists());
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+fn producer_native_write_failure_keeps_transport_exit() {
+    use std::os::fd::OwnedFd;
+    use std::process::Stdio;
+    let (root, request) = producer_host();
+    let (writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
+    drop(reader);
+    let output = producer_command(
+        root.path(),
+        &["--protocol", "chrono-judge/v1"],
+        &request.canonical().unwrap(),
+    )
+    .stdout(Stdio::from(OwnedFd::from(writer)))
+    .output()
+    .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        fs::read(root.path().join("producer-evaluated")).unwrap(),
+        b"call\n"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+fn producer_logging_and_invalid_os_argument_keep_existing_text_boundary() {
+    use std::os::unix::ffi::OsStringExt;
+    let (root, _) = producer_host();
+    fs::create_dir(root.path().join(".chrono-harness")).unwrap();
+    fs::write(root.path().join(".chrono-harness/logging.json"), br#"{"schema":"chrono-runtime-logging/v1","level":"info","directory":".chrono-harness/state/logs/","max_bytes":8192,"max_files":3,"stderr":false}"#).unwrap();
+    let output = producer_command(root.path(), &["--version"], b"")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"chrono-test-producer fixture.1\n");
+    assert!(output.stderr.is_empty());
+    let output = producer_command(root.path(), &[], b"")
+        .arg(std::ffi::OsString::from_vec(vec![255]))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["event"], "cli.invalid_argument");
+    assert!(!root.path().join("producer-evaluated").exists());
+    let rows: Vec<serde_json::Value> = fs::read_dir(root.path().join(".chrono-harness/state/logs"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+        .flat_map(|path| {
+            fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(rows.iter().any(|row| row["event"] == "cli.started"));
+    assert!(
+        rows.iter()
+            .any(|row| row["event"] == "cli.finished" && row["fields"]["exit_code"] == 0)
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row["event"] == "cli.invalid_argument")
+    );
+}
+
+// 新模式预期与真实子进程使用同一 helper；其余协议与 IO 用例保留原生执行。
+verus! {
+fn expect_producer_mode(actual: bool) requires actual, { if !actual { panic!(); } }
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn producer_fixture_requires_explicit_mode() {
+    proof {
+        reveal_strlit("1"); reveal_strlit("0"); reveal_strlit("01"); reveal_strlit("");
+        assert("0"@[0] != "1"@[0]);
+        assert("01"@.len() != "1"@.len());
+        assert(""@.len() != "1"@.len());
+    }
+    expect_producer_mode(cli_child::producer_mode(Some("1")));
+    expect_producer_mode(!cli_child::producer_mode(Some("0")));
+    expect_producer_mode(!cli_child::producer_mode(Some("01")));
+    expect_producer_mode(!cli_child::producer_mode(Some("")));
+    expect_producer_mode(!cli_child::producer_mode(None));
+}
+}

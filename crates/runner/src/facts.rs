@@ -1,0 +1,558 @@
+//! Immutable Git facts. Admissibility belongs to the consuming judge.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// 只按实际端点资格选择一条读取路径，完整输入和原结果保持对应。
+pub fn select_fixed_source_read<S, R, F, B>(reusable: bool, inputs: S, fallback: F, batch: B)
+    -> (out: R)
+    where F: FnOnce(S) -> R, B: FnOnce(S) -> R,
+    requires reusable ==> batch.requires((inputs,)),
+        !reusable ==> fallback.requires((inputs,)),
+    ensures if reusable { batch.ensures((inputs,), out) }
+        else { fallback.ensures((inputs,), out) },
+{
+    if reusable { batch(inputs) } else { fallback(inputs) }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub use crate::facts_binding::{
+    OpenFailure, Reader, RegistryBlob, acquire_immutable_input, acquire_registry_blobs,
+    declaration as git_declaration,
+};
+#[cfg(not(verus_keep_ghost))]
+pub use crate::facts_configs::Identity as ConfigIdentity;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::verified_identifiers::full_oid;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::verified_status::{Tree, TreeEntry as Entry, TreePath};
+#[cfg(not(verus_keep_ghost))]
+use crate::{
+    json, no_symlink_parents, relative_path,
+    wire::{Checkout, Delta, IndexFlag},
+};
+#[cfg(not(verus_keep_ghost))]
+use serde_json::{Value, json as value};
+#[cfg(not(verus_keep_ghost))]
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+    process::Command,
+};
+
+#[cfg(not(verus_keep_ghost))]
+pub use crate::checkout::{changes as checkout_changes, tree as parse_tree};
+/// Inventory uses literal, case-sensitive registered directory prefixes.
+#[cfg(not(verus_keep_ghost))]
+pub const LITERAL_PATHSPEC_CONTROLS: [&str; 4] = [
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_NOGLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
+];
+/// Do not normalize a declaration into a broader exclusion. Callers retain
+/// schema validation and classify any paths that the inventory returns.
+#[cfg(not(verus_keep_ghost))]
+pub fn artifact_exclusions(artifacts: &[&str]) -> Vec<String> {
+    crate::verified_paths::literal_artifact_directories(artifacts)
+        .into_iter()
+        .map(|path| format!(":(top,exclude,literal){path}"))
+        .collect()
+}
+/// Read explicit host declarations; ownership and schema admission stay with
+/// registration. This never discovers output directories or dependency edges.
+#[cfg(not(verus_keep_ghost))]
+pub fn artifact_directories(config: &Value) -> Result<Vec<&str>, String> {
+    let rows = config["artifacts"].as_array().map(Vec::as_slice);
+    crate::verified_paths::collect_artifact_declarations(rows, |artifact| artifact["path"].as_str())
+        .map_err(|error| error.message().to_owned())
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    git_inventory(root, args, false)
+}
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn git_inventory(
+    root: &Path,
+    args: &[&str],
+    literal_inventory: bool,
+) -> Result<Vec<u8>, String> {
+    let mut command = Command::new("git");
+    command
+        .arg("--no-optional-locks")
+        .arg("--no-replace-objects")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE");
+    if literal_inventory {
+        for key in LITERAL_PATHSPEC_CONTROLS {
+            command.env(key, "0");
+        }
+    }
+    let o = command.output().map_err(|e| e.to_string())?;
+    if !o.status.success() {
+        return Err(format!(
+            "E_HISTORY_MISSING: git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&o.stderr)
+        ));
+    }
+    Ok(o.stdout)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn utf8(b: Vec<u8>) -> Result<String, String> {
+    crate::verified_status::git_output_text(String::from_utf8(b).ok())
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn verify_oid(root: &Path, oid: &str) -> Result<String, String> {
+    Reader::legacy().verify_oid(root, oid)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn blob(root: &Path, oid: &str, path: &str) -> Result<Vec<u8>, String> {
+    Reader::legacy().blob(root, oid, path)
+}
+/// Read original commit headers, including parents hidden by a shallow boundary.
+#[cfg(not(verus_keep_ghost))]
+pub fn parents(root: &Path, oid: &str) -> Result<Vec<String>, String> {
+    Reader::legacy().parents(root, oid)
+}
+/// Parse physical commit headers, without revision-walk shallow semantics.
+#[cfg(not(verus_keep_ghost))]
+pub fn commit_parents(bytes: &[u8]) -> Result<Vec<String>, String> {
+    crate::verified_identifiers::parse_commit_parents(bytes, |record| {
+        std::str::from_utf8(record).ok()
+    })
+    .map_err(crate::verified_identifiers::CommitParentError::into_message)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn tree(root: &Path, oid: &str) -> Result<Tree, String> {
+    Reader::legacy().tree(root, oid)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn delta(a: &Tree, b: &Tree) -> Vec<Delta> {
+    crate::verified_status::delta_for_trees(a, b)
+}
+#[cfg(not(verus_keep_ghost))]
+fn paths(raw: Vec<u8>) -> Result<Vec<String>, String> {
+    let records = crate::verified_status::git_nul_records(&raw);
+    let decoded = records
+        .into_iter()
+        .map(|record| String::from_utf8(record.to_vec()).ok())
+        .collect();
+    crate::verified_status::parse_git_text_rows(decoded)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn checkout(root: &Path, candidate: &str) -> Result<Checkout, String> {
+    Reader::legacy().checkout(root, candidate)
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn registry_paths(config: &Value, path: &str) -> Result<Vec<String>, String> {
+    let paths = [
+        config["registries"]["judges"].as_str(),
+        config["registries"]["projects"].as_str(),
+        config["registries"]["filemap"].as_str(),
+        config["registries"]["workflow"].as_str(),
+    ];
+    crate::verified_status::collect_registry_paths(path, &paths)
+        .map_err(|error| error.render(|invalid| format!("invalid relative path: {invalid:?}")))
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn registry_values(
+    root: &Path,
+    oid: &str,
+    path: &str,
+) -> Result<BTreeMap<String, Value>, String> {
+    Reader::legacy().registry_values(root, oid, path)
+}
+/// Original bytes and parsed values from one registry read, without a global cache.
+#[cfg(not(verus_keep_ghost))]
+pub type RegistrySnapshot = crate::verified_status::RegistrySnapshot<Value>;
+#[cfg(not(verus_keep_ghost))]
+pub fn registry_snapshot(root: &Path, oid: &str, path: &str) -> Result<RegistrySnapshot, String> {
+    Reader::legacy().registry_snapshot(root, oid, path)
+}
+/// Resolve the effective configuration from the caller's fixed Git endpoint.
+#[cfg(not(verus_keep_ghost))]
+pub fn selected_config_with(
+    path: &str,
+    mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+) -> Result<Value, String> {
+    let bytes = read(path)?;
+    crate::facts_configs::resolve(path, bytes, read).map(|(_, _, config, _)| config)
+}
+/// Assemble one fixed registry snapshot through the caller's blob reader.
+/// The caller binds acquisition to its immutable endpoint and retains any
+/// process observations; this helper performs no disk or Git acquisition.
+#[cfg(not(verus_keep_ghost))]
+fn registry_snapshot_with_target<F>(
+    path: &str,
+    target: Option<crate::facts_configs::RegistryTarget<'_>>,
+    mut read: F,
+) -> Result<RegistrySnapshot, String>
+where
+    F: FnMut(&str) -> Result<Vec<u8>, String>,
+{
+    let (snapshot, paths) = registry_snapshot_start(path, target, &mut read)?;
+    let pending = crate::verified_status::pending_registry_paths(
+        paths,
+        &snapshot.entry_path,
+        &snapshot.effective_path,
+    );
+    let (_, result) = crate::verified_status::registry_read_sequence(
+        pending,
+        &mut read,
+        snapshot.bytes,
+        snapshot.values,
+        |reader: &mut F, path: &str| {
+            let result = reader(path);
+            (reader, result)
+        },
+        json,
+    );
+    crate::verified_status::registry_snapshot_complete(
+        snapshot.entry_path,
+        snapshot.effective_path,
+        snapshot.selection,
+        result,
+    )
+}
+/// Resolve the entry and selector before acquiring their explicit registry list.
+/// The reader must return the requested paths in order with their original bytes.
+#[cfg(not(verus_keep_ghost))]
+pub fn registry_snapshot_with_batches(
+    path: &str,
+    read: impl FnMut(&[String]) -> Result<Vec<(String, Vec<u8>)>, String>,
+) -> Result<RegistrySnapshot, String> {
+    registry_snapshot_with_batches_target(path, None, read)
+}
+#[cfg(not(verus_keep_ghost))]
+fn registry_snapshot_with_batches_target(
+    path: &str,
+    target: Option<crate::facts_configs::RegistryTarget<'_>>,
+    mut read: impl FnMut(&[String]) -> Result<Vec<(String, Vec<u8>)>, String>,
+) -> Result<RegistrySnapshot, String> {
+    let (snapshot, paths) = registry_snapshot_start(path, target, |path| {
+        let originals = read(&[path.to_owned()])?;
+        crate::verified_status::single_registry_blob(path, originals)
+    })?;
+    let pending = crate::verified_status::pending_registry_paths(
+        paths,
+        &snapshot.entry_path,
+        &snapshot.effective_path,
+    );
+    let originals = read(&pending)?;
+    let result = crate::verified_status::registry_parse_batch(
+        &pending,
+        originals,
+        snapshot.bytes,
+        snapshot.values,
+        json,
+    );
+    crate::verified_status::registry_snapshot_complete(
+        snapshot.entry_path,
+        snapshot.effective_path,
+        snapshot.selection,
+        result,
+    )
+}
+#[cfg(not(verus_keep_ghost))]
+fn registry_snapshot_start(
+    path: &str,
+    target: Option<crate::facts_configs::RegistryTarget<'_>>,
+    mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+) -> Result<(RegistrySnapshot, Vec<String>), String> {
+    let original = read(path)?;
+    let (effective_path, effective_bytes, effective_config, selection) =
+        crate::facts_configs::resolve_target(path, original.clone(), target, &mut read)?;
+    let config = json(&original)?;
+    let paths = registry_paths(&effective_config, &effective_path)?;
+    let selection =
+        selection.map(|s| crate::facts_configs::registry_selection_observation(s.observation));
+    let snapshot = crate::verified_status::registry_snapshot_initial(
+        path.into(),
+        original,
+        config,
+        effective_path,
+        effective_bytes,
+        effective_config,
+        selection,
+    );
+    Ok((snapshot, paths))
+}
+#[cfg(not(verus_keep_ghost))]
+pub fn registry_digest(
+    base: &BTreeMap<String, Value>,
+    candidate: &BTreeMap<String, Value>,
+) -> Result<String, String> {
+    crate::wire::digest(&value!({"base":base,"candidate":candidate}))
+}
+
+/// Resolve the effective policy identity from a fixed registry map while
+/// retaining the caller's entry path.  Consumers use this after snapshot
+/// acquisition to bind views and provenance to the same selector decision.
+#[cfg(not(verus_keep_ghost))]
+pub fn registry_identity(
+    values: &BTreeMap<String, Value>,
+    path: &str,
+) -> Result<ConfigIdentity, String> {
+    crate::facts_configs::identity(values, path)
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl Reader {
+    pub fn verify_oid(&self, root: &Path, oid: &str) -> Result<String, String> {
+        crate::verified_status::verify_oid(
+            self,
+            oid,
+            |reader, oid| {
+                let observed = reader
+                    .git(
+                        root,
+                        &["rev-parse", "--verify", &format!("{oid}^{{commit}}")],
+                    )
+                    .and_then(utf8)
+                    .map(|text| text.trim().to_owned());
+                (reader, observed)
+            },
+            |reader, oid| {
+                let observed = reader
+                    .git(root, &["rev-parse", &format!("{oid}^{{tree}}")])
+                    .and_then(utf8)
+                    .map(|text| text.trim().to_owned());
+                (reader, observed)
+            },
+            |reader, oid| {
+                reader.record_verified_oid(oid);
+                reader
+            },
+        )
+        .1
+    }
+    pub fn blob(&self, root: &Path, oid: &str, path: &str) -> Result<Vec<u8>, String> {
+        relative_path(path)?;
+        self.blob_with_reuse(root, oid, path)
+    }
+    /// 只读取显式输入。固定、已绑定端点复用原批量获取及回执；其他端点沿原逐项读取。
+    pub fn blobs(&self, root: &Path, oid: &str, paths: &[String]) -> Result<Vec<Vec<u8>>, String> {
+        select_fixed_source_read(
+            self.can_reuse_oid(oid),
+            (self, root, oid, paths),
+            |(reader, root, oid, paths)| {
+                paths
+                    .iter()
+                    .map(|path| reader.blob(root, oid, path))
+                    .collect()
+            },
+            |(reader, root, oid, paths)| {
+                reader
+                    .immutable_blobs(root, oid, paths)
+                    .map(|rows| rows.into_iter().map(|(_, bytes)| bytes).collect())
+            },
+        )
+    }
+    pub fn parents(&self, root: &Path, oid: &str) -> Result<Vec<String>, String> {
+        full_oid(oid)?;
+        let bytes = self.git(root, &["cat-file", "commit", oid])?;
+        commit_parents(&bytes)
+    }
+    pub fn tree(&self, root: &Path, oid: &str) -> Result<Tree, String> {
+        self.tree_with_reuse(root, oid)
+    }
+    pub fn tracked_changes(&self, root: &Path, candidate: &str) -> Result<Vec<String>, String> {
+        let tree = self.tree(root, candidate)?;
+        let index = self.git(root, &["ls-files", "--stage", "-z"])?;
+        checkout_changes(root, &tree, &index)
+    }
+    pub fn index_flags(&self, root: &Path) -> Result<Vec<IndexFlag>, String> {
+        let raw = self.git(root, &["ls-files", "-v", "-z"])?;
+        let records = crate::verified_status::git_nul_records(&raw);
+        let observations: Vec<_> = records
+            .into_iter()
+            .map(|raw| crate::verified_status::GitIndexFlagObservation {
+                raw,
+                text: std::str::from_utf8(raw).ok(),
+            })
+            .collect();
+        crate::verified_status::parse_git_index_flag_rows(&observations)
+    }
+    pub fn checkout(&self, root: &Path, candidate: &str) -> Result<Checkout, String> {
+        crate::verified_status::collect_checkout(
+            self,
+            |reader| {
+                let head = reader
+                    .git(root, &["rev-parse", "HEAD"])
+                    .and_then(utf8)
+                    .map(|text| text.trim().to_owned());
+                (reader, head)
+            },
+            |reader| (reader, reader.tracked_changes(root, candidate)),
+            |reader| {
+                crate::verified_status::collect_checkout_untracked(
+                    reader,
+                    |reader| {
+                        (
+                            reader,
+                            reader
+                                .git(root, &["ls-files", "--others", "--exclude-standard", "-z"])
+                                .and_then(paths),
+                        )
+                    },
+                    |reader| {
+                        (
+                            reader,
+                            reader
+                                .git(
+                                    root,
+                                    &[
+                                        "ls-files",
+                                        "--others",
+                                        "--ignored",
+                                        "--exclude-standard",
+                                        "-z",
+                                    ],
+                                )
+                                .and_then(paths),
+                        )
+                    },
+                )
+            },
+            |reader| (reader, reader.index_flags(root)),
+        )
+        .1
+    }
+    pub fn untracked_excluding(
+        &self,
+        root: &Path,
+        artifacts: &[&str],
+    ) -> Result<Vec<String>, String> {
+        let exclusions = artifact_exclusions(artifacts);
+        let mut args = vec!["ls-files", "--others", "-z", "--", "."];
+        args.extend(exclusions.iter().map(String::as_str));
+        let paths = paths(self.literal_inventory(root, &args)?)?;
+        Ok(crate::verified_status::normalize_checkout_paths(
+            paths,
+            Vec::new(),
+        ))
+    }
+    pub fn checkout_excluding(
+        &self,
+        root: &Path,
+        candidate: &str,
+        artifacts: &[&str],
+    ) -> Result<Checkout, String> {
+        crate::verified_status::collect_checkout(
+            self,
+            |reader| {
+                let head = reader
+                    .git(root, &["rev-parse", "HEAD"])
+                    .and_then(utf8)
+                    .map(|text| text.trim().to_owned());
+                (reader, head)
+            },
+            |reader| (reader, reader.tracked_changes(root, candidate)),
+            |reader| (reader, reader.untracked_excluding(root, artifacts)),
+            |reader| (reader, reader.index_flags(root)),
+        )
+        .1
+    }
+    /// Preserve the exact source bytes while enforcing the output owner's reservation before writes.
+    pub fn export_limited(
+        &self,
+        root: &Path,
+        oid: &str,
+        t: &Tree,
+        dest: &Path,
+        max_bytes: u64,
+    ) -> Result<(), String> {
+        use crate::verified_status::snapshot_export::{self, SnapshotExportIo};
+        snapshot_export::snapshot(
+            self,
+            t,
+            self.can_reuse_oid(oid),
+            max_bytes,
+            cfg!(unix),
+            &SnapshotExportIo {
+                prefetch: |reader, paths: &Vec<String>| {
+                    (
+                        reader,
+                        self.acquire_missing_blobs(root, oid, paths).map(|_| ()),
+                    )
+                },
+                locate: |reader, path: &String| (reader, no_symlink_parents(dest, path)),
+                parent: |reader, path: &std::path::PathBuf| {
+                    (reader, path.parent().map(Path::to_path_buf))
+                },
+                create_parent: |reader, parent| {
+                    (
+                        reader,
+                        fs::create_dir_all(parent).map_err(|error| error.to_string()),
+                    )
+                },
+                read: |reader, path: &String| (reader, self.blob(root, oid, path)),
+                decode: |reader, bytes| (reader, utf8(bytes)),
+                symlink: |reader, path: &std::path::PathBuf, target: String| {
+                    #[cfg(unix)]
+                    let observed =
+                        std::os::unix::fs::symlink(target, path).map_err(|error| error.to_string());
+                    #[cfg(not(unix))]
+                    let observed = Err("E_INPUT_UNSUPPORTED: symlink snapshot".to_owned());
+                    (reader, observed)
+                },
+                write: |reader, path: &std::path::PathBuf, bytes: Vec<u8>| {
+                    (
+                        reader,
+                        fs::write(path, bytes).map_err(|error| error.to_string()),
+                    )
+                },
+                metadata: |reader, path: &std::path::PathBuf| {
+                    (
+                        reader,
+                        fs::metadata(path)
+                            .map(|metadata| metadata.permissions())
+                            .map_err(|error| error.to_string()),
+                    )
+                },
+                readonly: |reader, mut permissions: fs::Permissions, readonly| {
+                    permissions.set_readonly(readonly);
+                    (reader, permissions)
+                },
+                permissions: |reader, path: &std::path::PathBuf, permissions| {
+                    (
+                        reader,
+                        fs::set_permissions(path, permissions).map_err(|error| error.to_string()),
+                    )
+                },
+            },
+        )
+        .1
+    }
+    pub fn registry_values(
+        &self,
+        root: &Path,
+        oid: &str,
+        path: &str,
+    ) -> Result<BTreeMap<String, Value>, String> {
+        Ok(self.registry_snapshot(root, oid, path)?.values)
+    }
+    pub fn registry_snapshot(
+        &self,
+        root: &Path,
+        oid: &str,
+        path: &str,
+    ) -> Result<RegistrySnapshot, String> {
+        let target = self.registry_target(path);
+        if !self.can_reuse_oid(oid) {
+            return registry_snapshot_with_target(path, target, |path| self.blob(root, oid, path));
+        }
+        registry_snapshot_with_batches_target(path, target, |paths| {
+            self.immutable_blobs(root, oid, paths)
+        })
+    }
+}

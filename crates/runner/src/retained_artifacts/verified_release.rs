@@ -1,0 +1,1007 @@
+//! 原件交接的请求边界、精确成员与局部释放；IO 仍归保留所有者。
+#[cfg(not(verus_keep_ghost))]
+pub use crate::retained_artifacts::retention::partition::{
+    metadata_only_retirement, metadata_path_ready, objects_reference, preserve_frontier_original,
+};
+#[cfg(verus_keep_ghost)]
+pub use accounting::partition::{
+    metadata_only_retirement, metadata_path_ready, objects_reference, output_edge_matches,
+    output_reference_trace, preserve_frontier_original,
+};
+#[cfg(verus_keep_ghost)]
+#[path = "retention.rs"]
+pub mod accounting;
+#[cfg(verus_keep_ghost)]
+#[path = "retention_command.rs"]
+pub(crate) mod commands;
+#[cfg(verus_keep_ghost)]
+#[path = "../scoped_report.rs"]
+pub mod scoped_report;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::scoped_report::archived_slot_ready;
+#[cfg(verus_keep_ghost)]
+pub use scoped_report::archived_slot_ready;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+pub(crate) extern crate chrono_identifiers as identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+
+verus! {
+
+pub open spec fn retirement_rank(body: Seq<nat>, metadata: Seq<nat>) -> nat
+    decreases body.len() + metadata.len(),
+{
+    if body.len() > 0 {
+        body.first() + retirement_rank(body.drop_first(), metadata)
+    } else if metadata.len() > 0 {
+        metadata.first() + retirement_rank(body, metadata.drop_first())
+    } else {
+        0
+    }
+}
+
+pub proof fn zero_rank_finishes_each_member(body: Seq<nat>, metadata: Seq<nat>)
+    requires retirement_rank(body, metadata) == 0,
+    ensures
+        forall|i: int| 0 <= i < body.len() ==> #[trigger] body[i] == 0,
+        forall|i: int| 0 <= i < metadata.len() ==> #[trigger] metadata[i] == 0,
+    decreases body.len() + metadata.len(),
+{
+    reveal(retirement_rank);
+    if body.len() > 0 {
+        zero_rank_finishes_each_member(body.drop_first(), metadata);
+        assert forall|i: int| 0 <= i < body.len() implies #[trigger] body[i] == 0 by {
+            if i > 0 {
+                assert(body[i] == body.drop_first()[i - 1]);
+            }
+        }
+    } else if metadata.len() > 0 {
+        zero_rank_finishes_each_member(body, metadata.drop_first());
+        assert forall|i: int| 0 <= i < metadata.len() implies #[trigger] metadata[i] == 0 by {
+            if i > 0 {
+                assert(metadata[i] == metadata.drop_first()[i - 1]);
+            }
+        }
+    }
+}
+
+/// 有效步骤必须由维护执行及其原结果建立。时间流逝不构成有效步骤。
+pub open spec fn fair_retirement(rank: spec_fn(nat) -> nat, start: nat) -> bool {
+    forall|step: nat| start <= step && #[trigger] rank(step) > 0 ==>
+        exists|later: nat| step < later && #[trigger] rank(later) < rank(step)
+}
+
+pub proof fn retirement_reaches_zero(rank: spec_fn(nat) -> nat, start: nat) -> (finished: nat)
+    requires fair_retirement(rank, start),
+    ensures start <= finished, rank(finished) == 0,
+    decreases rank(start),
+{
+    if rank(start) == 0 {
+        start
+    } else {
+        assert(exists|later: nat| start < later && #[trigger] rank(later) < rank(start));
+        let later = choose|later: nat| start < later && #[trigger] rank(later) < rank(start);
+        assert forall|step: nat| later <= step && #[trigger] rank(step) > 0 implies
+            exists|after: nat| step < after && #[trigger] rank(after) < rank(step) by {
+            assert(start <= step);
+        }
+        retirement_reaches_zero(rank, later)
+    }
+}
+
+pub proof fn retirement_stays_complete(
+    rank: spec_fn(nat) -> nat, start: nat,
+) -> (finished: nat)
+    requires fair_retirement(rank, start),
+        forall|a: nat, b: nat| start <= a <= b ==> #[trigger] rank(b) <= #[trigger] rank(a),
+    ensures start <= finished,
+        forall|later: nat| finished <= later ==> #[trigger] rank(later) == 0,
+{
+    let finished = retirement_reaches_zero(rank, start);
+    assert forall|later: nat| finished <= later implies #[trigger] rank(later) == 0 by {
+        assert(rank(later) <= rank(finished));
+    }
+    finished
+}
+
+/// Elapsed seconds start at the deadline of a fixed batch. A service bound
+/// requires a real decrease in remaining work within each interval while
+/// work remains. A scheduled wake alone does not establish this premise.
+pub proof fn retirement_within_service_bound(
+    remaining: spec_fn(nat) -> nat, deadline: nat, interval: nat,
+)
+    requires
+        interval > 0,
+        forall|a: nat, b: nat| deadline <= a <= b ==>
+            #[trigger] remaining(b) <= #[trigger] remaining(a),
+        forall|at: nat| deadline <= at && #[trigger] remaining(at) > 0 ==>
+            remaining(at + interval) < remaining(at),
+    ensures
+        forall|later: nat| deadline + remaining(deadline) * interval <= later ==>
+            #[trigger] remaining(later) == 0,
+    decreases remaining(deadline),
+{
+    if remaining(deadline) > 0 {
+        let next = deadline + interval;
+        let after = remaining(next);
+        assert(after < remaining(deadline));
+        retirement_within_service_bound(remaining, next, interval);
+        vstd::arithmetic::mul::lemma_mul_inequality(
+            after as int + 1, remaining(deadline) as int, interval as int,
+        );
+        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
+            interval as int, after as int, 1,
+        );
+        assert(next + after * interval <= deadline + remaining(deadline) * interval);
+    }
+}
+
+/// Count the bytes retained at this observation across all creation ticks.
+pub open spec fn temporary_bytes_by_age(cohorts: Seq<nat>) -> nat
+    decreases cohorts.len(),
+{
+    if cohorts.len() == 0 { 0 } else {
+        cohorts.first() + temporary_bytes_by_age(cohorts.drop_first())
+    }
+}
+
+/// At one observation, entry i charges all live temporary bytes born i ticks
+/// ago, including later growth, directories and custody metadata. The host
+/// must establish both the per-cohort ceiling and actual retirement age.
+pub proof fn rolling_storage_bound(cohorts: Seq<nat>, lifetime: nat, peak: nat)
+    requires
+        forall|i: int| 0 <= i < cohorts.len() ==> #[trigger] cohorts[i] <= peak,
+        forall|i: int| lifetime <= i < cohorts.len() ==> #[trigger] cohorts[i] == 0,
+    ensures temporary_bytes_by_age(cohorts) <= lifetime * peak,
+    decreases cohorts.len(),
+{
+    if cohorts.len() > 0 {
+        let rest = cohorts.drop_first();
+        let remaining = if lifetime == 0 { 0nat } else { (lifetime - 1) as nat };
+        assert forall|i: int| 0 <= i < rest.len() implies #[trigger] rest[i] <= peak by {
+            assert(rest[i] == cohorts[i + 1]);
+        }
+        assert forall|i: int| remaining <= i < rest.len() implies #[trigger] rest[i] == 0 by {
+            assert(lifetime <= i + 1);
+            assert(rest[i] == cohorts[i + 1]);
+        }
+        rolling_storage_bound(rest, remaining, peak);
+        assert(cohorts.first() == cohorts[0]);
+        if lifetime > 0 {
+            vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
+                peak as int, remaining as int, 1,
+            );
+            assert(lifetime * peak == remaining * peak + peak);
+        }
+    }
+}
+
+/// Fixed output generations are numbered with each retaining consumer before
+/// its inputs. Debt includes both the original and its retirement metadata.
+pub open spec fn parents_retired(edge: spec_fn(nat, nat) -> bool,
+    debt: spec_fn(nat, nat) -> nat, id: nat, at: nat) -> bool {
+    forall|parent: nat| #[trigger] edge(parent, id) ==> debt(parent, at) == 0
+}
+
+pub open spec fn retired_prefix(debt: spec_fn(nat, nat) -> nat, count: nat, at: nat) -> bool {
+    forall|id: nat, later: nat| id < count && at <= later ==> #[trigger] debt(id, later) == 0
+}
+
+/// Once root handoffs are complete, local progress for eligible objects
+/// suffices. The scheduler need not lower total debt at every timer tick.
+pub proof fn finite_dependency_batch_retires(
+    edge: spec_fn(nat, nat) -> bool, debt: spec_fn(nat, nat) -> nat, count: nat, start: nat,
+) -> (finished: nat)
+    requires
+        forall|parent: nat, id: nat| id < count && #[trigger] edge(parent, id) ==> parent < id,
+        forall|id: nat, a: nat, b: nat| id < count && start <= a <= b ==>
+            #[trigger] debt(id, b) <= #[trigger] debt(id, a),
+        forall|id: nat, at: nat| id < count && start <= at && debt(id, at) > 0
+            && #[trigger] parents_retired(edge, debt, id, at) ==>
+            exists|later: nat| at < later && #[trigger] debt(id, later) < debt(id, at),
+    ensures start <= finished, retired_prefix(debt, count, finished),
+    decreases count,
+{
+    if count == 0 {
+        start
+    } else {
+        let id = (count - 1) as nat;
+        let ready = finite_dependency_batch_retires(edge, debt, id, start);
+        let local = |at: nat| debt(id, at);
+        assert forall|at: nat| ready <= at && #[trigger] local(at) > 0 implies
+            exists|later: nat| at < later && #[trigger] local(later) < local(at) by {
+            assert forall|parent: nat| #[trigger] edge(parent, id) implies debt(parent, at) == 0 by {
+                assert(parent < id);
+            }
+            assert(parents_retired(edge, debt, id, at));
+            assert(exists|later: nat| at < later && #[trigger] debt(id, later) < debt(id, at));
+            let later = choose|later: nat| at < later && #[trigger] debt(id, later) < debt(id, at);
+            assert(at < later && local(later) < local(at));
+        }
+        let finished = retirement_stays_complete(local, ready);
+        assert forall|member: nat, later: nat| member < count && finished <= later implies
+            #[trigger] debt(member, later) == 0 by {
+            if member == id { assert(local(later) == 0); }
+        }
+        finished
+    }
+}
+
+/// 一个已到期且身份固定的路径代际。OS 改名、unlink、rmdir 的实际结果
+/// 分别对应三个有效转换；占用、失败或中断可让状态停在任何一项。
+pub ghost enum PathCustody { Indexed, Queued, EmptyDirectory, Absent }
+
+pub open spec fn path_debt(state: PathCustody) -> nat {
+    match state {
+        PathCustody::Indexed => 3,
+        PathCustody::Queued => 2,
+        PathCustody::EmptyDirectory => 1,
+        PathCustody::Absent => 0,
+    }
+}
+
+pub open spec fn path_effect(before: PathCustody, after: PathCustody) -> bool {
+    before == after || match before {
+        PathCustody::Indexed => after == PathCustody::Queued,
+        PathCustody::Queued => after == PathCustody::EmptyDirectory,
+        PathCustody::EmptyDirectory => after == PathCustody::Absent,
+        PathCustody::Absent => false,
+    }
+}
+
+pub open spec fn path_tick(trace: spec_fn(nat) -> PathCustody, i: nat) -> bool {
+    path_effect(trace(i), trace(i + 1))
+}
+
+pub open spec fn path_moves(trace: spec_fn(nat) -> PathCustody, i: nat) -> bool {
+    trace(i) != PathCustody::Absent ==> exists|later: nat| i < later
+        && #[trigger] trace(later) != trace(i)
+}
+
+proof fn path_interval(trace: spec_fn(nat) -> PathCustody, first: nat, last: nat)
+    requires first <= last,
+        forall|i: nat| first <= i < last ==> #[trigger] path_tick(trace, i),
+    ensures path_debt(trace(last)) <= path_debt(trace(first)),
+    decreases last - first,
+{
+    if first < last {
+        let prior = (last - 1) as nat;
+        path_interval(trace, first, prior);
+        assert(path_tick(trace, prior));
+    }
+}
+
+/// 相邻观察必须对应一个内核效果或停留。只有仍在保管的代际需要
+/// 公平推进；由当前程序、租约、预算及文件系统独立建立这两个前提。
+pub proof fn path_generation_retires(trace: spec_fn(nat) -> PathCustody, start: nat) -> (end: nat)
+    requires
+        forall|i: nat| start <= i ==> #[trigger] path_tick(trace, i),
+        forall|i: nat| start <= i ==> #[trigger] path_moves(trace, i),
+    ensures start <= end,
+        forall|later: nat| end <= later ==> #[trigger] trace(later) == PathCustody::Absent,
+    decreases path_debt(trace(start)),
+{
+    if trace(start) == PathCustody::Absent {
+        assert forall|later: nat| start <= later implies #[trigger] trace(later) == PathCustody::Absent by {
+            path_interval(trace, start, later);
+        }
+        start
+    } else {
+        assert(path_moves(trace, start));
+        let later = choose|later: nat| start < later && #[trigger] trace(later) != trace(start);
+        path_interval(trace, start, later);
+        assert(path_debt(trace(later)) < path_debt(trace(start)));
+        path_generation_retires(trace, later)
+    }
+}
+
+pub fn archived_report_binding(tree: bool, run_member: bool, self_contained: bool, sealed_file: bool) -> (valid: bool)
+    ensures valid == ((tree && run_member && self_contained) || (!tree && sealed_file)),
+{
+    if tree { run_member && self_contained } else { sealed_file }
+}
+
+/// 不同地址及相同字节不能证明独立保管；硬链接仍有同一物理身份。
+pub fn independent_original(source: &str, survivor: &str) -> (independent: bool)
+    ensures independent == (source@ != survivor@),
+{
+    !identifiers::equal_text(source, survivor)
+}
+
+/// 已接纳的单个成员可以完成，后续成员须在原时间片内开始。
+pub fn retirement_time_available(admitted: bool, elapsed_millis: u128, max_millis: u64) -> (allowed: bool)
+    ensures allowed == (admitted || elapsed_millis < max_millis as u128),
+{
+    admitted || elapsed_millis < max_millis as u128
+}
+
+/// 退役尚未准入时，只报告预算停止，不声称已尝试或完成处置。
+pub fn retirement_deferral(metadata_room: bool, nodes: usize, node_limit: usize,
+    elapsed_millis: u128, max_millis: u64, admitted: bool) -> (reason: Option<&'static str>)
+    ensures
+        reason.is_none() == (metadata_room && nodes < node_limit
+            && (admitted || elapsed_millis < max_millis as u128)),
+        match reason {
+            Some(text) => text@ == "retirement round budget exhausted; original not attempted"@,
+            None => true,
+        },
+{
+    if !metadata_room || nodes >= node_limit || !retirement_time_available(admitted, elapsed_millis, max_millis) {
+        Some("retirement round budget exhausted; original not attempted")
+    } else {
+        None
+    }
+}
+
+
+/// 中间树游标必须落盘；耗尽的游标交给现役终态／引用脱离保存。
+/// 选择和原结果转交归此函数，保存回调仍由保留声明的所有者执行。
+pub fn checkpoint_disposal<S, E, F>(state: S, tree: bool, remaining: usize, persist: &F)
+    -> (out: (S, Result<(), E>))
+    where F: Fn(S) -> (S, Result<(), E>),
+    requires persist.requires((state,)),
+    ensures if tree && remaining > 0 {
+        persist.ensures((state,), out)
+    } else {
+        out.0 == state && out.1 == Ok::<(), E>(())
+    },
+{
+    if tree && remaining > 0 {
+        let out = persist(state);
+        assert(persist.ensures((state,), out));
+        out
+    } else {
+        (state, Ok(()))
+    }
+}
+
+/// 根已缺失时仍按原持久阶段解释，不把省略的末项游标当作未执行删除。
+pub fn absent_disposal_fact(phase: &str) -> (fact: &'static str)
+    ensures fact@ == if phase@ == "disposing"@ {
+        "absent-after-partial-disposal"@
+    } else {
+        "already-absent-before-disposal"@
+    },
+{
+    if identifiers::equal_text(phase, "disposing") {
+        "absent-after-partial-disposal"
+    } else {
+        "already-absent-before-disposal"
+    }
+}
+
+pub open spec fn recovery_text(text: Option<&str>) -> Option<Seq<char>> {
+    match text { Some(value) => Some(value@), None => None }
+}
+
+/// Addressed metadata already excludes reservation changes. Existing
+/// capabilities still require actual exclusion; migration never creates one.
+pub struct MigrationCustody<'a> {
+    pub admitted: bool,
+    pub acquire: bool,
+    pub expected: Option<&'a str>,
+}
+
+pub fn migration_custody<'a>(phase: &str, lease_id: &'a str, missing: bool)
+    -> (custody: MigrationCustody<'a>)
+    ensures custody.admitted == (phase@ == "reserving"@ || lease_id@.len() > 0),
+        custody.acquire == (lease_id@.len() > 0 || !missing),
+        recovery_text(custody.expected) == if lease_id@.len() == 0 {
+            None
+        } else { Some(lease_id@) },
+{
+    let attached = !lease_id.is_empty();
+    MigrationCustody {
+        admitted: attached || identifiers::equal_text(phase, "reserving"),
+        acquire: attached || !missing,
+        expected: if attached { Some(lease_id) } else { None },
+    }
+}
+
+fn same_recovery_text(left: Option<&str>, right: Option<&str>) -> (same: bool)
+    ensures same == (recovery_text(left) == recovery_text(right)),
+{
+    match (left, right) {
+        (Some(a), Some(b)) => identifiers::equal_text(a, b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+pub fn report_publication(schema: &str, exit_code: u8) -> (valid: bool)
+    ensures valid == (schema@ == "chrono-report-publication/v1"@ && exit_code <= 2),
+{
+    identifiers::equal_text(schema, "chrono-report-publication/v1") && exit_code <= 2
+}
+
+/// 0 rejects the address/format; 1 and 2 are the two current scoped wire
+/// representations; 3 is the current full report. No historical decoder runs.
+pub fn recovered_report_kind(schema: Option<&str>, version: Option<u64>,
+    retained_path: Option<&str>, full_path: Option<&str>, original: &str) -> (kind: u8)
+    ensures kind == if recovery_text(schema) == Some("chrono-check-report/v1"@)
+            && recovery_text(retained_path) == Some(original@) { 1u8 }
+        else if recovery_text(schema) == Some("chrono-check-report/v2"@)
+            && recovery_text(retained_path) == Some(original@) { 2u8 }
+        else if schema.is_none() && version == Some(1u64)
+            && recovery_text(full_path) == Some(original@) { 3u8 }
+        else { 0u8 },
+{
+    match schema {
+        Some(value) => {
+            if identifiers::equal_text(value, "chrono-check-report/v1")
+                && same_recovery_text(retained_path, Some(original)) { 1 }
+            else if identifiers::equal_text(value, "chrono-check-report/v2")
+                && same_recovery_text(retained_path, Some(original)) { 2 }
+            else { 0 }
+        },
+        None => {
+            if version == Some(1) && same_recovery_text(full_path, Some(original)) { 3 }
+            else { 0 }
+        },
+    }
+}
+
+pub fn report_outcome(records: usize, request: Option<&str>, exit_code: Option<u64>,
+    expected_request: &str, expected_exit: u8) -> (matches: bool)
+    ensures matches == (records == 1 && recovery_text(request) == Some(expected_request@)
+        && exit_code == Some(expected_exit as u64)),
+{
+    records == 1 && same_recovery_text(request, Some(expected_request))
+        && exit_code == Some(expected_exit as u64)
+}
+
+pub struct ReportSlot {
+    pub allowed: bool,
+    pub already_published: bool,
+}
+
+/// A retry may reuse its exact bytes or replace only the originally observed
+/// slot. A removed/replaced slot is not authority to overwrite newer results.
+pub fn report_slot(current: Option<&str>, previous: Option<&str>, desired: &str) -> (plan: ReportSlot)
+    ensures plan.already_published == (recovery_text(current) == Some(desired@)),
+        plan.allowed == (recovery_text(current) == Some(desired@)
+            || recovery_text(current) == recovery_text(previous)),
+{
+    let already_published = same_recovery_text(current, Some(desired));
+    ReportSlot { already_published,
+        allowed: already_published || same_recovery_text(current, previous) }
+}
+
+pub fn domain_recovery(declared: bool, attached: bool) -> (protect: bool)
+    ensures protect == (declared && attached),
+{ declared && attached }
+
+pub open spec fn role_observation_protects(observation: Option<Option<bool>>) -> bool {
+    match observation { None => false, Some(None) => true, Some(Some(member)) => member }
+}
+
+/// 已读角色的缺失声明保留原件；现存声明只有实际成员才构成保留根。
+pub fn current_roles_protect(observations: &[Option<Option<bool>>]) -> (protect: bool)
+    ensures protect == (exists|i: int| 0 <= i < observations.len()
+        && role_observation_protects(observations[i])),
+{
+    let mut i = 0;
+    while i < observations.len()
+        invariant i <= observations.len(),
+            forall|j: int| 0 <= j < i ==> !role_observation_protects(observations[j]),
+        decreases observations.len() - i,
+    {
+        let protect = match observations[i] {
+            None => false,
+            Some(None) => true,
+            Some(Some(member)) => member,
+        };
+        if protect { return true; }
+        i += 1;
+    }
+    false
+}
+
+pub open spec fn finalized_observation(retired: usize, output: Option<(bool, &str)>) -> bool {
+    retired == 0 && match output {
+        None => false,
+        Some((sealed, phase)) => sealed && (phase@ == "released"@ || phase@ == "disposing"@),
+    }
+}
+
+pub fn original_finalized(retired: usize, output: Option<(bool, &str)>) -> (finalized: bool)
+    ensures finalized == finalized_observation(retired, output),
+{
+    retired == 0 && match output {
+        None => false,
+        Some((sealed, phase)) => sealed && (identifiers::equal_text(phase, "released")
+            || identifiers::equal_text(phase, "disposing")),
+    }
+}
+
+pub fn defer_declared_original(discover_under_lease: bool, declared: bool) -> (defer: bool)
+    ensures defer == (discover_under_lease && declared),
+{ discover_under_lease && declared }
+
+pub fn preserve_discovered_original(member: bool, retained: bool, retiring_frontier: bool)
+    -> (preserve: bool)
+    ensures preserve == (member || retained || retiring_frontier),
+{ member || retained || retiring_frontier }
+
+pub struct DeferredOriginal {
+    pending: Option<String>,
+}
+
+impl DeferredOriginal {
+    pub closed spec fn pending_id(&self) -> Option<String> { self.pending }
+
+    pub fn new() -> (out: Self)
+        ensures out.pending_id().is_none(),
+    { Self { pending: None } }
+
+    pub fn defer(&mut self, id: String)
+        ensures self.pending_id() == Some(id),
+    { self.pending = Some(id); }
+
+    pub fn take(&mut self) -> (id: Option<String>)
+        ensures id == old(self).pending_id(), self.pending_id().is_none(),
+    {
+        let mut id = None;
+        core::mem::swap(&mut id, &mut self.pending);
+        id
+    }
+}
+
+pub enum FinalizedExpansion {
+    RetainOnly,
+    RootFrontier,
+    RetireFrontier,
+    Related,
+}
+
+/// 保留根不要求发布已完成；只有封存且无根的原件才可选择退役。
+pub fn original_expansion(rooted: bool, finalized: bool, initial: Option<&str>, id: &str,
+    incoming: usize, roles: usize) -> (out: FinalizedExpansion)
+    ensures match out {
+        FinalizedExpansion::RetainOnly => rooted && recovery_text(initial) == Some(id@),
+        FinalizedExpansion::RootFrontier => rooted && recovery_text(initial) != Some(id@),
+        FinalizedExpansion::RetireFrontier => !rooted && finalized && incoming == 0 && roles == 0,
+        FinalizedExpansion::Related => !rooted && (!finalized || incoming != 0 || roles != 0),
+    },
+{
+    let initial = same_recovery_text(initial, Some(id));
+    if rooted {
+        if initial { FinalizedExpansion::RetainOnly } else { FinalizedExpansion::RootFrontier }
+    } else if finalized && incoming == 0 && roles == 0 { FinalizedExpansion::RetireFrontier }
+    else { FinalizedExpansion::Related }
+}
+
+/// 原件仍有登记时才排除其物理路径；已移除记录不进入内容维护。
+pub fn maintenance_path_required(present: bool, initial: bool, retained: bool,
+    retiring_report: bool) -> (required: bool)
+    ensures required == (present && (!retained || (initial && !retiring_report))),
+{ present && (!retained || (initial && !retiring_report)) }
+
+pub fn terminal_eligible(released: bool, sealed: bool) -> (eligible: bool)
+    ensures eligible == (released && sealed),
+{ released && sealed }
+
+pub fn resumed_seal(sealing: bool, sealed: bool, interrupted: bool) -> (released: bool)
+    ensures released == (sealing && sealed && !interrupted),
+{ sealing && sealed && !interrupted }
+
+/// Checked without overflowing count or byte addition.
+pub fn terminal_budget(count: u64, bytes: u64, next: u64, max_count: u64, max_bytes: u64) -> (keep: bool)
+    ensures keep == (count < max_count && bytes as int + next as int <= max_bytes as int),
+{
+    count < max_count && bytes <= max_bytes && next <= max_bytes - bytes
+}
+
+
+pub open spec fn present(values: Seq<String>, value: Seq<char>) -> bool {
+    exists|at: int| 0 <= at < values.len() && (#[trigger] values[at])@ == value
+}
+
+pub fn contains(values: &[String], value: &str) -> (found: bool)
+    ensures found == present(values@, value@),
+{
+    let mut at = 0;
+    while at < values.len()
+        invariant at <= values.len(),
+            forall|before: int| 0 <= before < at ==> values@[before]@ != value@,
+        decreases values.len() - at,
+    {
+        if identifiers::equal_text(values[at].as_str(), value) { return true; }
+        at += 1;
+    }
+    false
+}
+
+pub open spec fn unique(values: Seq<String>) -> bool {
+    forall|a: int, b: int| 0 <= a < b < values.len()
+        ==> (#[trigger] values[a])@ != (#[trigger] values[b])@
+}
+
+pub fn unique_selection(values: &[String], maximum: usize) -> (valid: bool)
+    ensures valid == (0 < values.len() <= maximum && unique(values@)),
+{
+    if values.len() == 0 || values.len() > maximum { return false; }
+    let mut at = 0;
+    while at < values.len()
+        invariant at <= values.len(), unique(values@.take(at as int)),
+        decreases values.len() - at,
+    {
+        let mut before = 0;
+        while before < at
+            invariant before <= at, at < values.len(), unique(values@.take(at as int)),
+                forall|i: int| 0 <= i < before ==> values@[i]@ != values@[at as int]@,
+            decreases at - before,
+        {
+            if identifiers::equal_text(values[before].as_str(), values[at].as_str()) {
+                return false;
+            }
+            before += 1;
+        }
+        assert(unique(values@.take(at as int + 1)));
+        at += 1;
+    }
+    assert(values@.take(at as int) =~= values@);
+    true
+}
+
+pub open spec fn bounded_roles(values: Seq<String>) -> bool {
+    forall|at: int| 0 <= at < values.len()
+        ==> 0 < vstd::utf8::encode_utf8((#[trigger] values[at])@).len() <= 256
+}
+
+/// trim 和字节长度由标准字符串接口提供，不替换原 Unicode 空白语义。
+pub fn valid_request(
+    roles: &[String], maximum: usize, trimmed_reason: &str, reason_bytes: usize,
+    released: bool, length: u64, max_length: u64,
+) -> (valid: bool)
+    ensures valid == (released && 0 < trimmed_reason@.len() && reason_bytes <= 4096
+        && length <= max_length && 0 < roles.len() <= maximum
+        && unique(roles@) && bounded_roles(roles@)),
+{
+    if !released || trimmed_reason.is_empty() || reason_bytes > 4096
+        || length > max_length || !unique_selection(roles, maximum) { return false; }
+    let mut at = 0;
+    while at < roles.len()
+        invariant at <= roles.len(),
+            forall|i: int| 0 <= i < at
+                ==> 0 < vstd::utf8::encode_utf8((#[trigger] roles@[i])@).len() <= 256,
+        decreases roles.len() - at,
+    {
+        let bytes = roles[at].as_str().as_bytes();
+        if bytes.len() == 0 || bytes.len() > 256 { return false; }
+        at += 1;
+    }
+    true
+}
+
+pub fn same_members(left: &[String], right: &[String]) -> (same: bool)
+    ensures same == (forall|value: Seq<char>| present(left@, value) == present(right@, value)),
+{
+    let mut at = 0;
+    while at < left.len()
+        invariant at <= left.len(),
+            forall|i: int| 0 <= i < at ==> present(right@, left@[i]@),
+        decreases left.len() - at,
+    {
+        if !contains(right, left[at].as_str()) { return false; }
+        at += 1;
+    }
+    let mut at = 0;
+    while at < right.len()
+        invariant at <= right.len(),
+            forall|i: int| 0 <= i < left.len() ==> present(right@, left@[i]@),
+            forall|i: int| 0 <= i < at ==> present(left@, right@[i]@),
+        decreases right.len() - at,
+    {
+        if !contains(left, right[at].as_str()) { return false; }
+        at += 1;
+    }
+    true
+}
+
+pub open spec fn removed(values: Seq<String>, id: Seq<char>) -> Seq<String>
+    decreases values.len(),
+{
+    if values.len() == 0 { Seq::empty() }
+    else if values.last()@ == id { removed(values.drop_last(), id) }
+    else { removed(values.drop_last(), id).push(values.last()) }
+}
+
+pub fn without(values: &[String], id: &str) -> (out: Vec<String>)
+    ensures out@ == removed(values@, id@),
+{
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < values.len()
+        invariant at <= values.len(), out@ == removed(values@.take(at as int), id@),
+        decreases values.len() - at,
+    {
+        if !identifiers::equal_text(values[at].as_str(), id) { out.push(values[at].clone()); }
+        proof {
+            let next = values@.take(at as int + 1);
+            assert(next.drop_last() =~= values@.take(at as int));
+            assert(next.last() == values@[at as int]);
+            reveal_with_fuel(removed, 1);
+        }
+        at += 1;
+    }
+    assert(values@.take(at as int) =~= values@);
+    out
+}
+
+pub open spec fn pending_retirement_values(records: Seq<(String, bool)>) -> Seq<String>
+    decreases records.len(),
+{
+    if records.len() == 0 { Seq::empty() }
+    else if records.last().1 { pending_retirement_values(records.drop_last()) }
+    else { pending_retirement_values(records.drop_last()).push(records.last().0) }
+}
+
+/// 只根据记录终态选择待恢复项；字节已删除不等于记录已退役。
+pub fn pending_retirements(records: &[(String, bool)]) -> (out: Vec<String>)
+    ensures out@ == pending_retirement_values(records@),
+{
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < records.len()
+        invariant at <= records.len(),
+            out@ == pending_retirement_values(records@.take(at as int)),
+        decreases records.len() - at,
+    {
+        if !records[at].1 { out.push(records[at].0.clone()); }
+        proof {
+            let next = records@.take(at as int + 1);
+            assert(next.drop_last() =~= records@.take(at as int));
+            assert(next.last() == records@[at as int]);
+            reveal_with_fuel(pending_retirement_values, 1);
+        }
+        at += 1;
+    }
+    assert(records@.take(at as int) =~= records@);
+    out
+}
+
+/// 发现阶段的排除和成员保全决策；实际租约及声明 IO 由调用方执行。
+pub struct GateDiscovery {
+    pub object_excluded: bool,
+    pub role_excluded: bool,
+    pub retain_member: bool,
+}
+
+pub fn gate_discovery(membership_only: bool, maintenance: bool, wait: bool, birth: bool)
+    -> (plan: GateDiscovery)
+    ensures
+        plan.object_excluded == (maintenance && !wait && !birth),
+        plan.role_excluded == (membership_only || (maintenance && !wait && !birth)),
+        plan.retain_member == membership_only,
+{
+    let object_excluded = maintenance && !wait && !birth;
+    GateDiscovery {
+        object_excluded,
+        role_excluded: membership_only || object_excluded,
+        retain_member: membership_only,
+    }
+}
+
+/// 所选原件的请求不进入全库事务、输出或消费者枚举。
+pub fn global_maintenance(originals: Option<&[String]>) -> (global: bool)
+    ensures global == originals.is_none(),
+{
+    match originals { None => true, Some(_) => false }
+}
+
+/// The explicit sweep retains bounded observation bytes, without overflowing
+/// when an individual observation cannot fit its remaining report capacity.
+pub fn observation_bytes_fit(used: u64, next: u64, maximum: u64) -> (fits: bool)
+    ensures fits == (used as int + next as int <= maximum as int),
+{
+    used <= maximum && next <= maximum - used
+}
+
+
+pub fn observation_role(trimmed_role: &str, role_bytes: usize, attempt: u64) -> (ok: bool)
+    ensures ok == (0 < trimmed_role@.len() && role_bytes <= 256 && attempt > 0),
+{ !trimmed_role.is_empty() && role_bytes <= 256 && attempt > 0 }
+
+pub fn observation_token(trimmed_role: &str, role_bytes: usize, serial: u64, attempt: u64) -> (ok: bool)
+    ensures ok == (0 < trimmed_role@.len() && role_bytes <= 256 && serial > 0 && attempt > 0),
+{ observation_role(trimmed_role, role_bytes, attempt) && serial > 0 }
+
+pub fn observation_producer(tree: bool, publishing: bool, physical: bool) -> (ok: bool)
+    ensures ok == (tree && publishing && physical),
+{ tree && publishing && physical }
+
+pub fn observation_owner(ordered: bool, empty: bool, unattached: bool) -> (ok: bool)
+    ensures ok == (ordered || (empty && unattached)),
+{ ordered || (empty && unattached) }
+
+pub fn next_observation(issued: u64) -> (next: Option<u64>)
+    ensures next == if issued < u64::MAX { Some((issued + 1) as u64) } else { None },
+{
+    if issued == u64::MAX { None } else { Some(issued + 1) }
+}
+
+pub fn observation_order(epoch_bytes: usize, issued: u64, accepted: u64,
+    has_current: bool, current_member: bool) -> (ok: bool)
+    ensures ok == (epoch_bytes == 64 && issued > 0 && accepted <= issued && (!has_current || current_member)),
+{ epoch_bytes == 64 && issued > 0 && accepted <= issued && (!has_current || current_member) }
+
+pub fn observation_result(tree: bool, released: bool, sealed: bool,
+    address: bool, physical: bool) -> (ok: bool)
+    ensures ok == (tree && released && sealed && address && physical),
+{ tree && released && sealed && address && physical }
+
+pub struct ObservationBinding<'a> {
+    pub role: &'a str, pub epoch: &'a str, pub id: &'a str,
+    pub path: &'a str, pub physical: &'a str, pub serial: u64, pub attempt: u64,
+}
+
+pub fn matching_observation(request: &ObservationBinding, observed: &ObservationBinding) -> (ok: bool)
+    ensures ok == (request.role@ == observed.role@ && request.epoch@ == observed.epoch@
+        && request.id@ == observed.id@ && request.path@ == observed.path@
+        && request.physical@ == observed.physical@ && 0 < observed.serial <= request.serial
+        && 0 < observed.attempt <= request.attempt),
+{
+    identifiers::equal_text(request.role, observed.role)
+        && identifiers::equal_text(request.epoch, observed.epoch)
+        && identifiers::equal_text(request.id, observed.id)
+        && identifiers::equal_text(request.path, observed.path)
+        && identifiers::equal_text(request.physical, observed.physical)
+        && observed.serial > 0 && observed.serial <= request.serial
+        && observed.attempt > 0 && observed.attempt <= request.attempt
+}
+
+pub fn observation_epoch(member: bool, same_epoch: bool, serial: u64, issued: u64) -> (ok: bool)
+    ensures ok == (!member || (same_epoch && serial <= issued)),
+{ !member || (same_epoch && serial <= issued) }
+
+pub fn observation_edit(ordered: bool, owns_update: bool, same_members: bool) -> (ok: bool)
+    ensures ok == (!ordered || owns_update || same_members),
+{ !ordered || owns_update || same_members }
+
+pub fn unknown_pr_operation(unreturned: bool, unresolved_create: bool) -> (unknown: bool)
+    ensures unknown == (unreturned || unresolved_create),
+{ unreturned || unresolved_create }
+
+/// Native wait failure has neither an exit code nor a terminal signal.
+/// Returning a receipt alone does not establish either terminal result.
+pub fn process_exit_known(exit_code: i32, signal: Option<i32>) -> (known: bool)
+    ensures known == match signal {
+        None => exit_code >= 0,
+        Some(value) => exit_code == -1 && value > 0,
+    },
+{
+    match signal {
+        None => exit_code >= 0,
+        Some(value) => exit_code == -1 && value > 0,
+    }
+}
+
+/// A direct exit does not settle a launch whose owned work has not joined.
+pub fn process_completion_known(exit_code: i32, signal: Option<i32>, owned_work_joined: bool) -> (known: bool)
+    ensures known == (owned_work_joined && match signal {
+        None => exit_code >= 0,
+        Some(value) => exit_code == -1 && value > 0,
+    }),
+{
+    owned_work_joined && process_exit_known(exit_code, signal)
+}
+
+pub fn settled_pr_command(unreturned: bool, unresolved_create: bool, originals_complete: bool) -> (ok: bool)
+    ensures ok == (!unreturned && !unresolved_create && originals_complete),
+{ !unreturned && !unresolved_create && originals_complete }
+
+pub fn continued_pr_handoff(complete: bool, no_error: bool, observed: bool, matching_head: bool) -> (ok: bool)
+    ensures ok == (complete && no_error && observed && matching_head),
+{ complete && no_error && observed && matching_head }
+
+pub fn open_pr(state: &str) -> (active: bool)
+    ensures active == (state@ == "OPEN"@),
+{ proof { reveal_strlit("OPEN"); } identifiers::equal_text(state, "OPEN") }
+
+pub fn observed_pr(state: &str, active: bool) -> (ok: bool)
+    ensures ok == ((state@ == "OPEN"@ && active)
+        || ((state@ == "CLOSED"@ || state@ == "MERGED"@) && !active)),
+{
+    proof {
+        reveal_strlit("OPEN"); reveal_strlit("CLOSED"); reveal_strlit("MERGED");
+        assert("OPEN"@[0] != "CLOSED"@[0] && "OPEN"@[0] != "MERGED"@[0]);
+    }
+    if open_pr(state) { active }
+    else { !active && (identifiers::equal_text(state, "CLOSED") || identifiers::equal_text(state, "MERGED")) }
+}
+
+pub fn creating_pr(command: &str, action: &str) -> (create: bool)
+    ensures create == (command@ == "pr"@ && action@ == "create"@),
+{ proof { reveal_strlit("pr"); reveal_strlit("create"); }
+    identifiers::equal_text(command, "pr") && identifiers::equal_text(action, "create") }
+
+pub fn continued_observation(request: &ObservationBinding, role: &str, path: &str) -> (ok: bool)
+    ensures ok == (request.role@ == role@ && request.path@ == path@
+        && request.serial > 0 && request.attempt > 0),
+{ identifiers::equal_text(request.role, role) && identifiers::equal_text(request.path, path)
+    && request.serial > 0 && request.attempt > 0 }
+
+pub fn object_state(schema: &str, unresolved_create: bool) -> (ok: bool)
+    ensures ok == (schema@ == "chrono-pr-object-state/v1"@ && !unresolved_create),
+{ identifiers::equal_text(schema, "chrono-pr-object-state/v1") && !unresolved_create }
+
+pub open spec fn current_value(current: Option<String>) -> Option<Seq<char>> {
+    match current { Some(id) => Some(id@), None => None }
+}
+pub open spec fn pending_removed(values: Seq<String>, id: String, current: Option<String>) -> Seq<String> {
+    if current_value(current) == Some(id@) { values } else { removed(values, id@) }
+}
+pub open spec fn old_current_removed(values: Seq<String>, current: Option<String>) -> Seq<String> {
+    match current { Some(id) => removed(values, id@), None => values }
+}
+pub open spec fn observation_members(values: Seq<String>, id: String, current: Option<String>, accepted: u64, observed: Option<(u64,bool)>) -> Seq<String> {
+    let pending = pending_removed(values, id, current);
+    match observed {
+        Some((serial,active)) if serial > accepted => {
+            let next = old_current_removed(pending,current);
+            if active {
+                if present(next,id@) { next } else { next.push(id) }
+            } else { removed(next,id@) }
+        },
+        _ => pending,
+    }
+}
+pub open spec fn observation_accepted(accepted: u64, observed: Option<(u64,bool)>) -> u64 {
+    match observed { Some((serial,_)) if serial > accepted => serial, _ => accepted }
+}
+pub open spec fn observation_current(id: String, current: Option<String>, accepted: u64, observed: Option<(u64,bool)>) -> Option<Seq<char>> {
+    match observed {
+        Some((serial,active)) if serial > accepted => if active { Some(id@) } else { None },
+        _ => current_value(current),
+    }
+}
+pub struct ObservationSettlement {
+    pub members: Vec<String>, pub accepted: u64, pub current: Option<String>,
+}
+/// The one production member transition. It preserves every unrelated pending
+/// output; only the returned command and the superseded current observation move.
+pub fn settle_observation_members(values: &[String], id: &String, current: &Option<String>, accepted: u64, observed: Option<(u64,bool)>) -> (out: ObservationSettlement)
+    ensures out.members@ == observation_members(values@,*id,*current,accepted,observed),
+        out.accepted == observation_accepted(accepted,observed), out.accepted >= accepted,
+        current_value(out.current) == observation_current(*id,*current,accepted,observed),
+{
+    let own_current = match current {
+        Some(value) => identifiers::equal_text(value.as_str(),id.as_str()), None => false,
+    };
+    let mut next = Vec::new();
+    if own_current {
+        let mut at = 0;
+        while at < values.len()
+            invariant at <= values.len(), next@ == values@.take(at as int),
+            decreases values.len() - at,
+        {
+            next.push(values[at].clone());
+            assert(values@.take(at as int + 1) =~= values@.take(at as int).push(values@[at as int]));
+            at += 1;
+        }
+        assert(values@.take(at as int) =~= values@);
+    } else { next = without(values,id.as_str()); }
+    match observed {
+        Some((serial,active)) if serial > accepted => {
+            match current { Some(value) => { next = without(&next,value.as_str()); }, None => {} }
+            if active {
+                if !contains(&next,id.as_str()) { next.push(id.clone()); }
+                ObservationSettlement { members: next, accepted: serial, current: Some(id.clone()) }
+            } else {
+                next = without(&next,id.as_str());
+                ObservationSettlement { members: next, accepted: serial, current: None }
+            }
+        },
+        _ => {
+            let kept = match current { Some(value) => Some(value.clone()), None => None };
+            ObservationSettlement { members: next, accepted, current: kept }
+        },
+    }
+}
+
+}
