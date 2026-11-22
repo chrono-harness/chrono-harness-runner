@@ -57,7 +57,6 @@ name = "chrono-harness"
 version = "0.1.0"
 dependencies = [
  "chrono-diagnostics",
- "chrono-identifiers",
  "libc",
  "miniz_oxide",
  "serde",
@@ -76,7 +75,6 @@ version = "0.1.0"
 dependencies = [
  "chrono-diagnostics",
  "chrono-harness",
- "chrono-identifiers",
  "chrono-test-process",
  "libc",
  "serde",
@@ -84,14 +82,6 @@ dependencies = [
  "sha1",
  "sha2",
  "tempfile",
- "verus_builtin_macros",
-]
-
-[[package]]
-name = "chrono-identifiers"
-version = "0.1.0"
-source = "git+https://github.com/chrono-harness/chrono-harness-identifiers.git?rev=77f5059bac12d38630ab42a3b6f4ba4222fd7464#77f5059bac12d38630ab42a3b6f4ba4222fd7464"
-dependencies = [
  "verus_builtin_macros",
 ]
 

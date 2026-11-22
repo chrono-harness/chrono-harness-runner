@@ -28,11 +28,8 @@ prove() {
   test -s "$output" && test -s "$output.d"
 }
 
-# Resolve the exact source that Cargo fetched for the runtime dependency.
-identifiers_manifest=$(cargo metadata --locked --manifest-path crates/runner/Cargo.toml --format-version 1 |
-  jq -er '[.packages[] | select(.name == "chrono-identifiers") | .manifest_path] | select(length == 1) | first')
 proof_bindings=(--crate-name chrono_identifiers --export "$scratch/chrono_identifiers.vir")
-prove libchrono_identifiers "$(dirname "$identifiers_manifest")/src/lib.rs"
+prove libchrono_identifiers crates/runner/src/verified_identifiers.rs
 proof_bindings=(--extern "chrono_identifiers=$scratch/libchrono_identifiers.rlib"
                 --import "chrono_identifiers=$scratch/chrono_identifiers.vir")
 prove verify.runner-paths crates/runner/src/verified_paths.rs
@@ -50,3 +47,4 @@ prove verify.verus-result-tests crates/runner-tests/tests/verified_verifier.rs
 prove verify.retention-release-tests crates/runner-tests/tests/verified_release.rs
 prove verify.runner-git-binding-tests crates/runner-tests/tests/verified_git_binding.rs
 prove verify.runner-cli-tests crates/runner-tests/tests/verified_cli.rs
+prove verify.identifiers-tests crates/runner-tests/tests/verified_identifiers.rs

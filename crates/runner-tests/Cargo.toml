@@ -11,7 +11,6 @@ path = "tests/runtime_logging.rs"
 
 [dependencies]
 chrono-test-process = { path = "../test-process" }
-chrono-identifiers = { git = "https://github.com/chrono-harness/chrono-harness-identifiers.git", rev = "77f5059bac12d38630ab42a3b6f4ba4222fd7464" }
 verus_builtin_macros = "=0.0.0-2026-04-20-1748"
 serde = { version = "1", features = ["derive"] }
 sha1 = "0.10"
@@ -133,3 +132,7 @@ path = "tests/verified_fixture.rs"
 [[test]]
 name = "maintenance_signal"
 path = "tests/maintenance_signal.rs"
+
+[[test]]
+name = "verified_identifiers"
+path = "tests/verified_identifiers.rs"
