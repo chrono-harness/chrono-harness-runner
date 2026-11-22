@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "owners": [
+    "runner"
+  ],
+  "projects": [],
+  "scripts": [
+    {
+      "id": "runner",
+      "path": "check.sh",
+      "actions": {
+        "execute": {
+          "operation": "runner.verify",
+          "tool": "bash",
+          "argv": [
+            "check.sh"
+          ]
+        }
+      }
+    }
+  ]
+}
