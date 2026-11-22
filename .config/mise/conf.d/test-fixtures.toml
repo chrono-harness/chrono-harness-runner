@@ -1,0 +1,6 @@
+[tools."http:chrono-test-git"]
+version = "0.1.0-alpha.1"
+bin = "chrono-test-git"
+[tools."http:chrono-test-git".platforms]
+linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.0-alpha.1/chrono-test-git-linux-x86_64", checksum = "sha256:406e98b17b8c58de28584e88ca3f5488d45cce907be794dec523e0a3b4e07bff" }
+macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.0-alpha.1/chrono-test-git-macos-aarch64", checksum = "sha256:aa6a5ca9028b8c9f240fbe775651f844ffa386d53781b26b7f2fc55c32b00247" }
