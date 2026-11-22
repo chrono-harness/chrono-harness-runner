@@ -2782,3 +2782,21 @@ fn execute_check(
     fs::write(report_path, &text).map_err(|e| e.to_string())?;
     Ok((code, text))
 }
+
+#[cfg(not(verus_keep_ghost))]
+fn dispatch_cli(arguments: &[String]) -> u8 {
+    let arguments: Vec<_> = arguments.iter().map(String::as_str).collect();
+    let output = dispatch(&arguments);
+    if !output.stderr.is_empty() {
+        log_cli_error(&output.stderr);
+    }
+    match publish_native_output(&output) {
+        Ok(exit_code) => exit_code,
+        Err(_failure) => 2,
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub fn cli_main() -> std::process::ExitCode {
+    std::process::ExitCode::from(logged_text_main("chrono-harness", dispatch_cli))
+}
