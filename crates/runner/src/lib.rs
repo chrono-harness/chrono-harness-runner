@@ -90,7 +90,7 @@ pub mod verified_cli;
 #[cfg(not(verus_keep_ghost))]
 pub mod verified_git_binding;
 #[cfg(not(verus_keep_ghost))]
-pub use chrono_identifiers as verified_identifiers;
+pub mod verified_identifiers;
 #[cfg(not(verus_keep_ghost))]
 pub mod verified_limits;
 #[cfg(not(verus_keep_ghost))]

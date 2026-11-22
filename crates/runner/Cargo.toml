@@ -23,7 +23,6 @@ test = false
 bench = false
 
 [dependencies]
-chrono-identifiers = { git = "https://github.com/chrono-harness/chrono-harness-identifiers.git", rev = "77f5059bac12d38630ab42a3b6f4ba4222fd7464" }
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 chrono-diagnostics = { git = "https://github.com/chrono-harness/chrono-harness-diagnostics.git", rev = "8da697ff878dbe2e31ddcfe7366714de49e79d03" }
 serde = { version = "1", features = ["derive"] }
