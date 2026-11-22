@@ -10,6 +10,7 @@ name = "runtime_logging"
 path = "tests/runtime_logging.rs"
 
 [dependencies]
+chrono-test-git = { git = "https://github.com/chrono-harness/chrono-harness-test-git.git", rev = "0a65d38f0ed2ccac7627b87e817517950ef7c2bf" }
 chrono-test-process = { path = "../test-process" }
 chrono-identifiers = { git = "https://github.com/chrono-harness/chrono-harness-identifiers.git", rev = "77f5059bac12d38630ab42a3b6f4ba4222fd7464" }
 verus_builtin_macros = "=0.0.0-2026-04-20-1748"

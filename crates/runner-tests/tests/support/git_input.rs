@@ -1,7 +1,7 @@
+use chrono_test_git as git_model;
 use serde_json::Value;
 use std::io::{self, Write};
 use std::{fs, path::Path};
-mod git_model;
 
 fn emit(stdout: &[u8], stderr: &[u8], code: i32) -> ! {
     io::stdout().write_all(stdout).unwrap();
