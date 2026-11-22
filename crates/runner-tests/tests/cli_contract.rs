@@ -1865,7 +1865,9 @@ fn unknown_and_malformed_commands_are_errors() {
 }
 #[test]
 fn help_and_version_are_information_only() {
-    assert!(dispatch(&[]).stdout.contains("NOT IMPLEMENTED"));
+    let help = dispatch(&[]).stdout;
+    assert!(help.contains("NOT IMPLEMENTED"));
+    assert!(help.contains("check --config PROFILE --base OID --candidate OID"));
     assert!(
         dispatch(&["--version"])
             .stdout

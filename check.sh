@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT
-export CARGO_TARGET_DIR="$scratch/cargo"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 cargo fmt --check --manifest-path crates/test-process/Cargo.toml
 cargo fmt --check --manifest-path crates/runner/Cargo.toml
 cargo fmt --check --manifest-path crates/runner-tests/Cargo.toml
@@ -17,7 +17,7 @@ prove() {
   "${VERUS:-verus}" --crate-type=lib --no-cheating --no-external-by-default --num-threads 2 \
     "${proof_bindings[@]}" --output-json --compile "--emit=link=$output,dep-info=$output.d" "$root" -o "$output" \
     -Zchecksum-hash-algorithm=sha256 > "$scratch/proof.json" || { cat "$scratch/proof.json" >&2; return 1; }
-  cat "$scratch/proof.json"
+  jq '."verification-results"' "$scratch/proof.json"
   jq -e '.verus.version == "0.2026.04.24.f8e1704" and
     .verus.commit == "f8e17045c4ac17a02e566b8997070f2eecc255be" and
     (."verification-results" | .success == true and ."is-verifying-entire-crate" == true and
