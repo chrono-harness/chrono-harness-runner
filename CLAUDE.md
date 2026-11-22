@@ -8,6 +8,8 @@
 
 复验 PR 的两个固定提交时，在候选检出中设置 `VERUS` 和基线提交 `base_oid`，运行 `mise exec -- chrono-harness check --config .chrono-harness/check.json --base "$base_oid" --candidate "$(git rev-parse HEAD)"`。
 
+本仓逐文件登记受 Git 跟踪的输入。升级模板或切换选项时，在同一提交更新 [FILEMAP](.chrono-harness/FILEMAP.json)，登记新增、删除或改名的文件，包括规则选择和随附许可。CI 用变更前后两个提交各自的登记检查实际文件。
+
 日常开发和 PR 使用 `dev`，正式版本从 `main` 发布。
 
 首次检出时，在仓库根目录安装本仓选定的工具。
