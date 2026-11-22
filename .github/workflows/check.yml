@@ -16,25 +16,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Install pinned check tools outside the checkout
-        working-directory: ${{ runner.temp }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          release=https://github.com/chrono-harness/chrono-harness-main/releases/download/v0.1.0-alpha.1
-          mkdir host-tools
-          cd host-tools
-          curl -fsSLO "$release/chrono-harness-macos-aarch64"
-          curl -fsSLO "$release/chrono-judge-ci-macos-aarch64"
-          echo '902f5199d587cf0e818ead38102d477fca40752644bdfd05a543021b871a18ce  chrono-harness-macos-aarch64' | shasum -a 256 -c -
-          echo '0806255d34321121bb2e71e7b21ba9ecd855d4db0e97cd0f8617fe9704024863  chrono-judge-ci-macos-aarch64' | shasum -a 256 -c -
-          mv chrono-harness-macos-aarch64 chrono-harness
-          mv chrono-judge-ci-macos-aarch64 chrono-judge-ci
-          chmod +x chrono-harness chrono-judge-ci
-          curl -fsSLo verus.zip https://github.com/verus-lang/verus/releases/download/release/0.2026.04.24.f8e1704/verus-0.2026.04.24.f8e1704-arm64-macos.zip
-          echo '023e0a6e67bb9927f43a8757ebdec318b50cbfe1fec4a1c320c53d5fd71008e7  verus.zip' | shasum -a 256 -c -
-          tar -xf verus.zip
-          rm verus.zip
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78
+        with:
+          version: 2026.11.12
+          cache: false
+          install_args: http:chrono-harness http:chrono-judge-ci http:verus
       - name: Check this change with the released and candidate harness
         shell: bash
         env:
@@ -49,16 +35,18 @@ jobs:
           else
             base=$BEFORE
           fi
-          tools="$RUNNER_TEMP/host-tools"
+          released=$(mise which chrono-harness)
+          judge=$(mise which chrono-judge-ci)
+          verifier=$(mise which verus)
           target="$RUNNER_TEMP/runner-build"
           check_change() {
-            env -i HOME="$HOME" PATH="$tools:$PATH" TMPDIR="$TMPDIR" \
-              VERUS="$tools/verus-arm64-macos/verus" CARGO_TARGET_DIR="$target" \
+            env -i HOME="$HOME" PATH="$(dirname "$judge"):$PATH" TMPDIR="$TMPDIR" \
+              VERUS="$verifier" CARGO_TARGET_DIR="$target" \
               "$1" check --config .chrono-harness/check.json --base "$base" --candidate "$candidate" > "$RUNNER_TEMP/check-output.json"
           }
-          check_change "$tools/chrono-harness"
+          check_change "$released"
           jq '{status: .response.status, results: .response.results}' .chrono-harness/state/check.json
-          if jq -e '.response.status == "passed"' .chrono-harness/state/check.json >/dev/null; then
+          if jq -e '.response.status == "passed" and any(.response.results[]; .id == "runner.verify" and .status == "passed")' .chrono-harness/state/check.json >/dev/null; then
             check_change "$target/debug/chrono-harness"
             jq '{status: .response.status, results: .response.results}' .chrono-harness/state/check.json
           fi

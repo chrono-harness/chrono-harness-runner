@@ -1,6 +1,13 @@
 {
   "schema_version": 2,
   "files": [
+    {"path": "AGENTS.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
+    {"path": "CLAUDE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
+    {"path": ".config/mise/conf.d/chrono-harness.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": ".chrono-harness/pr.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
+    {"path": ".chrono-harness/USAGE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
+    {"path": ".chrono-harness/template-answers.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
+    {"path": ".chrono-harness/.gitignore", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".chrono-harness/FILEMAP.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": ".chrono-harness/check.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": ".chrono-harness/projects.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
