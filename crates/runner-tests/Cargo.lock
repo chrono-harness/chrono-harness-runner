@@ -77,6 +77,7 @@ dependencies = [
  "chrono-diagnostics",
  "chrono-harness",
  "chrono-identifiers",
+ "chrono-test-process",
  "libc",
  "serde",
  "serde_json",
@@ -92,6 +93,13 @@ version = "0.1.0"
 source = "git+https://github.com/chrono-harness/chrono-harness-identifiers.git?rev=77f5059bac12d38630ab42a3b6f4ba4222fd7464#77f5059bac12d38630ab42a3b6f4ba4222fd7464"
 dependencies = [
  "verus_builtin_macros",
+]
+
+[[package]]
+name = "chrono-test-process"
+version = "0.1.0"
+dependencies = [
+ "chrono-harness",
 ]
 
 [[package]]
