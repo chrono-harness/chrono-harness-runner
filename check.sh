@@ -8,7 +8,7 @@ cargo fmt --check --manifest-path crates/test-process/Cargo.toml
 cargo fmt --check --manifest-path crates/runner/Cargo.toml
 cargo fmt --check --manifest-path crates/runner-tests/Cargo.toml
 cargo build --locked --manifest-path crates/runner/Cargo.toml
-cargo test --locked --manifest-path crates/runner-tests/Cargo.toml
+cargo test --locked --manifest-path crates/runner-tests/Cargo.toml -- --test-threads=2
 
 proof_bindings=()
 prove() {
