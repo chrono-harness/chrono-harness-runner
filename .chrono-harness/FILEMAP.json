@@ -1,6 +1,11 @@
 {
   "schema_version": 2,
   "files": [
+    {"path": ".chrono-harness/instructions/catalog.json", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
+    {"path": ".chrono-harness/instructions/manifest.json", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
+    {"path": ".chrono-harness/instructions/host-context.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
+    {"path": "docs/licenses/methodology-attribution.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
+    {"path": "docs/licenses/trureturing-Apache-2.0.txt", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": "AGENTS.md", "symlink": "CLAUDE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": "CLAUDE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": ".config/mise/conf.d/chrono-harness.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
