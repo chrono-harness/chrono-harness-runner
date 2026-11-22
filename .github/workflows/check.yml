@@ -1,19 +1,74 @@
 name: check
-on: [push, pull_request]
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
 permissions:
   contents: read
+
 jobs:
   check:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: 验证工具来源并运行检查
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned check tools outside the checkout
+        working-directory: ${{ runner.temp }}
         shell: bash
         run: |
           set -euo pipefail
-          cd "$RUNNER_TEMP"
-          curl -fsSL -o verus.zip https://github.com/verus-lang/verus/releases/download/release/0.2026.04.24.f8e1704/verus-0.2026.04.24.f8e1704-arm64-macos.zip
+          release=https://github.com/chrono-harness/chrono-harness-main/releases/download/v0.1.0-alpha.1
+          mkdir host-tools
+          cd host-tools
+          curl -fsSLO "$release/chrono-harness-macos-aarch64"
+          curl -fsSLO "$release/chrono-judge-ci-macos-aarch64"
+          echo '902f5199d587cf0e818ead38102d477fca40752644bdfd05a543021b871a18ce  chrono-harness-macos-aarch64' | shasum -a 256 -c -
+          echo '0806255d34321121bb2e71e7b21ba9ecd855d4db0e97cd0f8617fe9704024863  chrono-judge-ci-macos-aarch64' | shasum -a 256 -c -
+          mv chrono-harness-macos-aarch64 chrono-harness
+          mv chrono-judge-ci-macos-aarch64 chrono-judge-ci
+          chmod +x chrono-harness chrono-judge-ci
+          curl -fsSLo verus.zip https://github.com/verus-lang/verus/releases/download/release/0.2026.04.24.f8e1704/verus-0.2026.04.24.f8e1704-arm64-macos.zip
           echo '023e0a6e67bb9927f43a8757ebdec318b50cbfe1fec4a1c320c53d5fd71008e7  verus.zip' | shasum -a 256 -c -
           tar -xf verus.zip
-          cd "$GITHUB_WORKSPACE"
-          VERUS="$RUNNER_TEMP/verus-arm64-macos/verus" ./check.sh
+          rm verus.zip
+      - name: Check this change with the released and candidate harness
+        shell: bash
+        env:
+          BEFORE: ${{ github.event.before }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          candidate=$(git rev-parse HEAD)
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            base=$(git rev-parse HEAD^1)
+            test "$(git rev-parse HEAD^2)" = "$PR_HEAD"
+          else
+            base=$BEFORE
+          fi
+          tools="$RUNNER_TEMP/host-tools"
+          target="$RUNNER_TEMP/runner-build"
+          check_change() {
+            env -i HOME="$HOME" PATH="$tools:$PATH" TMPDIR="$TMPDIR" \
+              VERUS="$tools/verus-arm64-macos/verus" CARGO_TARGET_DIR="$target" \
+              "$1" check --config .chrono-harness/check.json --base "$base" --candidate "$candidate" > "$RUNNER_TEMP/check-output.json"
+          }
+          check_change "$tools/chrono-harness"
+          jq '{status: .response.status, results: .response.results}' .chrono-harness/state/check.json
+          if jq -e '.response.status == "passed"' .chrono-harness/state/check.json >/dev/null; then
+            check_change "$target/debug/chrono-harness"
+            jq '{status: .response.status, results: .response.results}' .chrono-harness/state/check.json
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure()
+        with:
+          name: runner-check
+          path: |
+            .chrono-harness/state/check.json
+            .chrono-harness/state/*.operation-*/stdout
+            .chrono-harness/state/*.operation-*/stderr
+          include-hidden-files: true
+          retention-days: 1

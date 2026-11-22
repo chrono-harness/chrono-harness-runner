@@ -1,0 +1,27 @@
+{
+  "schema": "chrono-ci-check/v1",
+  "judge": {
+    "program": "chrono-judge-ci",
+    "args": [],
+    "timeout_seconds": 2100,
+    "output_limit_bytes": 8388608
+  },
+  "report_path": ".chrono-harness/state/check.json",
+  "policy": {
+    "filemap": ".chrono-harness/FILEMAP.json",
+    "projects": ".chrono-harness/projects.json",
+    "tools": {
+      "bash": "/bin/bash"
+    },
+    "artifacts": [
+      ".chrono-harness/state/"
+    ],
+    "required_inputs": [
+      ".chrono-harness/check.json",
+      "check.sh"
+    ],
+    "adoption_base": "f870460921d6d99fe7fcbbf92246984ddad3b5cd",
+    "operation_timeout_seconds": 1800,
+    "operation_output_limit_bytes": 1048576
+  }
+}
