@@ -11,7 +11,8 @@ pub(super) struct Directory {
     path: String,
     reference: String,
     publication: Option<Publication>,
-    executed: bool,
+    executed: std::collections::BTreeSet<Option<String>>,
+    rooted: bool,
 }
 
 impl Directory {
@@ -21,6 +22,7 @@ impl Directory {
         path: String,
         reference: String,
         intent: Value,
+        rooted: bool,
     ) -> Result<Self, String> {
         crate::units::artifact_path(&path)?;
         let absolute = no_symlink_parents(root, &path)?;
@@ -35,10 +37,20 @@ impl Directory {
             if !inventory.accepts(producer, &path) {
                 return Err("original directory is outside the registered producer scope".into());
             }
-            let publication = inventory.plan(producer, &path, true, intent)?;
-            publication.materialize_for_reference(&reference)?;
+            let publication = if rooted {
+                let p = inventory.plan_rooted(producer, &path, intent, &reference)?;
+                p.materialize()?;
+                p
+            } else {
+                let p = inventory.plan(producer, &path, true, intent)?;
+                p.materialize_for_reference(&reference)?;
+                p
+            };
             Some(publication)
         } else {
+            if rooted {
+                return Err("adopted original inventory unavailable".into());
+            }
             fs::create_dir(&absolute).map_err(|e| {
                 format!("operation state {path}: {e}; preserve originals, do not redispatch")
             })?;
@@ -48,10 +60,43 @@ impl Directory {
             path,
             reference,
             publication,
-            executed: false,
+            executed: Default::default(),
+            rooted,
         })
     }
 
+    pub(super) fn identity(&self) -> Result<&str, String> {
+        self.publication
+            .as_ref()
+            .map(Publication::id)
+            .ok_or_else(|| "adopted original inventory unavailable".to_owned())
+    }
+    pub(super) fn create_member(&self, root: &Path, name: &str) -> Result<(), String> {
+        let p = self.file(root, name)?;
+        self.publication
+            .as_ref()
+            .ok_or("adopted original inventory unavailable")?
+            .create_directory(&p)
+    }
+    pub(super) fn reserve_file(
+        &self,
+        root: &Path,
+        name: &str,
+        length: u64,
+    ) -> Result<PathBuf, String> {
+        crate::relative_path(name)?;
+        let p = no_symlink_parents(root, &format!("{}/{}", self.path, name))?;
+        self.publication
+            .as_ref()
+            .ok_or("adopted original inventory unavailable")?
+            .reserve_external_file(&p, length)?;
+        Ok(p)
+    }
+    pub(super) fn seal(self, outcome: Value) -> Result<(), String> {
+        self.publication
+            .ok_or("adopted original inventory unavailable")?
+            .complete_sealed(outcome)
+    }
     fn file(&self, root: &Path, name: &str) -> Result<PathBuf, String> {
         if Path::new(name).file_name().and_then(|p| p.to_str()) != Some(name) {
             return Err("original must name one file within its publication".into());
@@ -76,13 +121,32 @@ impl Directory {
         root: &Path,
         command: &CommandSpec,
         digest: &str,
+        member: Option<&str>,
     ) -> Result<ProcessResult, String> {
-        if std::mem::replace(&mut self.executed, true) {
+        if member.is_some() != self.rooted {
+            return Err("a rooted publication runs one command per member".into());
+        }
+        if !self.executed.insert(member.map(str::to_owned)) {
             return Err("retained operation has already been attempted".into());
         }
-        let stdout = self.file(root, "stdout")?;
-        let stderr = self.file(root, "stderr")?;
-        let launch = self.file(root, "launch.json")?;
+        let directory = match member {
+            None => no_symlink_parents(root, &self.path)?,
+            Some(name) => self.file(root, name)?,
+        };
+        let file = |name: &str| {
+            let relative = directory.join(name);
+            no_symlink_parents(
+                root,
+                relative
+                    .strip_prefix(root)
+                    .map_err(|e| e.to_string())?
+                    .to_str()
+                    .ok_or("non UTF-8 original path")?,
+            )
+        };
+        let stdout = file("stdout")?;
+        let stderr = file("stderr")?;
+        let launch = file("launch.json")?;
         let evidence = ProcessEvidence {
             root,
             stdout: &stdout,

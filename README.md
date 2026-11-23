@@ -52,4 +52,4 @@ The local checkout must match the candidate. The report and operation streams ar
 
 `judge-command-v1` 的 `--admission-result` 选项将 `{"request":请求,"admission":{"Ok":null}}` 或带原错误的 `{"Err":"…"}` 交给独立判官。判官可对准入失败使用其已登记的 finding 和严重程度。
 
-`retained-artifacts-v1` 的外部执行者用 `begin-directory` 打开原件目录，`write-directory` 在登记目录中写入意图和结果，`execute-retained` 按命令、SHA-256、超时与输出上限执行一次，并保留 stdout、stderr 和 launch.json。`check-directory-write` 再核对保管预算。`finish-directory` 接受最终结果和输入依赖，在业务进程已结束后封存。生成分配、判定执行结果与决定释放时机由项目负责。
+`retained-artifacts-v1` 的外部执行者用 `begin-directory` 打开原件目录，`write-directory` 在登记目录中写入意图和结果，`execute-retained` 按命令、SHA-256、超时与输出上限执行一次，并保留 stdout、stderr 和 launch.json。`check-directory-write` 再核对保管预算。`finish-directory` 接受最终结果和输入依赖，在业务进程已结束后封存。生成分配、判定执行结果与决定释放时机由项目负责。 当外部生产者需要在创建前登记消费者时，`begin-directory` 接受 `rooted:true` 并返回库存 ID。用 `create-directory-member` 创建多个成员，每个成员可单独执行一次，stdout、stderr 和 launch.json 均归属该成员。生产者用 `reserve-directory-file` 在写入前按字节和节点占用预算，用 `validate-launch` 核对精确原件路径与 SHA-256，用 `seal-directory` 封存结果。库存查询与消费引用通过 `inventory` 操作执行，活跃读取租约由该进程持有到会话结束。

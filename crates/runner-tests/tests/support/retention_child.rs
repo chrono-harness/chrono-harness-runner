@@ -2,8 +2,25 @@ use chrono_harness::retained_artifacts::{self, retention::Inventory};
 use serde_json::json;
 use std::{fs, io::Write, path::Path};
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("count-member") {
+        let mut count = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(std::env::args_os().nth(2).unwrap())
+            .unwrap();
+        count.write_all(b"x").unwrap();
+        println!("stable compiler");
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("exit-success") {
         return;
+    }
+    if std::env::args().nth(1).as_deref() == Some("emit-member") {
+        let member = std::env::args().nth(2).unwrap();
+        std::io::stdout().write_all(member.as_bytes()).unwrap();
+        std::io::stdout().write_all(b"\0\xff").unwrap();
+        std::io::stderr().write_all(b"member error\n").unwrap();
+        std::process::exit(7);
     }
     if std::env::args().nth(1).as_deref() == Some("emit-original-failure") {
         use std::io::Read;
