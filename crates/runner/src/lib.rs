@@ -2820,6 +2820,7 @@ pub fn cli_main() -> std::process::ExitCode {
         | "git-facts-v1"
         | "judge-evidence-v1"
         | "source-coverage-v1"
+        | "selected-host-config-v1"
         | "installed-query-v1"
         | "check-invocation-v1"),
     ) = mode.as_deref().and_then(std::ffi::OsStr::to_str)
@@ -2841,6 +2842,13 @@ pub fn cli_main() -> std::process::ExitCode {
                     std::io::stdin().lock(),
                     std::io::stdout().lock(),
                 ),
+                "selected-host-config-v1" => (|| {
+                    let path: String = serde_json::from_reader(std::io::stdin().lock())
+                        .map_err(|e| e.to_string())?;
+                    let config = load_selected_config(&cwd, &path)?;
+                    serde_json::to_writer(std::io::stdout().lock(), &config)
+                        .map_err(|e| e.to_string())
+                })(),
                 "judge-evidence-v1" => {
                     judge_evidence::serve(std::io::stdin().lock(), std::io::stdout().lock())
                 }

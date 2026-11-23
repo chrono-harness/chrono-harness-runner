@@ -133,6 +133,25 @@ impl Directory {
             .as_ref()
             .ok_or("no returned compiler output in this execution")?;
         crate::units::artifact_path(output)?;
+        let (run, index) = self
+            .path
+            .rsplit_once(".operation-")
+            .ok_or("compiler original requires an operation directory")?;
+        if index.parse::<usize>().is_err()
+            || Path::new(output).parent() != Some(Path::new(run))
+            || Path::new(output).extension() != Some(std::ffi::OsStr::new("rlib"))
+        {
+            return Err("compiler output is outside its execution directory".into());
+        }
+        // A compiler return is durable before the two replaceable outputs may be removed.
+        let result =
+            fs::symlink_metadata(self.file(root, "result.json")?).map_err(|e| e.to_string())?;
+        if !result.is_file() {
+            return Err("missing durable operation result".into());
+        }
+        fs::File::open(self.file(root, "result.json")?)
+            .and_then(|file| file.sync_all())
+            .map_err(|e| e.to_string())?;
         let dep = format!("{output}.d");
         let entries = [(output.as_str(), library), (dep.as_str(), dependency)]
             .into_iter()
@@ -148,12 +167,6 @@ impl Directory {
                 Ok((relative, identity))
             })
             .collect::<Result<Vec<_>, String>>()?;
-        // For unmanaged publications, the durable result is the only remaining copy of the original receipt.
-        if self.publication.is_none() {
-            fs::File::open(self.file(root, "result.json")?)
-                .and_then(|f| f.sync_all())
-                .map_err(|e| e.to_string())?;
-        }
         let parent = Path::new(output)
             .parent()
             .and_then(Path::to_str)
