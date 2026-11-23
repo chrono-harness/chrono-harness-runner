@@ -10881,6 +10881,26 @@ fn producer_session_keeps_host_ownership_and_cleans_unmanaged_interrupted_stages
             .map(|line| serde_json::from_str::<Result<Value, String>>(line).unwrap())
             .collect::<Vec<_>>()
     };
+    let create = |prefix| json!({"operation":"publication","action":{"kind":"create","parent":directory,"prefix":prefix,"producer":"check-original","outcome":null}});
+    let opened = request(&[
+        create("../escape"),
+        create("bootstrap-"),
+        json!({"operation":"scoped-descriptors","offset":0}),
+    ]);
+    assert!(opened[0].is_err());
+    let bootstrap = opened[1].as_ref().unwrap();
+    assert_eq!(bootstrap["adopted"], false);
+    assert!(root.join(bootstrap["path"].as_str().unwrap()).is_dir());
+    assert_eq!(opened[2], Ok(json!(0)));
+    let write = request(&[
+        json!({"operation":"publication","action":{"kind":"reserve-write","path":bootstrap["path"],"name":"out","length":10}}),
+    ]);
+    assert!(
+        write[0]
+            .as_ref()
+            .unwrap_err()
+            .contains("no active publication")
+    );
     let owned = format!("{directory}/execution");
     let open = json!({"operation":"begin-directory","producer":"check-original","path":owned,"reference":"consumer","intent":{"plan":"test"}});
     let write = |name: &str| json!({"operation":"write-directory","path":owned,"name":name,"value":{"status":"started"}});

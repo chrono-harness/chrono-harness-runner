@@ -23,6 +23,7 @@ test = false
 bench = false
 
 [dependencies]
+rustix = {version = "1", features = ["net"]}
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 chrono-diagnostics = { git = "https://github.com/chrono-harness/chrono-harness-diagnostics.git", rev = "8da697ff878dbe2e31ddcfe7366714de49e79d03" }
 serde = { version = "1", features = ["derive"] }

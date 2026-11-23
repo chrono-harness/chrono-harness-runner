@@ -68,6 +68,24 @@ impl Drop for Scope {
         SCOPES.with(|s| s.borrow_mut().retain(|(id, _)| *id != self.id));
     }
 }
+pub(crate) fn with_scoped_descriptors<T>(
+    offset: usize,
+    limit: usize,
+    consume: impl FnOnce(Vec<BorrowedFd<'_>>) -> Result<T, String>,
+) -> Result<T, String> {
+    use std::os::fd::AsFd;
+    SCOPES.with(|scopes| {
+        let scopes = scopes.borrow();
+        let descriptors = scopes
+            .iter()
+            .flat_map(|(_, fds)| fds)
+            .skip(offset)
+            .take(limit)
+            .map(AsFd::as_fd)
+            .collect();
+        consume(descriptors)
+    })
+}
 fn inherited() -> Result<Vec<RawFd>, ProcessFailure> {
     let Some(value) = std::env::var_os(ENV) else {
         return Ok(vec![]);

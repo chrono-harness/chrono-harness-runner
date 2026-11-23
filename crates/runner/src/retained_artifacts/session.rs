@@ -1,5 +1,7 @@
 //! Retain adopted artifact capabilities for the lifetime of an external producer.
+mod descriptors;
 mod directory;
+mod publication;
 use crate::{
     decode, file_identity, no_symlink_parents,
     prepared::{ArtifactTransport, Original},
@@ -21,6 +23,12 @@ use std::{
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
+    ScopedDescriptors {
+        offset: usize,
+    },
+    Publication {
+        action: publication::Action,
+    },
     BeginDirectory {
         producer: String,
         path: String,
@@ -111,6 +119,7 @@ enum Operation {
 }
 
 struct Session<'a> {
+    publications: publication::Publications,
     root: &'a Path,
     inventory: Option<Inventory>,
     stages: BTreeMap<PathBuf, Stage>,
@@ -143,6 +152,11 @@ impl Session<'_> {
     fn apply(&mut self, op: Operation) -> Result<Value, String> {
         let root = self.root;
         match op {
+            Operation::ScopedDescriptors { offset } => descriptors::send(offset).map(|n| json!(n)),
+            Operation::Publication { action } => {
+                self.publications
+                    .apply(root, self.inventory.as_ref(), action)
+            }
             Operation::BeginDirectory {
                 producer,
                 path,
@@ -391,6 +405,7 @@ impl Write for Bounded<'_> {
 pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Result<(), String> {
     let _scope = retention::read_scope(root)?;
     let mut session = Session {
+        publications: Default::default(),
         root,
         inventory: Inventory::adopted(root)?,
         stages: BTreeMap::new(),

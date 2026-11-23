@@ -2814,6 +2814,39 @@ fn dispatch_cli(arguments: &[String]) -> u8 {
 #[cfg(not(verus_keep_ghost))]
 pub fn cli_main() -> std::process::ExitCode {
     let mode = std::env::args_os().nth(1);
+    if mode.as_deref() == Some(std::ffi::OsStr::new("inherited-descriptors-v1")) {
+        if std::env::args_os().len() != 2 {
+            eprintln!("E_USAGE: inherited-descriptors-v1");
+            return 2.into();
+        }
+        return match process_fds::inherited_available() {
+            Ok(available) => {
+                println!("{available}");
+                0.into()
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                2.into()
+            }
+        };
+    }
+    if mode.as_deref() == Some(std::ffi::OsStr::new("exec-with-descriptors-v1")) {
+        use std::os::unix::process::CommandExt;
+        let mut args = std::env::args_os().skip(2);
+        let Some(program) = args.next() else {
+            eprintln!("E_USAGE: exec-with-descriptors-v1 PROGRAM [ARGS]");
+            return 2.into();
+        };
+        let mut command = std::process::Command::new(program);
+        command.args(args);
+        if let Err(error) = process_fds::forward_command(&mut command, &[]) {
+            eprintln!("{error}");
+            return 2.into();
+        }
+        let error = command.exec();
+        eprintln!("{error}");
+        return 2.into();
+    }
     if let Some(
         operation @ ("observed-tool-v1"
         | "compiler-output-v1"

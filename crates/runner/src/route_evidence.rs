@@ -21,6 +21,22 @@ struct Observe {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, tag = "operation", rename_all = "kebab-case")]
 enum Compiler {
+    ValidateContract {
+        contract: verifier::OutputContract,
+    },
+    ProofRows {
+        contract: verifier::OutputContract,
+        rows: Vec<serde_json::Value>,
+    },
+    DependencyPaths {
+        dependency: Vec<u8>,
+        stem: Vec<u8>,
+    },
+    DependencyMatches {
+        dependency: Vec<u8>,
+        targets: Vec<Vec<u8>>,
+        sources: Vec<BoundSource>,
+    },
     Bind {
         argv: Vec<String>,
         directory: String,
@@ -35,6 +51,14 @@ enum Compiler {
         limit: usize,
         artifact: Option<Result<verifier::CompiledArtifact, String>>,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoundSource {
+    path: Vec<u8>,
+    sha256: Vec<u8>,
+    length: u64,
 }
 
 pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<(), String> {
@@ -54,6 +78,46 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
         "compiler-output-v1" => {
             let q: Compiler = serde_json::from_reader(input).map_err(|e| e.to_string())?;
             match q {
+                Compiler::ValidateContract { contract } => {
+                    verifier::validate_contract(&Some(contract))?;
+                    serde_json::to_writer(output, &()).map_err(|e| e.to_string())
+                }
+                Compiler::ProofRows { contract, rows } => {
+                    let normalized: Vec<Option<bool>> = rows
+                        .into_iter()
+                        .map(|row| {
+                            serde_json::from_value::<verifier::CompilerReport>(row)
+                                .ok()
+                                .map(|report| verifier::accepts_report(&report, &contract))
+                        })
+                        .collect();
+                    serde_json::to_writer(output, &normalized).map_err(|e| e.to_string())
+                }
+                Compiler::DependencyPaths { dependency, stem } => {
+                    let target = verifier::sources::encode_path(&stem);
+                    let paths = verifier::sources::compiler_dependency_paths(&dependency, &target);
+                    serde_json::to_writer(output, &paths).map_err(|e| e.to_string())
+                }
+                Compiler::DependencyMatches {
+                    dependency,
+                    targets,
+                    sources,
+                } => {
+                    let bindings = sources
+                        .into_iter()
+                        .map(|source| verifier::sources::SourceBinding {
+                            path: source.path,
+                            sha256: source.sha256,
+                            length: source.length,
+                        })
+                        .collect();
+                    let matched = verifier::sources::matches_cargo_dependency(
+                        &dependency,
+                        &targets,
+                        &bindings,
+                    );
+                    serde_json::to_writer(output, &matched).map_err(|e| e.to_string())
+                }
                 Compiler::Bind {
                     mut argv,
                     directory,
