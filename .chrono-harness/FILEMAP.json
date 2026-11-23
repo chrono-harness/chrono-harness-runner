@@ -87,7 +87,6 @@
     {"path": "crates/runner/src/scoped_report.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/short_console.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/units.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/verified_cargo.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/verified_cli.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/verified_continuity.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/verified_export.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
