@@ -25,6 +25,55 @@ mod continuity_expectations;
 
 verus! {
 
+// Both source checks supply route planning with the verdict for the same inventory.
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn concrete_source_inventory_and_selection_verdicts() {
+    use policy::sources::{
+        SourceFile, canonical_source_name, source_registry,
+        validate_file_classifications, validate_selected_roots,
+    };
+    let evidence = policy::sources::continuity::Continuity::empty();
+    let empty = source_registry(Vec::new(), Some(true));
+    expect_verifier_true(validate_file_classifications(&empty, Ok(None), &evidence).is_ok());
+    expect_verifier_true(validate_selected_roots(
+        &empty.files, &Vec::new(), &Vec::new(), &Vec::new(), &evidence,
+    ).is_ok());
+
+    let inventory = source_registry(vec![SourceFile { path: "x".to_string(), verification: None }], Some(true));
+    let nodes = vec!["file:x".to_string()];
+    proof {
+        reveal_strlit("x"); reveal_strlit("file:"); reveal_strlit("file:x");
+        vstd::utf8::is_ascii_chars_encode_utf8("x"@);
+        assert(vstd::utf8::encode_utf8("x"@) =~= seq![120u8]);
+        assert(policy::sources::canonical_source_path(seq![120u8])) by (compute);
+        assert("file:x"@ =~= "file:"@ + "x"@);
+        assert(policy::sources::node_affected("file:"@, "x"@, nodes@)) by {
+            assert(nodes[0]@ == "file:"@ + "x"@);
+        }
+        reveal_with_fuel(policy::sources::classifications_error, 3);
+        reveal_with_fuel(policy::sources::selected_plan_error, 3);
+        reveal(policy::sources::file_plan_error);
+    }
+    expect_verifier_true(canonical_source_name("x"));
+    let baseline = validate_file_classifications(&inventory, Err("原基线错误\0é"), &evidence);
+    let preserves_error = match baseline {
+        Err(error) => identifiers::equal_text(error.path, "原基线错误\0é"),
+        Ok(()) => false,
+    };
+    expect_verifier_true(preserves_error);
+    expect_verifier_true(validate_file_classifications(
+        &inventory, Ok(Some(&inventory)), &evidence,
+    ).is_ok());
+    let selected = validate_selected_roots(&inventory.files, &nodes, &Vec::new(), &Vec::new(), &evidence);
+    let missing = match selected {
+        Err(error) => identifiers::equal_text(error.message,
+            "E_VERUS_COVERAGE: affected file lacks explicit verification classification: ")
+            && identifiers::equal_text(error.path, "x"),
+        Ok(()) => false,
+    };
+    expect_verifier_true(missing);
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn new_file_classification_is_required_while_existing_unknowns_stay_unknown() {
     let base = policy::sources::SourceRegistry { files: policy::sources::SourceFiles {
