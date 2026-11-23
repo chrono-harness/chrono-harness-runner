@@ -84,6 +84,7 @@
     {"path": "crates/runner/src/retained_artifacts/partition.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/retained_artifacts/retention.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/retained_artifacts/retention_command.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": "crates/runner/src/retained_artifacts/session.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/retained_artifacts/verified_release.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/scoped_report.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/short_console.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},

@@ -10858,3 +10858,65 @@ fn observation_reservation_cannot_claim_an_ordinary_nonempty_consumer() {
     }
     assert!(h.path().join(path).exists());
 }
+
+#[test]
+fn producer_session_keeps_host_ownership_and_cleans_unmanaged_interrupted_stages() {
+    use chrono_harness::retained_artifacts::session;
+    use serde_json::{Value, json};
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let directory = ".chrono-harness/state/inputs";
+    std::fs::create_dir_all(root.join(directory)).unwrap();
+    let request = |values: &[Value]| {
+        let mut input = Vec::new();
+        for value in values {
+            serde_json::to_writer(&mut input, value).unwrap();
+            input.push(b'\n');
+        }
+        let mut output = Vec::new();
+        session::serve(root, input.as_slice(), &mut output).unwrap();
+        String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Result<Value, String>>(line).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let stage = json!({"operation":"new-stage","producer":"full-original","directory":directory,"prefix":"stage","suffix":".raw","length":7,"outcome":null});
+    let replies = request(&[stage]);
+    let initial = replies[0].as_ref().unwrap();
+    assert_eq!(initial["managed"], false);
+    assert!(!std::path::Path::new(initial["path"].as_str().unwrap()).exists());
+    let unrelated = root.join("existing");
+    std::fs::write(&unrelated, b"old").unwrap();
+    let replies = request(&[
+        json!({"operation":"copy-original","target":unrelated,"length":3,"path":"blob","artifacts":{},"transport":null}),
+    ]);
+    assert!(
+        replies[0]
+            .as_ref()
+            .unwrap_err()
+            .contains("not an active staged publication")
+    );
+    assert_eq!(std::fs::read(&unrelated).unwrap(), b"old");
+    let policy = json!({"schema":"chrono-output-retention/v2","producers":{"full-original":[".chrono-harness/state/"]},"keep_seconds":0,
+        "metadata_keep_seconds":0,"max_related_outputs":32,"max_summaries":16,"max_nodes_per_round":256,"max_bytes_per_round":1048576,"max_millis_per_round":25});
+    std::fs::write(
+        root.join(".chrono-harness/retention.json"),
+        serde_json::to_vec(&policy).unwrap(),
+    )
+    .unwrap();
+    let output = ".chrono-harness/state/file.json";
+    let replies = request(&[
+        json!({"operation":"accepts","path":output,"producer":"full-original"}),
+        json!({"operation":"publish-text","producer":"full-original","path":output,"text":"{}","outcome":null}),
+        json!({"operation":"retain-read","path":output}),
+        json!({"operation":"protect-consumer","producer":"full-original","path":output,"consumer":"session-caller","purpose":"read published data"}),
+    ]);
+    assert_eq!(replies[0], Ok(json!(true)));
+    assert_eq!(replies[1], Ok(json!(true)));
+    assert_eq!(replies[2], Ok(Value::Null));
+    let handoff = replies[3].as_ref().unwrap();
+    assert_eq!(handoff["originals"][0]["path"], output);
+    assert_eq!(handoff["consumer"], "session-caller");
+    assert_eq!(std::fs::read(root.join(output)).unwrap(), b"{}");
+}
