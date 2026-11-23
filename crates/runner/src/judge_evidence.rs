@@ -19,6 +19,9 @@ enum Operation {
         units: BTreeMap<String, crate::units::Unit>,
         selected: std::collections::BTreeSet<String>,
     },
+    ExpandProcess {
+        process: Value,
+    },
     ExpandRecord {
         record: Value,
     },
@@ -49,6 +52,14 @@ impl Operation {
             }
             Operation::RequiredUnits { units, selected } => {
                 Ok(json!(crate::units::required(&units, &selected)))
+            }
+            Operation::ExpandProcess { process } => {
+                let process: crate::ProcessResult =
+                    serde_json::from_value(crate::full::expand_process(&process)?)
+                        .map_err(|e| e.to_string())?;
+                Ok(
+                    json!({"stdout_bytes":process.stdout_bytes,"stderr_bytes":process.stderr_bytes,"failure":process.failure,"exit_code":process.exit_code}),
+                )
             }
             Operation::ExpandRecord { record } => crate::full::expand_record(&record),
             Operation::ObserveRecord { record } => {

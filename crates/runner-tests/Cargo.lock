@@ -59,6 +59,7 @@ dependencies = [
  "chrono-diagnostics",
  "libc",
  "miniz_oxide",
+ "rustix",
  "serde",
  "serde_jcs",
  "serde_json",

@@ -1,6 +1,8 @@
 //! Retain adopted artifact capabilities for the lifetime of an external producer.
+mod descriptors;
 mod directory;
 mod inventory;
+mod publication;
 use crate::{
     decode, file_identity, no_symlink_parents,
     prepared::{ArtifactTransport, Original},
@@ -40,6 +42,12 @@ enum Operation {
     SealDirectory {
         path: String,
         outcome: Value,
+    },
+    ScopedDescriptors {
+        offset: usize,
+    },
+    Publication {
+        action: publication::Action,
     },
     BeginDirectory {
         producer: String,
@@ -167,6 +175,7 @@ enum Operation {
 }
 
 struct Session<'a> {
+    publications: publication::Publications,
     root: &'a Path,
     inventory: Option<Inventory>,
     stages: BTreeMap<PathBuf, Stage>,
@@ -232,6 +241,11 @@ impl Session<'_> {
                     .ok_or("unknown original directory")?
                     .seal(outcome)?;
                 Ok(Value::Null)
+            }
+            Operation::ScopedDescriptors { offset } => descriptors::send(offset).map(|n| json!(n)),
+            Operation::Publication { action } => {
+                self.publications
+                    .apply(root, self.inventory.as_ref(), action)
             }
             Operation::BeginDirectory {
                 producer,
@@ -548,6 +562,7 @@ impl Write for Bounded<'_> {
 pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Result<(), String> {
     let _scope = retention::read_scope(root)?;
     let mut session = Session {
+        publications: Default::default(),
         root,
         inventory: Inventory::adopted(root)?,
         stages: BTreeMap::new(),
