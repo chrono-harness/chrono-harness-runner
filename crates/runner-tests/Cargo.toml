@@ -18,9 +18,10 @@ serde_json = "1"
 libc = "0.2"
 sha2 = "0.10"
 chrono-harness = { path = "../runner", features = ["retention-test"] }
-chrono-diagnostics = { git = "https://github.com/chrono-harness/chrono-harness-diagnostics.git", rev = "8da697ff878dbe2e31ddcfe7366714de49e79d03" }
 
 [dev-dependencies]
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json"] }
 tempfile = "3"
 
 [[bin]]

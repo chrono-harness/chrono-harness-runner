@@ -1,6 +1,9 @@
 #![allow(unexpected_cfgs)]
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::verus;
+#[cfg(not(verus_keep_ghost))]
+#[path = "support/debug_events.rs"]
+mod debug_events;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
@@ -1409,12 +1412,11 @@ fn retired_metadata_does_not_exclude_a_populated_parent_address() {
         chrono_harness::ownership::DirectoryLease::acquire(&parent_address, false, None)
             .unwrap()
             .unwrap();
-    use chrono_diagnostics::logging::{Level, Logger};
-    let logger = Logger::new("retention-fixture", Level::DEBUG, std::io::stderr());
     // 本例只核共享父路径下的退役，不依赖维护与元数据更新是否跨过秒边界。
-    let round = logger
-        .run(|| owner.maintain_originals_at(std::slice::from_ref(&id), u64::MAX))
-        .unwrap();
+    let round = debug_events::capture(std::io::stderr(), || {
+        owner.maintain_originals_at(std::slice::from_ref(&id), u64::MAX)
+    })
+    .unwrap();
     assert!(!h.path().join(obsolete).exists(), "{round}");
     let metadata = h
         .path()
@@ -1423,14 +1425,14 @@ fn retired_metadata_does_not_exclude_a_populated_parent_address() {
     // 原件处置可用尽本轮预算；只对仍存在的元数据续作，父路径始终保持共享。
     let continuation = if metadata.exists() {
         Some(
-            logger
-                .run(|| owner.maintain_originals_at(std::slice::from_ref(&id), u64::MAX))
-                .unwrap(),
+            debug_events::capture(std::io::stderr(), || {
+                owner.maintain_originals_at(std::slice::from_ref(&id), u64::MAX)
+            })
+            .unwrap(),
         )
     } else {
         None
     };
-    logger.finish().expect("retired metadata diagnostics");
     assert!(
         !metadata.exists(),
         "obsolete metadata must retire while its populated parent is shared: {round}; continuation: {continuation:?}"
@@ -1455,15 +1457,12 @@ fn maintenance(root: &Path) -> Value {
 }
 #[cfg(not(verus_keep_ghost))]
 fn diagnosed_maintenance_originals(root: &Path, id: &str) -> Value {
-    use chrono_diagnostics::logging::{Level, Logger};
     // The existing operation owns and bounds stderr; no extra log family or
     // subscriber is installed in the parent test process.
-    let logger = Logger::new("retention-fixture", Level::DEBUG, std::io::stderr());
-    let round = logger.run(|| inventory(root).maintain_originals(&[id.to_owned()]));
-    logger
-        .finish()
-        .expect("original retention stage diagnostics");
-    round.unwrap()
+    debug_events::capture(std::io::stderr(), || {
+        inventory(root).maintain_originals(&[id.to_owned()])
+    })
+    .unwrap()
 }
 // The fixture owns every address below its private root. This count observes
 // those declarations after bounded work; it is never written into a producer report.
@@ -5532,24 +5531,28 @@ fn published_output_scope_keeps_child_reports_without_accumulating_their_inputs(
     }
     // Each child has four actual capabilities. The parent holds one live
     // report capability, with three durable edges to the child reports.
-    use chrono_diagnostics::logging::{Level, Logger};
-    let logger = Logger::new("retention-fixture", Level::DEBUG, std::io::stderr());
-    assert_eq!(logger.run(|| maintain_fixture_to(h.path(), 14)), 14);
+    assert_eq!(
+        debug_events::capture(std::io::stderr(), || maintain_fixture_to(h.path(), 14)),
+        14
+    );
     assert!(!h.path().join(unrelated).exists());
     for path in groups.iter().flatten().chain(reports.iter()) {
         assert!(h.path().join(path).is_dir());
     }
     parent.complete(json!({"exit": 0})).unwrap();
     drop(caller);
-    assert_eq!(logger.run(|| maintain_fixture_to(h.path(), 1)), 1);
+    assert_eq!(
+        debug_events::capture(std::io::stderr(), || maintain_fixture_to(h.path(), 1)),
+        1
+    );
     assert!(h.path().join(&unknown).is_dir());
     inventory(h.path())
         .reference_paths("unfinished-domain-owner", &[])
         .unwrap();
-    assert_eq!(logger.run(|| maintain_fixture_to(h.path(), 0)), 0);
-    logger
-        .finish()
-        .expect("published output retention diagnostics");
+    assert_eq!(
+        debug_events::capture(std::io::stderr(), || maintain_fixture_to(h.path(), 0)),
+        0
+    );
     h.disable_cleanup(false);
 }
 

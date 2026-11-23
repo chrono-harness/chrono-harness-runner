@@ -33,6 +33,7 @@
     {"path": "crates/runner-tests/tests/retention.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/runtime_logging.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/support/cli_child.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": "crates/runner-tests/tests/support/debug_events.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/support/git_fixture.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/support/git_input.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/support/isolated_capability.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},

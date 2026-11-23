@@ -196,7 +196,9 @@ fn controller(case: &str) {
             "monitor log exceeded bound"
         );
         let observed: serde_json::Value = serde_json::from_slice(&line).unwrap();
-        if observed["event"] == "process.monitor_wait" && observed["context"]["child_pid"] == pid {
+        if observed["fields"]["event_id"] == "process.monitor_wait"
+            && observed["span"]["child_pid"] == pid
+        {
             break observed;
         }
     };
