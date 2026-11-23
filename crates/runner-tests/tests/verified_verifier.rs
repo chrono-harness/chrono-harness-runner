@@ -29,7 +29,7 @@ verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn concrete_source_inventory_and_selection_verdicts() {
     use policy::sources::{
-        SourceFile, canonical_source_name, canonical_source_path, source_registry,
+        SourceFile, canonical_source_name, source_registry,
         validate_file_classifications, validate_selected_roots,
     };
     let evidence = policy::sources::continuity::Continuity::empty();
@@ -45,7 +45,7 @@ fn concrete_source_inventory_and_selection_verdicts() {
         reveal_strlit("x"); reveal_strlit("file:"); reveal_strlit("file:x");
         vstd::utf8::is_ascii_chars_encode_utf8("x"@);
         assert(vstd::utf8::encode_utf8("x"@) =~= seq![120u8]);
-        assert(canonical_source_path(seq![120u8])) by (compute);
+        assert(policy::sources::canonical_source_path(seq![120u8])) by (compute);
         assert("file:x"@ =~= "file:"@ + "x"@);
         assert(policy::sources::node_affected("file:"@, "x"@, nodes@)) by {
             assert(nodes[0]@ == "file:"@ + "x"@);
