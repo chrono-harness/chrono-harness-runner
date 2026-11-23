@@ -15,6 +15,9 @@ use identifiers::{equal_bytes, equal_text};
 #[path = "verified_sources.rs"]
 pub mod sources;
 
+#[path = "verified_source_pipeline.rs"]
+pub mod source_pipeline;
+
 verus! {
 
 #[cfg_attr(not(verus_keep_ghost), derive(Debug, serde::Serialize, serde::Deserialize))]
