@@ -19,23 +19,6 @@ enum Operation {
         units: BTreeMap<String, crate::units::Unit>,
         selected: std::collections::BTreeSet<String>,
     },
-    UnitTests {
-        unit: String,
-        units: BTreeMap<String, crate::units::Unit>,
-        selected: std::collections::BTreeSet<String>,
-    },
-    CollectionPaths {
-        manifest: String,
-        report: String,
-        units: Vec<String>,
-    },
-    ArtifactDirectories {
-        config: Value,
-    },
-    RetainedEntry {
-        request: Box<crate::wire::Request>,
-        config: Value,
-    },
     ExpandRecord {
         record: Value,
     },
@@ -55,6 +38,23 @@ enum Operation {
         records: Vec<Value>,
         judge: String,
     },
+    UnitTests {
+        unit: String,
+        units: BTreeMap<String, crate::units::Unit>,
+        selected: std::collections::BTreeSet<String>,
+    },
+    CollectionPaths {
+        manifest: String,
+        report: String,
+        units: Vec<String>,
+    },
+    ArtifactDirectories {
+        config: Value,
+    },
+    RetainedEntry {
+        request: Box<crate::wire::Request>,
+        config: Value,
+    },
 }
 impl Operation {
     fn evaluate(self) -> Result<Value, String> {
@@ -66,6 +66,44 @@ impl Operation {
             }
             Operation::RequiredUnits { units, selected } => {
                 Ok(json!(crate::units::required(&units, &selected)))
+            }
+            Operation::ExpandRecord { record } => crate::full::expand_record(&record),
+            Operation::ObserveRecord { record } => {
+                let record = crate::full::expand_record(&record)?;
+                crate::wire::Response::deserialize(&record["response"])
+                    .map_err(|error| format!("E_RECORD_SHAPE: {error}"))?;
+                let process = crate::ProcessResult::deserialize(&record["process"])
+                    .map_err(|error| format!("E_RECORD_SHAPE: {error}"))?;
+                crate::observation::process_success(&process)?;
+                let matches = crate::json(&process.stdout_bytes)? == record["response"];
+                Ok(json!({"record":record,"stdout_matches":matches}))
+            }
+            Operation::CheckProcess { process } => {
+                crate::observation::process_success(&process)?;
+                Ok(Value::Null)
+            }
+            Operation::ReportTransportBytes {
+                report,
+                metadata_bytes,
+            } => Ok(json!(crate::full::report_transport_bytes(
+                &report,
+                metadata_bytes
+            )?)),
+            Operation::RetainedJudges {
+                request,
+                bindings,
+                records,
+                judge,
+            } => {
+                request.validate()?;
+                let parsed = crate::full::retained_judges(&request, &bindings, &records)?;
+                let status = parsed
+                    .values()
+                    .fold(crate::wire::Status::Pass, |status, (_, _, response, _)| {
+                        status.maximum(response.status.clone())
+                    });
+                let original = parsed.get(&judge).ok_or("producer workflow input")?;
+                Ok(json!({"request":original.0,"status":status}))
             }
             Operation::UnitTests {
                 unit,
@@ -105,44 +143,6 @@ impl Operation {
                     &json!({"base":request.base.commit,"candidate":request.candidate.commit}),
                 )?;
                 Ok(Value::Null)
-            }
-            Operation::ExpandRecord { record } => crate::full::expand_record(&record),
-            Operation::ObserveRecord { record } => {
-                let record = crate::full::expand_record(&record)?;
-                crate::wire::Response::deserialize(&record["response"])
-                    .map_err(|error| format!("E_RECORD_SHAPE: {error}"))?;
-                let process = crate::ProcessResult::deserialize(&record["process"])
-                    .map_err(|error| format!("E_RECORD_SHAPE: {error}"))?;
-                crate::observation::process_success(&process)?;
-                let matches = crate::json(&process.stdout_bytes)? == record["response"];
-                Ok(json!({"record":record,"stdout_matches":matches}))
-            }
-            Operation::CheckProcess { process } => {
-                crate::observation::process_success(&process)?;
-                Ok(Value::Null)
-            }
-            Operation::ReportTransportBytes {
-                report,
-                metadata_bytes,
-            } => Ok(json!(crate::full::report_transport_bytes(
-                &report,
-                metadata_bytes
-            )?)),
-            Operation::RetainedJudges {
-                request,
-                bindings,
-                records,
-                judge,
-            } => {
-                request.validate()?;
-                let parsed = crate::full::retained_judges(&request, &bindings, &records)?;
-                let status = parsed
-                    .values()
-                    .fold(crate::wire::Status::Pass, |status, (_, _, response, _)| {
-                        status.maximum(response.status.clone())
-                    });
-                let original = parsed.get(&judge).ok_or("producer workflow input")?;
-                Ok(json!({"request":original.0,"status":status}))
             }
         }
     }
