@@ -4,6 +4,9 @@ use chrono_harness::verus;
 #[cfg(not(verus_keep_ghost))]
 #[path = "support/cli_child.rs"]
 mod cli_child;
+#[cfg(not(verus_keep_ghost))]
+#[path = "support/debug_events.rs"]
+mod debug_events;
 #[cfg(verus_keep_ghost)]
 use crate::cli_child;
 #[cfg(verus_keep_ghost)]
@@ -2883,12 +2886,7 @@ fn delayed_monitor_helper() {
     // The launcher already runs in root. Its retained absolute path can exceed
     // sockaddr_un's limit, so use the same relative address as the controller.
     let stream = std::os::unix::net::UnixStream::connect("monitor.sock").unwrap();
-    let logger = chrono_diagnostics::logging::Logger::new(
-        "delayed-monitor",
-        chrono_diagnostics::logging::Level::DEBUG,
-        stream,
-    );
-    logger.run(|| {
+    debug_events::capture(stream, || {
         let result = chrono_harness::run_process_observed(root, &spec, &[], &digest).unwrap();
         fs::write(
             root.join("result.json"),
@@ -2896,7 +2894,6 @@ fn delayed_monitor_helper() {
         )
         .unwrap();
     });
-    logger.finish().unwrap();
 }
 
 #[cfg(unix)]
