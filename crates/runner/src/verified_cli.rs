@@ -11,6 +11,30 @@ use crate::verified_identifiers as identifiers;
 
 verus! {
 
+/// Return the original failed operation and its stream phase.
+pub fn publish_bytes<S, E, W, F>(state: S, write: W, flush: F)
+    -> (out: (S, Result<(), (E, &'static str)>))
+    where W: FnOnce(S) -> (S, Result<(), E>), F: FnOnce(S) -> (S, Result<(), E>),
+    requires write.requires((state,)), forall|s: S| flush.requires((s,)),
+    ensures exists|written: S, first: Result<(), E>|
+        #[trigger] write.ensures((state,), (written, first)) &&
+        match first {
+            Err(error) => out == (written, Err::<(), (E, &str)>((error, "write"))),
+            Ok(()) => exists|finished: S, last: Result<(), E>|
+                #[trigger] flush.ensures((written,), (finished, last)) &&
+                out == (finished, match last { Ok(()) => Ok::<(), (E, &str)>(()), Err(error) => Err((error, "flush")) }),
+        },
+{
+    let (written, result) = write(state);
+    match result {
+        Err(error) => (written, Err((error, "write"))),
+        Ok(()) => {
+            let (finished, result) = flush(written);
+            (finished, match result { Ok(()) => Ok(()), Err(error) => Err((error, "flush")) })
+        },
+    }
+}
+
 pub struct InvalidArgument {
     pub argv_index: usize,
     pub argument_index: Option<usize>,

@@ -85,18 +85,32 @@ impl<W: Write> Write for ObservedWriter<W> {
     }
 }
 
+pub(crate) fn write_output(
+    writer: &mut impl Write,
+    bytes: &[u8],
+) -> Result<(), (io::Error, &'static str)> {
+    crate::verified_cli::publish_bytes(
+        writer,
+        |writer| {
+            let result = writer.write_all(bytes);
+            (writer, result)
+        },
+        |writer| {
+            let result = writer.flush();
+            (writer, result)
+        },
+    )
+    .1
+}
+
 fn publish_channel<W: Write>(
     writer: &mut ObservedWriter<W>,
     stream: &'static str,
     bytes: &str,
     output: &CliOutput,
 ) -> Result<(), Failure> {
-    let (source, phase) = match writer.write_all(bytes.as_bytes()) {
-        Err(source) => (source, "write"),
-        Ok(()) => match writer.flush() {
-            Ok(()) => return Ok(()),
-            Err(source) => (source, "flush"),
-        },
+    let Err((source, phase)) = write_output(writer, bytes.as_bytes()) else {
+        return Ok(());
     };
     Err(Failure::wrap(
         "E_OUTPUT_PUBLISH",

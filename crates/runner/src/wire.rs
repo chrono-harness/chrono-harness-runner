@@ -11,7 +11,7 @@ pub const PROTOCOL: &str = "chrono-judge/v1";
 /// 运行共用判官协议入口，具体求值由调用方负责。
 pub fn judge_main(name: &str, version: &str, judge: impl FnOnce(&Request) -> Response) -> u8 {
     crate::logged_text_main(name, |args| {
-        use std::io::{Read, Write};
+        use std::io::Read;
         let (state, outcome) = crate::verified_cli::run_judge_entry(
             (),
             crate::verified_cli::judge_owned_mode(args),
@@ -31,18 +31,8 @@ pub fn judge_main(name: &str, version: &str, judge: impl FnOnce(&Request) -> Res
             },
             |(), response| ((), canonical(&response)),
             |(), bytes| {
-                let stdout = std::io::stdout().lock();
-                let (_, result) = chrono_diagnostics::verified_runtime::write_and_flush(
-                    (stdout, bytes),
-                    |(mut stdout, bytes)| {
-                        let result = stdout.write_all(&bytes);
-                        ((stdout, bytes), result)
-                    },
-                    |(mut stdout, bytes)| {
-                        let result = stdout.flush();
-                        ((stdout, bytes), result)
-                    },
-                );
+                let result =
+                    crate::publication::write_output(&mut std::io::stdout().lock(), &bytes);
                 ((), result)
             },
         );
