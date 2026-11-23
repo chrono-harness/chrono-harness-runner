@@ -35,6 +35,28 @@ enum Operation {
         reference: String,
         intent: Value,
     },
+    ProcessCompletion {
+        exit_code: i32,
+        signal: Option<i32>,
+        owned_work_joined: bool,
+    },
+    CompactProcess {
+        process: Value,
+    },
+    DirectoryEvidence {
+        path: String,
+        process: Box<crate::ProcessResult>,
+    },
+    DisposeCompilerOriginals {
+        path: String,
+        library_sha256: String,
+        library_length: u64,
+        dependency_sha256: String,
+        dependency_length: u64,
+    },
+    CheckArtifactPath {
+        path: String,
+    },
     WriteDirectory {
         path: String,
         name: String,
@@ -201,6 +223,42 @@ impl Session<'_> {
                 let directory = Directory::begin(root, &producer, path.clone(), reference, intent)?;
                 self.directories.insert(path, directory);
                 Ok(json!({"adopted":self.inventory.is_some()}))
+            }
+            Operation::ProcessCompletion {
+                exit_code,
+                signal,
+                owned_work_joined,
+            } => Ok(json!(crate::verified_release::process_completion_known(
+                exit_code,
+                signal,
+                owned_work_joined
+            ))),
+            Operation::CompactProcess { process } => crate::full::compact_process(&process),
+            Operation::DirectoryEvidence { path, process } => self
+                .directories
+                .get(&path)
+                .ok_or("unknown original directory")?
+                .evidence(root, &process),
+            Operation::DisposeCompilerOriginals {
+                path,
+                library_sha256,
+                library_length,
+                dependency_sha256,
+                dependency_length,
+            } => {
+                self.directories
+                    .get(&path)
+                    .ok_or("unknown original directory")?
+                    .dispose_compiler(
+                        root,
+                        (&library_sha256, library_length),
+                        (&dependency_sha256, dependency_length),
+                    )?;
+                Ok(Value::Null)
+            }
+            Operation::CheckArtifactPath { path } => {
+                crate::units::artifact_path(&path)?;
+                Ok(Value::Null)
             }
             Operation::WriteDirectory { path, name, value } => self
                 .directories
