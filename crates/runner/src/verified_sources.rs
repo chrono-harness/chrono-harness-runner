@@ -1242,56 +1242,6 @@ pub open spec fn node_affected(prefix: Seq<char>, value: Seq<char>, nodes: Seq<S
         && (#[trigger] nodes[i])@ == prefix + value
 }
 
-pub open spec fn selected_paths(files: Seq<SourceFile>, nodes: Seq<String>, end: int)
-    -> Seq<Seq<char>>
-    decreases end,
-{
-    if end <= 0 || end > files.len() { Seq::empty() }
-    else {
-        let earlier = selected_paths(files, nodes, end - 1);
-        if file_affected(&files[end - 1], nodes) { earlier.push(files[end - 1].path@) }
-        else { earlier }
-    }
-}
-
-pub open spec fn path_values(paths: Seq<String>) -> Seq<Seq<char>> {
-    paths.map(|i: int, path: String| path@)
-}
-
-/// 完整保留原顺序和重复项，只收集实际受影响的原库存路径。
-pub fn continuity_paths(inventory: &SourceFiles, nodes: &Vec<String>) -> (out: Vec<String>)
-    ensures path_values(out@) == if matches!(inventory.require_new_file_classification, Some(true)) {
-        selected_paths(inventory.entries@, nodes@, inventory.entries.len() as int)
-    } else { Seq::<Seq<char>>::empty() },
-{
-    let mut out: Vec<String> = Vec::new();
-    assert(path_values(out@) =~= Seq::<Seq<char>>::empty());
-    if !matches!(inventory.require_new_file_classification, Some(true)) { return out; }
-    let files = &inventory.entries;
-    let mut i = 0;
-    while i < files.len()
-        invariant 0 <= i <= files.len(),
-            matches!(inventory.require_new_file_classification, Some(true)), files@ == inventory.entries@,
-            path_values(out@) == selected_paths(files@, nodes@, i as int),
-        decreases files.len() - i,
-    {
-        let ghost before = path_values(out@);
-        if affected_node("file:", files[i].path.as_str(), nodes) {
-            out.push(files[i].path.clone());
-            assert(path_values(out@) =~= before.push(files[i as int].path@));
-        }
-        reveal_with_fuel(selected_paths, 2);
-        i += 1;
-    }
-    out
-}
-
-pub fn can_validate_selected_plan(blocked: &Vec<String>) -> (ready: bool)
-    ensures ready == (blocked.len() == 0),
-{
-    blocked.len() == 0
-}
-
 fn affected_node(prefix: &str, value: &str, nodes: &Vec<String>) -> (affected: bool)
     ensures affected == node_affected(prefix@, value@, nodes@),
 {

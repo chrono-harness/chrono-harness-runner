@@ -26,6 +26,19 @@ use vstd::vpanic as panic;
 verus! {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn cloning_the_actual_report_result_preserves_every_field() {
+    let original = policy::CheckResult {
+        id: "build".to_string(), status: Status::Blocked,
+        cause: "original report".to_string(), exit_code: Some(-7),
+    };
+    let cloned = original.clone();
+    expect_status_true(scope_text::equal_text(cloned.id.as_str(), "build"));
+    expect_status_true(matches!(cloned.status, Status::Blocked));
+    expect_status_true(cloned.exit_code == Some(-7i32));
+    expect_status_true(scope_text::equal_text(cloned.cause.as_str(), "original report"));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn fixed_source_read_selects_only_the_eligible_path_and_preserves_inputs() {
     let batched = policy::fixed_source_read::select_fixed_source_read(
         true, (7u8, 9u8),
