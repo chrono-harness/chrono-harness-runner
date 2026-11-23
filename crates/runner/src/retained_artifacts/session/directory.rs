@@ -12,6 +12,7 @@ pub(super) struct Directory {
     reference: String,
     publication: Option<Publication>,
     executed: bool,
+    compiler_output: Option<String>,
 }
 
 impl Directory {
@@ -49,6 +50,7 @@ impl Directory {
             reference,
             publication,
             executed: false,
+            compiler_output: None,
         })
     }
 
@@ -90,7 +92,81 @@ impl Directory {
             launch: &launch,
             publication: self.publication.as_ref(),
         };
-        crate::run_process_observed_retained(root, command, &[], digest, &evidence)
+        let process = crate::run_process_observed_retained(root, command, &[], digest, &evidence)?;
+        if process.exit_code == 0
+            && process.failure.is_none()
+            && process.owned_work_joined
+            && crate::verified_verifier::canonical_verifier_arguments(&command.args)
+        {
+            self.compiler_output = Some(command.args[10].clone());
+        }
+        Ok(process)
+    }
+
+    pub(super) fn evidence(&self, root: &Path, process: &ProcessResult) -> Result<Value, String> {
+        if !self.executed {
+            return Err("original directory has no executed process".into());
+        }
+        let names = ["stdout", "stderr", "launch.json"].map(|name| format!("{}/{name}", self.path));
+        let record = crate::scoped_report::retain_process_evidence(
+            root, process, &names[0], &names[1], &names[2],
+        )?;
+        let length = |name| {
+            fs::symlink_metadata(self.file(root, name)?)
+                .map(|m| m.len())
+                .map_err(|e| e.to_string())
+        };
+        Ok(
+            json!({"record":record,"stdout_length":length("stdout")?, "stderr_length":length("stderr")?}),
+        )
+    }
+
+    /// The original process chose these two compiler outputs and has joined. Verify both before retiring either.
+    pub(super) fn dispose_compiler(
+        &self,
+        root: &Path,
+        library: (&str, u64),
+        dependency: (&str, u64),
+    ) -> Result<(), String> {
+        let output = self
+            .compiler_output
+            .as_ref()
+            .ok_or("no returned compiler output in this execution")?;
+        crate::units::artifact_path(output)?;
+        let dep = format!("{output}.d");
+        let entries = [(output.as_str(), library), (dep.as_str(), dependency)]
+            .into_iter()
+            .map(|(relative, expected)| {
+                let path = no_symlink_parents(root, relative)?;
+                let identity = crate::artifact_disposal::identity(&path)?;
+                let (observed, length) = crate::file_identity(&path)?;
+                if (observed.as_str(), length) != expected {
+                    return Err(
+                        "operation original differs from the actual process result".to_owned()
+                    );
+                }
+                Ok((relative, identity))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        // For unmanaged publications, the durable result is the only remaining copy of the original receipt.
+        if self.publication.is_none() {
+            fs::File::open(self.file(root, "result.json")?)
+                .and_then(|f| f.sync_all())
+                .map_err(|e| e.to_string())?;
+        }
+        let parent = Path::new(output)
+            .parent()
+            .and_then(Path::to_str)
+            .ok_or("compiler output parent")?;
+        crate::artifact_disposal::source_safe(root, parent)?;
+        for (relative, identity) in entries {
+            crate::artifact_disposal::dispose_entry(root, relative, &identity, || {
+                self.check_write()
+            })?;
+        }
+        fs::File::open(no_symlink_parents(root, parent)?)
+            .and_then(|f| f.sync_all())
+            .map_err(|e| e.to_string())
     }
 
     pub(super) fn check_write(&self) -> Result<(), String> {
