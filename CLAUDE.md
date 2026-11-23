@@ -1,5 +1,7 @@
 # chrono-harness/chrono-harness-runner 工作说明
 
+组件的用途、开发仓库和示例见 [Chrono Harness 用户与开发者入口](https://github.com/chrono-harness/chrono-harness-main)。
+
 `chrono-harness-runner` 提供 `chrono-harness` 命令和同名 Rust 库。宿主提供检查配置，runner 调用判官并返回真实退出状态与报告。
 
 ## 本仓开发
@@ -19,7 +21,7 @@ mise trust
 mise run harness-setup
 ```
 
-本仓选装的工具为 `cache`、`ci`、`distribution`、`harness`、`host-bootstrap`、`host-release`、`inputs`、`instructions`、`judge-ci`、`judge-cost`、`judge-filemap`、`judge-mixed`、`judge-projects`、`registration`、`judge-routes`、`judge-workflow`、`pr`、`worktree`、`verus`。
+本仓选装的工具为 `cache`、`ci`、`distribution`、`harness`、`host-bootstrap`、`host-release`、`inputs`、`instructions`、`judge-ci`、`judge-cost`、`judge-filemap`、`judge-mixed`、`judge-projects`、`registration`、`judge-routes`、`judge-workflow`、`pr`、`test-git`、`worktree`、`verus`。
 
 本仓安装选择保存在 `.chrono-harness/template-answers.yml`，版本和平台校验值保存在 `.config/mise/conf.d/chrono-harness.toml`。
 
