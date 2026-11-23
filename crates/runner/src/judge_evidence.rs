@@ -41,6 +41,23 @@ enum Operation {
         records: Vec<Value>,
         judge: String,
     },
+    UnitTests {
+        unit: String,
+        units: BTreeMap<String, crate::units::Unit>,
+        selected: std::collections::BTreeSet<String>,
+    },
+    CollectionPaths {
+        manifest: String,
+        report: String,
+        units: Vec<String>,
+    },
+    ArtifactDirectories {
+        config: Value,
+    },
+    RetainedEntry {
+        request: Box<crate::wire::Request>,
+        config: Value,
+    },
 }
 impl Operation {
     fn evaluate(self) -> Result<Value, String> {
@@ -98,6 +115,45 @@ impl Operation {
                     });
                 let original = parsed.get(&judge).ok_or("producer workflow input")?;
                 Ok(json!({"request":original.0,"status":status}))
+            }
+            Operation::UnitTests {
+                unit,
+                units,
+                selected,
+            } => {
+                crate::units::id(&unit)?;
+                let tests = &units.get(&unit).ok_or("unregistered CI unit")?.tests;
+                Ok(json!(
+                    tests
+                        .iter()
+                        .filter(|test| selected.contains(*test))
+                        .collect::<std::collections::BTreeSet<_>>()
+                ))
+            }
+            Operation::CollectionPaths {
+                manifest,
+                report,
+                units,
+            } => {
+                crate::units::validate_collection_paths(&manifest, &report, &units)?;
+                Ok(Value::Null)
+            }
+            Operation::ArtifactDirectories { config } => {
+                Ok(json!(crate::facts::artifact_directories(&config)?))
+            }
+            Operation::RetainedEntry { request, config } => {
+                request.validate()?;
+                let scope = request.scope.as_ref().ok_or("original unit scope")?;
+                let mut argv: Vec<String> =
+                    serde_json::from_value(config["canonical_check"]["argv"].clone())
+                        .map_err(|e| e.to_string())?;
+                argv.extend(scope.contract_argv(&config));
+                crate::validate_invocation_observation(
+                    &request.observations["entry"],
+                    &argv,
+                    &json!({"base":request.base.commit,"candidate":request.candidate.commit}),
+                )?;
+                Ok(Value::Null)
             }
         }
     }
