@@ -136,3 +136,46 @@ fn absent_host_adoption_leaves_argument_errors_with_the_command() {
     assert_eq!(actual.stderr, expected.stderr.as_bytes());
     assert!(!missing.exists());
 }
+
+#[test]
+fn command_stream_preserves_raw_outputs_and_checks_the_original_executable_when_requested() {
+    use chrono_harness::command_stream::serve;
+    for identity in [None, Some("0123456789abcdef")] {
+        let mut header = serde_json::json!({"program":"tool","args":["read"],"env":{"PATH":"/tools"},"timeout_seconds":3,"output_limit_bytes":64});
+        if let Some(digest) = identity {
+            header["expected_sha256"] = digest.into();
+        }
+        let mut request = serde_json::to_vec(&header).unwrap();
+        request.extend_from_slice(b"\n\0\xff");
+        let mut output = Vec::new();
+        serve(request.as_slice(), &mut output, |command, bytes, digest| {
+            assert_eq!(command.program, "tool");
+            assert_eq!(command.args, ["read"]);
+            assert_eq!(command.env["PATH"], "/tools");
+            assert_eq!(
+                (command.timeout_seconds, command.output_limit_bytes),
+                (3, 64)
+            );
+            assert_eq!(bytes, b"\0\xff");
+            assert_eq!(digest, identity);
+            Ok((17, vec![0, 255], vec![13, 10, 128]))
+        })
+        .unwrap();
+        assert_eq!(
+            output,
+            b"{\"exit_code\":17,\"stdout_length\":2,\"stderr_length\":3}\n\x00\xff\r\n\x80"
+        );
+        output.clear();
+        let error = serve(request.as_slice(), &mut output, |_, _, _| {
+            Err("original process timeout".into())
+        })
+        .unwrap_err();
+        assert_eq!(error, "original process timeout");
+        assert!(output.is_empty());
+    }
+    let error = serve(b"{}".as_slice(), Vec::new(), |_, _, _| {
+        panic!("incomplete header reached the process")
+    })
+    .unwrap_err();
+    assert!(error.contains("JSON line"));
+}

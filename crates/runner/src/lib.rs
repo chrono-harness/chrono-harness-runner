@@ -2797,8 +2797,29 @@ fn dispatch_cli(arguments: &[String]) -> u8 {
 }
 
 #[cfg(not(verus_keep_ghost))]
+pub mod command_stream;
+
+#[cfg(not(verus_keep_ghost))]
 pub fn cli_main() -> std::process::ExitCode {
     let mode = std::env::args_os().nth(1);
+    if mode.as_deref() == Some(std::ffi::OsStr::new("run-command-v1")) {
+        return std::process::ExitCode::from(logged_text_main("chrono-harness", |args| {
+            if args.len() != 1 {
+                eprintln!("E_USAGE: run-command-v1 reads the command from stdin");
+                return 2;
+            }
+            let result = std::env::current_dir()
+                .map_err(|error| error.to_string())
+                .and_then(|root| command_stream::command(&root));
+            match result {
+                Ok(()) => 0,
+                Err(error) => {
+                    eprintln!("{error}");
+                    2
+                }
+            }
+        }));
+    }
     if mode.as_deref() == Some(std::ffi::OsStr::new("judge-pipeline")) {
         let name = std::env::args_os().nth(2);
         let name = name
