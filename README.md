@@ -35,6 +35,8 @@ The local checkout must match the candidate. The report and operation streams ar
 
 后续请求的 `op` 可取 `delta`、`observation`，或带 `endpoint`（`base` 或 `candidate`）的 `verify-tree`、`registry-snapshot`、`checked-out-snapshot`、`json-blob`。`json-blob` 另需相对路径 `path`。快照返回 `originals`、`values`、`effective_path`、`selection`，检出快照还核对 HEAD 和配置原字节。发生操作错误后仍可读取该会话已执行的 Git 观察，再关闭输入并等待进程退出。
 
+`git-facts-v1` 的 `checkout-excluding` 接收宿主登记的 `artifacts` 路径列表，返回当前固定候选的 HEAD、跟踪变更、范围外的未跟踪路径和 index 标志。项目判官在执行前后使用同一 Git 读取会话核对候选输入，并将 Git 观察纳入响应。
+
 
 独立 routes 通过 `source-coverage-v1` 提交两个固定端点、受影响节点、登记方法的 owner/tool/operation 与选中证明调用的 argv、输出合同和输出上限。runner 返回两端提交、实际 Git 观察及首个验证错误。Git 来源支持原判官封存请求、已有观察和旧式未绑定读取。完整库存与选中根使用同一份连续性证据。
 
