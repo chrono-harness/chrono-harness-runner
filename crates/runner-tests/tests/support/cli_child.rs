@@ -42,6 +42,12 @@ fn main() {
         _ => {}
     }
     match std::env::args().nth(1).unwrap().as_str() {
+        "--crate-type=lib" => {
+            let destination = std::env::args().nth(11).expect("mock compiler destination");
+            std::fs::write(&destination, b"library").unwrap();
+            std::fs::write(format!("{destination}.d"), b"dependency").unwrap();
+            println!("compiled");
+        }
         "git-version" => {
             assert_eq!(std::env::args().len(), 2);
             print!("git");

@@ -10860,6 +10860,90 @@ fn observation_reservation_cannot_claim_an_ordinary_nonempty_consumer() {
 }
 
 #[test]
+fn compiler_originals_require_matching_bytes_and_a_durable_result_for_the_same_operation() {
+    use chrono_harness::{retained_artifacts::session, sha256};
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
+    let run = ".chrono-harness/state/fixture.run";
+    let other = ".chrono-harness/state/other.run";
+    for name in [run, other] {
+        std::fs::create_dir_all(root.join(name)).unwrap();
+    }
+    let compiler = std::path::Path::new(env!("CARGO_BIN_EXE_chrono-test-cli-child"));
+    let compiler_hash = sha256(&std::fs::read(compiler).unwrap());
+    let execute = |directory: &str, output: &str| {
+        json!({
+            "operation":"execute-retained","path":directory,"expected_sha256":compiler_hash,
+            "command":{"program":compiler,"env":{},"args":["--crate-type=lib","--no-cheating","--no-external-by-default","--num-threads","2","--output-json","--compile",
+            format!("--emit=link={output},dep-info={output}.d"),"source.rs","-o",output,"-Zchecksum-hash-algorithm=sha256"],"timeout_seconds":5,"output_limit_bytes":2048}
+        })
+    };
+    let dispose = |directory: &str, dependency: &[u8]| {
+        json!({
+            "operation":"dispose-compiler-originals","path":directory,
+            "library_sha256":sha256(b"library"),"library_length":7,
+            "dependency_sha256":sha256(dependency),"dependency_length":10
+        })
+    };
+    let begin = |directory: &str| json!({"operation":"begin-directory","path":directory,"producer":"check-original","reference":"test","intent":{}});
+    let result = |directory: &str| json!({"operation":"write-directory","path":directory,"name":"result.json","value":{"state":"returned"}});
+    for (index, (destination, durable, correct, retires)) in [
+        (run, false, true, false),
+        (run, true, false, false),
+        (other, true, true, false),
+        (run, true, true, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let directory = format!("{run}.operation-{index}");
+        let library = format!("{destination}/op-{index}.rlib");
+        let dep = format!("{library}.d");
+        let mut operations = vec![begin(&directory), execute(&directory, &library)];
+        if durable {
+            operations.push(result(&directory));
+        }
+        operations.push(dispose(
+            &directory,
+            if correct { b"dependency" } else { b"mismatch" },
+        ));
+        if retires {
+            operations.push(dispose(&directory, b"dependency"));
+        }
+        let mut input = Vec::new();
+        for op in operations {
+            serde_json::to_writer(&mut input, &op).unwrap();
+            input.push(b'\n');
+        }
+        let mut output = Vec::new();
+        session::serve(root, input.as_slice(), &mut output).unwrap();
+        let answers = std::str::from_utf8(&output)
+            .unwrap()
+            .lines()
+            .map(|s| serde_json::from_str::<Result<Value, String>>(s).unwrap())
+            .collect::<Vec<_>>();
+        assert!(answers[0].is_ok());
+        let record = answers[1].as_ref().unwrap();
+        assert_eq!(record["exit_code"], 0, "{record}");
+        assert_eq!(record["owned_work_joined"], true);
+        assert_eq!(
+            std::fs::read(root.join(&directory).join("stdout")).unwrap(),
+            b"compiled\n"
+        );
+        if durable {
+            assert!(answers[2].is_ok());
+        }
+        let effect = 2 + usize::from(durable);
+        assert_eq!(answers[effect].is_ok(), retires, "{:?}", answers[effect]);
+        if retires {
+            assert!(answers[effect + 1].is_err());
+        }
+        assert_eq!(root.join(&library).exists(), !retires);
+        assert_eq!(root.join(&dep).exists(), !retires);
+    }
+}
+
+#[test]
 fn producer_session_keeps_host_ownership_and_cleans_unmanaged_interrupted_stages() {
     use chrono_harness::retained_artifacts::session;
     use serde_json::{Value, json};

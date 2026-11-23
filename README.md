@@ -46,6 +46,10 @@ The local checkout must match the candidate. The report and operation streams ar
 
 `judge-command-v1` 的 `--inherited` 选项供保留原启动坐标和环境的判官使用。它将已核验的请求作为 `{"request":...}` 传入求值命令；准入失败使用 fail 和原错误前缀。
 
+项目收集器通过 `judge-evidence-v1` 的 `unit-tests`、`collection-paths`、`artifact-directories` 和 `retained-entry` 核对已登记的测试、收集路径与封存的启动命令。`selected-host-config-v1` 从标准输入读取宿主配置的相对路径，输出当前平台选中的配置。
+
+执行者用 `retained-artifacts-v1` 的 `directory-evidence` 读取操作的 stdout、stderr 原件大小与保管记录，用 `process-completion` 判断子进程是否已结束。`compact-process` 保留原字段及压缩流。`check-artifact-path` 检查登记的相对地址。规范编译命令成功返回并写入结果后，`dispose-compiler-originals` 核对同次执行的库和依赖文件的长度及 SHA-256，依照宿主保管政策释放它们。
+
 公开的 Git 会话也接受 `verify-commit` 和 `ancestors`（参数 `commit` 为完整 OID）、`check-branch-name`（参数 `branch`）及 `shallow-boundaries`。已封存请求内的读取使用同一个宿主绑定的 Git 进程记录。只检查调用方给出的分支上下文时，可以用 `{"mode":"history"}` 打开无配置的历史读取会话。
 
 `chrono-harness judge-evidence-v1` 读取逐行 JSON 并逐行回复 `{"Ok":值}` 或 `{"Err":"错误"}`。workflow 通过 `expand-record`、`check-process`、`report-transport-bytes` 和 `retained-judges` 重放 runner 报告。`retained-judges` 校验封存的原请求、登记顺序、每个实际进程的原始流与响应，返回所选判官的输入请求和汇总状态。协议还提供严格 JSON 解码（`decode-json`）、原请求校验（`validate-request`）和按选择计算执行单元（`required-units`）。`retained-artifacts-v1` 的 `checked-path` 核对已登记相对路径的符号链接，读取租约仍由同一保管会话持有至 EOF。
