@@ -26,7 +26,7 @@ enum Compiler {
     },
     ProofRows {
         contract: verifier::OutputContract,
-        rows: Vec<serde_json::Value>,
+        rows: Vec<String>,
     },
     DependencyPaths {
         dependency: Vec<u8>,
@@ -86,7 +86,7 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     let normalized: Vec<Option<bool>> = rows
                         .into_iter()
                         .map(|row| {
-                            serde_json::from_value::<verifier::CompilerReport>(row)
+                            serde_json::from_str::<verifier::CompilerReport>(&row)
                                 .ok()
                                 .map(|report| verifier::accepts_report(&report, &contract))
                         })
