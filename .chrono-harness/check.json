@@ -14,7 +14,8 @@
       "bash": "/bin/bash"
     },
     "artifacts": [
-      ".chrono-harness/state/"
+      ".chrono-harness/state/",
+      "target/"
     ],
     "required_inputs": [
       ".chrono-harness/check.json",
