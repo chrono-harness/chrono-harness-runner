@@ -38,7 +38,9 @@ jobs:
           released=$(mise which chrono-harness)
           judge=$(mise which chrono-judge-ci)
           verifier=$(mise which verus)
-          target="$RUNNER_TEMP/runner-build"
+          mkdir -p target
+          target=$(mktemp -d "$PWD/target/runner-self.XXXXXXXX")
+          trap 'rm -rf -- "$target"' EXIT
           check_change() {
             env -i HOME="$HOME" PATH="$(dirname "$judge"):$PATH" TMPDIR="$TMPDIR" \
               VERUS="$verifier" CARGO_TARGET_DIR="$target" \
