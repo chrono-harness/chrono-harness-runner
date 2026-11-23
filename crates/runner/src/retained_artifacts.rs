@@ -14,6 +14,8 @@ use std::{
 
 pub mod retention;
 pub mod retention_command;
+#[cfg(not(verus_keep_ghost))]
+pub mod session;
 
 pub const SCHEMA: &str = "chrono-retained-blob/v1";
 #[derive(Serialize, Deserialize)]

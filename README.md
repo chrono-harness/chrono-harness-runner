@@ -4,6 +4,9 @@
 
 `chrono-harness-runner` 提供 `chrono-harness` 命令和同名 Rust 库。宿主提供检查配置，runner 调用判官并返回真实退出状态与报告。
 
+`chrono-harness retained-artifacts-v1` 为外部生产者在当前仓库保持一次读取作用域。每行一个 JSON 请求，回复一行 `Ok` 或 `Err`。涉及创建暂存、写原件、依赖登记、读取与消费者保管的操作使用宿主已有 retention 策略。读取能力持续到调用方关闭 stdin；durable consumer 由后续的实际使用方通过原有 retention 命令释放。
+
+
 ## 使用
 
 在仓库根运行 `cargo build --locked --manifest-path crates/runner/Cargo.toml`，再运行 `crates/runner/target/debug/chrono-harness --help`。日志和报告的位置由调用宿主选择。

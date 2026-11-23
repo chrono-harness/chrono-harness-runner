@@ -2207,6 +2207,7 @@ pub fn dispatch_observed(args: &[&str], entry: Value) -> CliOutput {
     ["--version"]|["-V"]=>CliOutput{exit_code:0,stdout:format!("chrono-harness {}\n",env!("CARGO_PKG_VERSION")),stderr:String::new()},
     ["check",rest @ ..]=>match check(rest, entry){Ok(output)=>output,Err(e)=>CliOutput{exit_code:2,stdout:String::new(),stderr:format!("E_CHECK: {e}\n")}},
     ["retention",rest @ ..]=>retained_artifacts::retention_command::command(rest),
+    ["retained-artifacts-v1"]=>retained_artifacts::session::command(),
     _=>CliOutput{exit_code:2,stdout:String::new(),stderr:"E_USAGE: use --help\n".into()}
 }
 }
