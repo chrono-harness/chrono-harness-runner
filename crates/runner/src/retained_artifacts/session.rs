@@ -1,4 +1,5 @@
 //! Retain adopted artifact capabilities for the lifetime of an external producer.
+mod directory;
 use crate::{
     decode, file_identity, no_symlink_parents,
     prepared::{ArtifactTransport, Original},
@@ -7,6 +8,7 @@ use crate::{
         retention::{self, Consumer, Inventory, OriginalIdentity, Publication},
     },
 };
+use directory::Directory;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -19,6 +21,31 @@ use std::{
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
+    BeginDirectory {
+        producer: String,
+        path: String,
+        reference: String,
+        intent: Value,
+    },
+    WriteDirectory {
+        path: String,
+        name: String,
+        value: Value,
+    },
+    CheckDirectoryWrite {
+        path: String,
+    },
+    ExecuteRetained {
+        path: String,
+        command: crate::CommandSpec,
+        expected_sha256: String,
+    },
+    FinishDirectory {
+        path: String,
+        terminal: bool,
+        outcome: Value,
+        inputs: Vec<String>,
+    },
     Accepts {
         producer: String,
         path: String,
@@ -84,6 +111,7 @@ struct Session<'a> {
     root: &'a Path,
     inventory: Option<Inventory>,
     stages: BTreeMap<PathBuf, Stage>,
+    directories: BTreeMap<String, Directory>,
 }
 
 struct Stage {
@@ -112,6 +140,56 @@ impl Session<'_> {
     fn apply(&mut self, op: Operation) -> Result<Value, String> {
         let root = self.root;
         match op {
+            Operation::BeginDirectory {
+                producer,
+                path,
+                reference,
+                intent,
+            } => {
+                if self.directories.contains_key(&path) {
+                    return Err("original directory already open".into());
+                }
+                let directory = Directory::begin(root, &producer, path.clone(), reference, intent)?;
+                self.directories.insert(path, directory);
+                Ok(json!({"adopted":self.inventory.is_some()}))
+            }
+            Operation::WriteDirectory { path, name, value } => self
+                .directories
+                .get(&path)
+                .ok_or("unknown original directory")?
+                .write(root, &name, &value),
+            Operation::CheckDirectoryWrite { path } => {
+                self.directories
+                    .get(&path)
+                    .ok_or("unknown original directory")?
+                    .check_write()?;
+                Ok(Value::Null)
+            }
+            Operation::ExecuteRetained {
+                path,
+                command,
+                expected_sha256,
+            } => {
+                let directory = self
+                    .directories
+                    .get_mut(&path)
+                    .ok_or("unknown original directory")?;
+                serde_json::to_value(directory.execute(root, &command, &expected_sha256)?)
+                    .map_err(|e| e.to_string())
+            }
+            Operation::FinishDirectory {
+                path,
+                terminal,
+                outcome,
+                inputs,
+            } => {
+                let directory = self
+                    .directories
+                    .remove(&path)
+                    .ok_or("unknown original directory")?;
+                directory.finish(self.inventory.as_ref(), terminal, outcome, &inputs)?;
+                Ok(Value::Null)
+            }
             Operation::Accepts { producer, path } => Ok(json!(
                 self.inventory
                     .as_ref()
@@ -312,6 +390,7 @@ pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Re
         root,
         inventory: Inventory::adopted(root)?,
         stages: BTreeMap::new(),
+        directories: BTreeMap::new(),
     };
     loop {
         let mut line = Vec::new();

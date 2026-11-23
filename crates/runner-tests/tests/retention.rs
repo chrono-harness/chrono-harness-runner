@@ -10881,6 +10881,32 @@ fn producer_session_keeps_host_ownership_and_cleans_unmanaged_interrupted_stages
             .map(|line| serde_json::from_str::<Result<Value, String>>(line).unwrap())
             .collect::<Vec<_>>()
     };
+    let owned = format!("{directory}/execution");
+    let open = json!({"operation":"begin-directory","producer":"check-original","path":owned,"reference":"consumer","intent":{"plan":"test"}});
+    let write = |name: &str| json!({"operation":"write-directory","path":owned,"name":name,"value":{"status":"started"}});
+    let finish = json!({"operation":"finish-directory","path":owned,"terminal":true,"outcome":null,"inputs":[]});
+    let result = request(&[
+        open.clone(),
+        open.clone(),
+        write("../escape"),
+        write("intent.json"),
+        finish,
+        write("late"),
+    ]);
+    assert_eq!(result[0].as_ref().unwrap(), &json!({"adopted":false}));
+    assert!(result[1].is_err());
+    assert!(result[2].is_err());
+    assert_eq!(
+        result[3].as_ref().unwrap()["path"],
+        format!("{owned}/intent.json")
+    );
+    assert_eq!(result[4], Ok(Value::Null));
+    assert!(result[5].is_err());
+    assert!(request(&[open])[0].is_err());
+    assert_eq!(
+        std::fs::read_to_string(root.join(&owned).join("intent.json")).unwrap(),
+        r#"{"status":"started"}"#
+    );
     let stage = json!({"operation":"new-stage","producer":"full-original","directory":directory,"prefix":"stage","suffix":".raw","length":7,"outcome":null});
     let replies = request(&[stage]);
     let initial = replies[0].as_ref().unwrap();
