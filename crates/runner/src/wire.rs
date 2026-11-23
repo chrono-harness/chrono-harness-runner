@@ -76,6 +76,8 @@ struct Prepared {
 struct Decision {
     status: Status,
     findings: Vec<Finding>,
+    #[serde(default)]
+    evidence: Vec<Evidence>,
     outputs: BTreeMap<String, Value>,
 }
 
@@ -158,6 +160,7 @@ pub(crate) fn single_judge(
         Ok(decision) => {
             response.status = decision.status;
             response.findings = decision.findings;
+            response.evidence = decision.evidence;
             response.outputs = decision.outputs;
         }
         Err(message) => {

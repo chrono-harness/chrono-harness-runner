@@ -116,6 +116,38 @@ enum Operation {
         consumer: String,
         purpose: String,
     },
+    ResolveMap {
+        artifacts: Value,
+        closure: Option<Value>,
+    },
+    TransportMap {
+        artifacts: Value,
+        transport: Option<ArtifactTransport>,
+    },
+    RestageMap {
+        artifacts: Value,
+        transport: Option<ArtifactTransport>,
+        directory: String,
+    },
+    CheckPreparation {
+        binding: Value,
+        transport: Option<ArtifactTransport>,
+        artifacts: Option<Value>,
+    },
+    ArtifactIdentity {
+        path: String,
+        artifacts: Value,
+        transport: Option<ArtifactTransport>,
+    },
+    ReadArtifactText {
+        path: String,
+        artifacts: Value,
+        transport: Option<ArtifactTransport>,
+    },
+    ReadBoundedText {
+        path: String,
+        limit: u64,
+    },
     ReadOriginal {
         original: Original,
         transport: Option<ArtifactTransport>,
@@ -384,6 +416,60 @@ impl Session<'_> {
                     originals: vec![original],
                 })
                 .map_err(|e| e.to_string())
+            }
+            Operation::ResolveMap { artifacts, closure } => {
+                retained_artifacts::resolve_map(&artifacts, closure.as_ref())
+            }
+            Operation::TransportMap {
+                artifacts,
+                transport,
+            } => retained_artifacts::transport_map(&artifacts, transport.as_ref()),
+            Operation::RestageMap {
+                artifacts,
+                transport,
+                directory,
+            } => retained_artifacts::restage(root, &artifacts, transport.as_ref(), &directory),
+            Operation::CheckPreparation {
+                binding,
+                transport,
+                artifacts,
+            } => {
+                crate::prepared::validate_retained_binding(
+                    root,
+                    &binding,
+                    transport.as_ref(),
+                    artifacts.as_ref(),
+                )?;
+                Ok(Value::Null)
+            }
+            Operation::ArtifactIdentity {
+                path,
+                artifacts,
+                transport,
+            } => {
+                let (sha256, length) =
+                    retained_artifacts::identity(root, &artifacts, &path, transport.as_ref())?;
+                Ok(json!({"sha256":sha256,"length":length}))
+            }
+            Operation::ReadArtifactText {
+                path,
+                artifacts,
+                transport,
+            } => {
+                let bytes = retained_artifacts::bytes(root, &artifacts, &path, transport.as_ref())?;
+                String::from_utf8(bytes)
+                    .map(Value::String)
+                    .map_err(|err| err.to_string())
+            }
+            Operation::ReadBoundedText { path, limit } => {
+                // Use the same upper bound as other JSON collection originals, including on inline reads.
+                if limit > 64 * 1024 * 1024 {
+                    return Err("collection text limit exceeds 64 MiB".into());
+                }
+                let bytes = crate::units::read_bounded(root, &path, limit)?;
+                String::from_utf8(bytes)
+                    .map(Value::String)
+                    .map_err(|err| err.to_string())
             }
             Operation::ReadOriginal {
                 original,
