@@ -173,3 +173,56 @@ fn git_facts_session_rejects_invalid_open_and_incomplete_frames() {
             .contains("frame")
     );
 }
+
+#[test]
+fn history_sessions_reject_symbolic_inputs_and_endpoints_without_invoking_git() {
+    let input = concat!(
+        "{\"mode\":\"history\"}\n",
+        "{\"op\":\"ancestors\",\"commit\":\"dev\"}\n",
+        "{\"op\":\"verify-commit\",\"commit\":\"HEAD\"}\n",
+        "{\"op\":\"registry-snapshot\",\"endpoint\":\"candidate\"}\n",
+        "{\"op\":\"observation\"}\n"
+    );
+    let mut output = Vec::new();
+    chrono_harness::git_facts_session::serve(
+        std::path::Path::new("."),
+        input.as_bytes(),
+        &mut output,
+    )
+    .unwrap();
+    let replies: Vec<Result<serde_json::Value, String>> = std::str::from_utf8(&output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(replies[0], Ok(serde_json::json!({"bound":false})));
+    assert!(replies[1].is_err());
+    assert!(replies[2].is_err());
+    assert!(
+        replies[3]
+            .as_ref()
+            .unwrap_err()
+            .contains("no configured history endpoints")
+    );
+    assert_eq!(replies[4], Ok(serde_json::Value::Null));
+}
+
+#[test]
+fn evidence_frames_keep_original_decoding_and_transport_limits() {
+    let input = concat!(
+        "{\"operation\":\"decode-json\",\"text\":\"{\\\"a\\\":1,\\\"a\\\":2}\"}\n",
+        "{\"operation\":\"report-transport-bytes\",\"report\":{\"judges\":[{\"process\":{\"encoding\":\"chrono-retained-process/v2\",\"stdout_length\":7,\"stderr_length\":2}}]},\"metadata_bytes\":17}\n",
+        "{\"operation\":\"expand-record\",\"record\":{\"process\":{\"encoding\":\"chrono-retained-process/v2\",\"stdout_zlib_hex\":\"00\",\"stdout_length\":12}}}\n"
+    );
+    let mut output = Vec::new();
+    chrono_harness::judge_evidence::serve(input.as_bytes(), &mut output).unwrap();
+    let replies: Vec<Result<serde_json::Value, String>> = std::str::from_utf8(&output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(replies[0].is_err());
+    assert_eq!(replies[1], Ok(serde_json::json!(26)));
+    assert!(replies[2].is_err());
+    assert!(chrono_harness::judge_evidence::serve(b"{}".as_slice(), Vec::new()).is_err());
+}

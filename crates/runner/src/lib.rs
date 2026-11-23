@@ -45,6 +45,8 @@ mod facts_configs;
 #[cfg(not(verus_keep_ghost))]
 pub mod git_facts_session;
 #[cfg(not(verus_keep_ghost))]
+pub mod judge_evidence;
+#[cfg(not(verus_keep_ghost))]
 mod process_child;
 #[cfg(feature = "retention-test")]
 #[doc(hidden)]
@@ -2816,6 +2818,7 @@ pub fn cli_main() -> std::process::ExitCode {
         operation @ ("observed-tool-v1"
         | "compiler-output-v1"
         | "git-facts-v1"
+        | "judge-evidence-v1"
         | "source-coverage-v1"
         | "installed-query-v1"
         | "check-invocation-v1"),
@@ -2838,6 +2841,9 @@ pub fn cli_main() -> std::process::ExitCode {
                     std::io::stdin().lock(),
                     std::io::stdout().lock(),
                 ),
+                "judge-evidence-v1" => {
+                    judge_evidence::serve(std::io::stdin().lock(), std::io::stdout().lock())
+                }
                 "check-invocation-v1" => {
                     invocation_query::serve(std::io::stdin().lock(), std::io::stdout().lock())
                 }
@@ -2940,8 +2946,9 @@ pub fn cli_main() -> std::process::ExitCode {
                 return 2;
             };
             let (native, rest) = match rest.split_first() {
-                Some((flag, args)) if flag == "--inherited" => (true, args),
-                _ => (false, rest),
+                Some((flag, args)) if flag == "--inherited" => ("inherited", args),
+                Some((flag, args)) if flag == "--admission-result" => ("admission-result", args),
+                _ => ("registered", rest),
             };
             wire::judge_entry(name, version, rest, |req| {
                 wire::single_judge(req, [p, op], error, native)
