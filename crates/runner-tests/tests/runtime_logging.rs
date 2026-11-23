@@ -179,3 +179,54 @@ fn command_stream_preserves_raw_outputs_and_checks_the_original_executable_when_
     .unwrap_err();
     assert!(error.contains("JSON line"));
 }
+
+#[test]
+fn public_compiler_query_preserves_owner_paths_and_rejects_missing_originals() {
+    use chrono_harness::route_evidence::serve;
+    use serde_json::{Value, json};
+    let name = "{operation_state}/receipt.rlib";
+    let argv = json!([
+        "--crate-type=lib",
+        "--no-cheating",
+        "--no-external-by-default",
+        "--num-threads",
+        "2",
+        "--output-json",
+        "--compile",
+        format!("--emit=link={name},dep-info={name}.d"),
+        "src.rs",
+        "-o",
+        name,
+        "-Zchecksum-hash-algorithm=sha256"
+    ]);
+    let mut output = Vec::new();
+    let bind = json!({"operation":"bind","argv":argv,"directory":"bound"});
+    serve(
+        "compiler-output-v1",
+        bind.to_string().as_bytes(),
+        &mut output,
+    )
+    .unwrap();
+    let bound: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(bound[10], "bound/receipt.rlib");
+    assert_eq!(
+        bound[7],
+        "--emit=link=bound/receipt.rlib,dep-info=bound/receipt.rlib.d"
+    );
+    let request = json!({"operation":"check","contract":{"version":"fixture","commit":"fixture"},
+        "stdout":[0,255],"argv":bound,"exit":0,"process_failed":false,"dependency":null,"limit":4096,"artifact":null});
+    assert!(
+        serve(
+            "compiler-output-v1",
+            request.to_string().as_bytes(),
+            Vec::new()
+        )
+        .unwrap_err()
+        .contains("E_VERUS_RESULT")
+    );
+    let raw = json!({"root":".","program":"missing","version_argv":[],"environment":{},"timeout_seconds":1,"output_limit_bytes":100});
+    assert_eq!(
+        serve("observed-tool-v1", raw.to_string().as_bytes(), Vec::new()).unwrap_err(),
+        "tool resolution requires declared PATH"
+    );
+}

@@ -1242,7 +1242,7 @@ pub open spec fn node_affected(prefix: Seq<char>, value: Seq<char>, nodes: Seq<S
         && (#[trigger] nodes[i])@ == prefix + value
 }
 
-fn affected_node(prefix: &str, value: &str, nodes: &Vec<String>) -> (affected: bool)
+pub(super) fn affected_node(prefix: &str, value: &str, nodes: &Vec<String>) -> (affected: bool)
     ensures affected == node_affected(prefix@, value@, nodes@),
 {
     let mut name = Vec::new();

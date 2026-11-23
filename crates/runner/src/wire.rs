@@ -126,18 +126,44 @@ fn sealed_data(req: &Request, command: [&str; 2]) -> Result<Vec<u8>, String> {
 }
 
 /// The installed evaluator owns its findings. The caller chooses the admission error code.
-pub(crate) fn single_judge(req: &Request, command: [&str; 2], error_code: &str) -> Response {
+pub(crate) fn single_judge(
+    req: &Request,
+    command: [&str; 2],
+    error_code: &str,
+    inherited: bool,
+) -> Response {
     let mut response = req.response(Status::Pass);
-    match sealed_data(req, command).and_then(|bytes| decode::<Decision>(&bytes)) {
+    let data = if inherited {
+        req.validate().and_then(|()| {
+            crate::installed_query::inherited(
+                &req.candidate.root,
+                command[0],
+                command[1],
+                &serde_json::json!({"request":req}),
+            )
+        })
+    } else {
+        sealed_data(req, command)
+    };
+    match data.and_then(|bytes| decode::<Decision>(&bytes)) {
         Ok(decision) => {
             response.status = decision.status;
             response.findings = decision.findings;
             response.outputs = decision.outputs;
         }
         Err(message) => {
-            response.status = Status::Error;
+            response.status = if inherited {
+                Status::Fail
+            } else {
+                Status::Error
+            };
+            let code = if inherited {
+                message.split(':').next().unwrap_or(error_code)
+            } else {
+                error_code
+            };
             response.findings.push(Finding {
-                code: error_code.into(),
+                code: code.into(),
                 level: "error".into(),
                 message,
                 delta_refs: vec!["/request".into()],

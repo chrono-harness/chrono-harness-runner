@@ -22,6 +22,8 @@ use vstd::vpanic as panic;
 
 #[path = "support/verified_continuity.rs"]
 mod continuity_expectations;
+#[path = "support/source_pipeline.rs"]
+mod source_pipeline_expectations;
 
 verus! {
 
