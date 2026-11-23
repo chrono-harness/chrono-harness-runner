@@ -57,3 +57,5 @@ The local checkout must match the candidate. The report and operation streams ar
 安装的判官通过 `judge-command-v1` 返回决策时，可以在 `evidence` 数组里列出已生成的证据文件。runner 将其路径、SHA-256 和种类随判官响应交给实际调用方，省略该字段表示没有证据文件。
 
 在报告收集过程中，同一个 `retained-artifacts-v1` 会话提供 `resolve-map`、`transport-map` 和 `restage-map` 处理已登记原件，`artifact-identity` 核对摘要与长度，`read-artifact-text` 读取原文，`read-bounded-text` 执行有上限的本地读取。调用 `check-preparation` 核验准备阶段的封存输入、可选转运位置和原件映射。
+
+`compiler-output-v1` 的 `canonical` 操作返回参数是否对应登记的编译器输出；`observe` 在原工作目录读取声明的依赖文件并核对库的实际 SHA-256 与长度，在进程失败时保留原始判断结果。
