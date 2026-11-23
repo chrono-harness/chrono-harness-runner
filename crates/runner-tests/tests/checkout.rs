@@ -153,3 +153,23 @@ fn raw_checkout_supports_sha256_and_keeps_index_changes_separate() {
         vec!["payload"]
     );
 }
+
+#[test]
+fn git_facts_session_rejects_invalid_open_and_incomplete_frames() {
+    use chrono_harness::git_facts_session::serve;
+    let root = std::path::Path::new(".");
+    let invalid =
+        b"{\"mode\":\"config\",\"config\":\"c\",\"base\":\"dev\",\"candidate\":\"main\"}\n";
+    let mut stdout = Vec::new();
+    serve(root, invalid.as_slice(), &mut stdout).unwrap();
+    assert!(
+        serde_json::from_slice::<Result<serde_json::Value, String>>(&stdout)
+            .unwrap()
+            .is_err()
+    );
+    assert!(
+        serve(root, invalid[..invalid.len() - 1].as_ref(), Vec::new())
+            .unwrap_err()
+            .contains("frame")
+    );
+}
