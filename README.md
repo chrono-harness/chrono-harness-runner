@@ -2,6 +2,12 @@
 
 `chrono-harness run-command-v1` 在当前目录按宿主提供的命令、环境、时限和输出限额运行外部程序。stdin 第一行是 JSON CommandSpec，另可提供 `expected_sha256` 固定程序身份。其余字节原样送入子进程。命令头最多 1 MiB，输入最多 64 MiB。执行成功后，首行 JSON 含 `exit_code`、`stdout_length` 和 `stderr_length`，随后依次为原始 stdout 和 stderr。执行器失败返回 2，在 stderr 输出原错误。
 
+独立 bootstrap 通过 `compiler-output-v1` 提交编译器合同、原始 Cargo-Verus 输出行、dep-info 和逐文件绑定。操作为 `validate-contract`、`proof-rows`、`dependency-paths`、`dependency-matches`。对生命周期报告中的 `managed_process`，`judge-evidence-v1` 的 `expand-process` 校验压缩流和原进程格式，返回 stdout、stderr 原始字节、失败原因和退出码。
+
+bootstrap 通过 `retained-artifacts-v1` 中的 `publication` 操作创建或接管宿主登记的目录，保留读取租约、诊断和报告引用，并在完成后封存。关闭未完成的发布会释放使用权，原始状态继续交给保管者处理。需要把新取得的租约交给原生子进程时，调用方将匿名 Unix socket 用作会话 stdin，stdout 仍返回逐行 JSON。`scoped-descriptors` 从给定 `offset` 返回最多 32 个描述符。计数大于零时，同一个 socket 传递一个字节 `01` 和相应的 `SCM_RIGHTS`。计数达到 32 时，调用方继续读下一批。
+
+`chrono-harness inherited-descriptors-v1` 校验并报告当前是否继承了所有权描述符。`chrono-harness exec-with-descriptors-v1 PROGRAM [ARGS...]` 将租约交给实际程序，在同一 PID 上执行它，沿用调用方提供的当前目录、环境和标准流。
+
 `chrono-harness judge-command-v1 NAME VERSION PROGRAM OPERATION ERROR_CODE --protocol chrono-judge/v1` 将同一个已封存请求交给单独安装的判官。runner 负责解析请求、校验封存、解析宿主配置、限制进程以及写出原生响应。PROGRAM 的 stdin 含 `request` 和从该宿主选出的 `protocol`，stdout 返回 `status`、`findings` 和 `outputs`。调用方声明接纳或传输失败时对外使用的错误码。`prepare-command-v1 PROGRAM OPERATION` 使用同一套请求和进程限制，接收绑定 request_id 的 judge-pipeline 输入生产者响应，包括业务失败时已记录的 outputs。
 
 `chrono-harness-runner` 提供 `chrono-harness` 命令和同名 Rust 库。宿主提供检查配置，runner 调用判官并返回真实退出状态与报告。
@@ -54,10 +60,6 @@ The local checkout must match the candidate. The report and operation streams ar
 
 `retained-artifacts-v1` 的外部执行者用 `begin-directory` 打开原件目录，`write-directory` 在登记目录中写入意图和结果，`execute-retained` 按命令、SHA-256、超时与输出上限执行一次，并保留 stdout、stderr 和 launch.json。`check-directory-write` 再核对保管预算。`finish-directory` 接受最终结果和输入依赖，在业务进程已结束后封存。生成分配、判定执行结果与决定释放时机由项目负责。
 
-独立 bootstrap 通过 `compiler-output-v1` 提交编译器合同、原始 Cargo-Verus 输出行、dep-info 和逐文件绑定。操作为 `validate-contract`、`proof-rows`、`dependency-paths`、`dependency-matches`。对生命周期报告中的 `managed_process`，`judge-evidence-v1` 的 `expand-process` 校验压缩流和原进程格式，返回 stdout、stderr 原始字节、失败原因和退出码。
-
-bootstrap 通过 `retained-artifacts-v1` 中的 `publication` 操作创建或接管宿主登记的目录，保留读取租约、诊断和报告引用，并在完成后封存。关闭未完成的发布会释放使用权，原始状态继续交给保管者处理。需要把新取得的租约交给原生子进程时，调用方将匿名 Unix socket 用作会话 stdin，stdout 仍返回逐行 JSON。`scoped-descriptors` 从给定 `offset` 返回最多 32 个描述符。计数大于零时，同一个 socket 传递一个字节 `01` 和相应的 `SCM_RIGHTS`。计数达到 32 时，调用方继续读下一批。
-
-`chrono-harness inherited-descriptors-v1` 校验并报告当前是否继承了所有权描述符。`chrono-harness exec-with-descriptors-v1 PROGRAM [ARGS...]` 将租约交给实际程序，在同一 PID 上执行它，沿用调用方提供的当前目录、环境和标准流。
+安装的判官通过 `judge-command-v1` 返回决策时，可以在 `evidence` 数组里列出已生成的证据文件。runner 将其路径、SHA-256 和种类随判官响应交给实际调用方，省略该字段表示没有证据文件。
 
 在报告收集过程中，同一个 `retained-artifacts-v1` 会话提供 `resolve-map`、`transport-map` 和 `restage-map` 处理已登记原件，`artifact-identity` 核对摘要与长度，`read-artifact-text` 读取原文，`read-bounded-text` 执行有上限的本地读取。调用 `check-preparation` 核验准备阶段的封存输入、可选转运位置和原件映射。
