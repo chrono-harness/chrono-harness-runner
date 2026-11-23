@@ -34,6 +34,7 @@ enum Operation {
     Delta,
     RegistrySnapshot { endpoint: Endpoint },
     CheckedOutSnapshot { endpoint: Endpoint },
+    CheckoutExcluding { artifacts: Vec<String> },
     JsonBlob { endpoint: Endpoint, path: String },
     Observation,
 }
@@ -115,6 +116,13 @@ impl Session {
         match op {
             Operation::RegistrySnapshot { endpoint } => self.snapshot(endpoint, false),
             Operation::CheckedOutSnapshot { endpoint } => self.snapshot(endpoint, true),
+            Operation::CheckoutExcluding { artifacts } => {
+                let paths: Vec<_> = artifacts.iter().map(String::as_str).collect();
+                let checkout =
+                    self.reader
+                        .checkout_excluding(&self.root, &self.candidate, &paths)?;
+                serde_json::to_value(checkout).map_err(|e| e.to_string())
+            }
             Operation::VerifyTree { endpoint } => Ok(self
                 .reader
                 .verify_oid(&self.root, self.commit(endpoint))?
