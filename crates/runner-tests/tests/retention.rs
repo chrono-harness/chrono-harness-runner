@@ -10901,6 +10901,29 @@ fn producer_session_keeps_host_ownership_and_cleans_unmanaged_interrupted_stages
             .unwrap_err()
             .contains("no active publication")
     );
+
+    let address = format!("{directory}/report.json");
+    std::fs::write(root.join(&address), b"ok").unwrap();
+    let digest = chrono_harness::sha256(b"ok");
+    let originals = json!({&address:{"hex":"6f6b","sha256":digest,"length":2}});
+    let inspected = request(&[
+        json!({"operation":"resolve-map","artifacts":originals}),
+        json!({"operation":"transport-map","artifacts":originals}),
+        json!({"operation":"restage-map","artifacts":originals,"directory":directory}),
+        json!({"operation":"artifact-identity","artifacts":originals,"path":address}),
+        json!({"operation":"read-artifact-text","artifacts":originals,"path":address}),
+        json!({"operation":"read-bounded-text","path":address,"limit":2}),
+        json!({"operation":"read-bounded-text","path":address,"limit":1}),
+        json!({"operation":"check-preparation","binding":{}}),
+    ]);
+    assert_eq!(inspected[0], Ok(originals.clone()));
+    assert_eq!(inspected[1], Ok(originals));
+    assert_eq!(inspected[2], Ok(json!({})));
+    assert_eq!(inspected[3], Ok(json!({"sha256":digest,"length":2})));
+    assert_eq!(inspected[4], Ok(json!("ok")));
+    assert_eq!(inspected[5], Ok(json!("ok")));
+    assert!(inspected[6].is_err());
+    assert!(inspected[7].is_err());
     let owned = format!("{directory}/execution");
     let open = json!({"operation":"begin-directory","producer":"check-original","path":owned,"reference":"consumer","intent":{"plan":"test"}});
     let write = |name: &str| json!({"operation":"write-directory","path":owned,"name":name,"value":{"status":"started"}});
