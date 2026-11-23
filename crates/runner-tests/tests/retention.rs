@@ -11073,3 +11073,227 @@ fn producer_session_keeps_host_ownership_and_cleans_unmanaged_interrupted_stages
     assert_eq!(handoff["consumer"], "session-caller");
     assert_eq!(std::fs::read(root.join(output)).unwrap(), b"{}");
 }
+
+#[test]
+fn rooted_session_binds_independent_processes_and_releases_the_exact_original() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    if !isolated_capability_test(
+        "rooted_session_binds_independent_processes_and_releases_the_exact_original",
+    ) {
+        return;
+    }
+    let host = host(512, 32);
+    let root = host.path();
+    let path = ".chrono-harness/state/fixtures/task";
+    let (client, server) = UnixStream::pair().unwrap();
+    let mut output = BufReader::new(client.try_clone().unwrap());
+    std::thread::scope(|scope| {
+        let owner = scope.spawn(|| {
+            let input = BufReader::new(server.try_clone().unwrap());
+            chrono_harness::retained_artifacts::session::serve(root, input, server).unwrap();
+        });
+        let mut writer = client;
+        let mut query = |request: Value| -> Result<Value, String> {
+            serde_json::to_writer(&mut writer, &request).unwrap();
+            writer.write_all(b"\n").unwrap();
+            let mut reply = String::new();
+            output.read_line(&mut reply).unwrap();
+            serde_json::from_str(&reply).unwrap()
+        };
+        let fact = |fact: Value| json!({"operation":"inventory","fact":fact});
+        let begun = query(json!({"operation":"begin-directory","producer":"fixture","path":path,"reference":"reader","intent":{"dispatch":true},"rooted":true})).unwrap();
+        let id = begun["id"].as_str().unwrap();
+        assert_eq!(
+            query(fact(
+                json!({"action":"rooted","producer":"fixture","role":"reader"})
+            ))
+            .unwrap()[0],
+            id
+        );
+        assert!(query(json!({"operation":"reserve-directory-file","path":path,"name":"../escape","length":1})).is_err());
+        let program = Path::new(env!("CARGO_BIN_EXE_chrono-test-retention-child"));
+        let binary_digest = chrono_harness::file_identity(program).unwrap().0;
+        let mut pids = Vec::new();
+        for member in ["first", "second"] {
+            let member_path = root.join(path).join(member);
+            query(json!({"operation":"create-directory-member","path":path,"name":member}))
+                .unwrap();
+            let run = json!({"operation":"execute-retained","path":path,"member":member,"command":{
+                "program":program,"args":["emit-member",member],"env":{},"timeout_seconds":10,"output_limit_bytes":4096},"expected_sha256":binary_digest});
+            let receipt = query(run.clone()).unwrap();
+            assert_eq!(receipt["exit_code"], 7);
+            assert_eq!(receipt["owned_work_joined"], true);
+            let expected = [member.as_bytes(), b"\0\xff"].concat();
+            assert_eq!(fs::read(member_path.join("stdout")).unwrap(), expected);
+            assert_eq!(
+                fs::read(member_path.join("stderr")).unwrap(),
+                b"member error\n"
+            );
+            let launch: Value =
+                serde_json::from_slice(&fs::read(member_path.join("launch.json")).unwrap())
+                    .unwrap();
+            assert!(query(run).unwrap_err().contains("already been attempted"));
+            pids.push(launch["child_pid"].as_u64().unwrap());
+            let parent_evidence =
+                json!({"operation":"directory-evidence","path":path,"process":receipt});
+            assert!(
+                query(parent_evidence)
+                    .unwrap_err()
+                    .contains("no executed process")
+            );
+            let raw = serde_json::to_vec(&receipt).unwrap();
+            let name = format!("{member}/process.json");
+            let reserved = query(json!({"operation":"reserve-directory-file","path":path,"name":name,"length":raw.len()})).unwrap();
+            let output = Path::new(reserved.as_str().unwrap());
+            fs::write(output, &raw).unwrap();
+            let digest = chrono_harness::sha256(&raw);
+            let validate = |sha: &str| json!({"operation":"validate-launch","original":{"path":format!("{path}/{name}"),"sha256":sha}});
+            assert!(query(validate("changed")).unwrap_err().contains("digest"));
+            query(validate(&digest)).unwrap();
+        }
+        assert_ne!(pids[0], pids[1]);
+        query(json!({"operation":"seal-directory","path":path,"outcome":{"exit":7}})).unwrap();
+        let member = format!("{path}/first/stdout");
+        let (digest, length) = chrono_harness::file_identity(&root.join(&member)).unwrap();
+        assert_eq!(query(fact(json!({"action":"member","producer":"fixture","path":path,"member":member,"sha256":digest,"length":length}))).unwrap(), true);
+        query(fact(json!({"action":"consume","id":id}))).unwrap();
+        query(fact(json!({"action":"release-role","role":"reader"}))).unwrap();
+        inventory(root).maintain_at(u64::MAX).unwrap();
+        assert!(root.join(&member).is_file());
+        writer.shutdown(std::net::Shutdown::Write).unwrap();
+        owner.join().unwrap();
+        inventory(root).maintain_at(u64::MAX).unwrap();
+        assert!(!root.join(path).exists());
+    });
+}
+
+#[test]
+fn owned_process_evidence_reserves_each_original_once_before_dispatch() {
+    if !isolated_capability_test(
+        "owned_process_evidence_reserves_each_original_once_before_dispatch",
+    ) {
+        return;
+    }
+    use chrono_harness::retained_artifacts::retention::Inventory;
+    for outside_launch in [false, true] {
+        let root = host(256, 32);
+        let policy_path = root.path().join(".chrono-harness/retention.json");
+        let mut policy: Value = serde_json::from_slice(&fs::read(&policy_path).unwrap()).unwrap();
+        // One directory and exactly three originals fit. A second charge
+        // for either a stream or the launch must fail this boundary.
+        policy["max_manifest_nodes"] = json!(4);
+        fs::write(&policy_path, serde_json::to_vec(&policy).unwrap()).unwrap();
+        let output = ".chrono-harness/state/fixtures/owned-originals";
+        let state = Inventory::adopted(root.path()).unwrap().unwrap();
+        fs::create_dir_all(root.path().join(".chrono-harness/state/fixtures")).unwrap();
+        let publication = state
+            .plan_rooted(
+                "fixture",
+                output,
+                json!({"completion":"not-established"}),
+                "fixture-original",
+            )
+            .unwrap();
+        publication.materialize().unwrap();
+        let directory = root.path().join(output);
+        let launch = if outside_launch {
+            root.path().join("outside-launch.json")
+        } else {
+            directory.join("launch.json")
+        };
+        let count = root.path().join("invocations");
+        let command = chrono_harness::CommandSpec {
+            program: env!("CARGO_BIN_EXE_chrono-test-retention-child").into(),
+            args: vec!["count-member".into(), count.to_str().unwrap().into()],
+            env: Default::default(),
+            timeout_seconds: 5,
+            output_limit_bytes: 4096,
+        };
+        let result = chrono_harness::run_process_observed_retained(
+            root.path(),
+            &command,
+            &[],
+            &chrono_harness::file_identity(Path::new(&command.program))
+                .unwrap()
+                .0,
+            &chrono_harness::ProcessEvidence {
+                root: root.path(),
+                stdout: &directory.join("stdout"),
+                stderr: &directory.join("stderr"),
+                launch: &launch,
+                publication: Some(&publication),
+            },
+        );
+        if outside_launch {
+            let error = result.unwrap_err();
+            assert!(error.contains("outside exact output"), "{error}");
+            assert!(!count.exists());
+            assert!(!launch.exists());
+        } else {
+            let process = result.unwrap();
+            assert_eq!(process.exit_code, 0);
+            assert!(process.failure.is_none(), "{process:?}");
+            assert!(process.owned_work_joined);
+            assert_eq!(fs::read(&count).unwrap(), b"x");
+            assert_eq!(
+                fs::read(directory.join("stdout")).unwrap(),
+                b"stable compiler\n"
+            );
+            assert_eq!(fs::read(directory.join("stderr")).unwrap(), b"");
+            chrono_harness::validate_launch_evidence(&launch, &process).unwrap();
+            publication
+                .complete_sealed(json!({"exit_code":process.exit_code}))
+                .unwrap();
+        }
+    }
+}
+
+#[test]
+fn owned_process_evidence_rejects_outside_files_before_dispatch() {
+    if !isolated_capability_test("owned_process_evidence_rejects_outside_files_before_dispatch") {
+        return;
+    }
+    use chrono_harness::retained_artifacts::retention::Inventory;
+    let root = host(256, 32);
+    let output = ".chrono-harness/state/fixtures/capability";
+    let state = Inventory::adopted(root.path()).unwrap().unwrap();
+    fs::create_dir_all(root.path().join(".chrono-harness/state/fixtures")).unwrap();
+    let publication = state
+        .plan_rooted(
+            "fixture",
+            output,
+            json!({"completion":"not-established"}),
+            "fixture-original",
+        )
+        .unwrap();
+    publication.materialize().unwrap();
+    let count = root.path().join("invocations");
+    let command = chrono_harness::CommandSpec {
+        program: env!("CARGO_BIN_EXE_chrono-test-retention-child").into(),
+        args: vec!["count-member".into(), count.to_str().unwrap().into()],
+        env: Default::default(),
+        timeout_seconds: 5,
+        output_limit_bytes: 4096,
+    };
+    let directory = root.path().join(output);
+    let error = chrono_harness::run_process_observed_retained(
+        root.path(),
+        &command,
+        &[],
+        &chrono_harness::file_identity(Path::new(&command.program))
+            .unwrap()
+            .0,
+        &chrono_harness::ProcessEvidence {
+            root: root.path(),
+            stdout: &root.path().join("outside"),
+            stderr: &directory.join("stderr"),
+            launch: &directory.join("launch.json"),
+            publication: Some(&publication),
+        },
+    )
+    .unwrap_err();
+    assert!(error.contains("outside exact output"), "{error}");
+    assert!(!count.exists());
+    assert!(!root.path().join("outside").exists());
+}
