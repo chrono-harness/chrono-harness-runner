@@ -25,6 +25,16 @@ enum Compiler {
         argv: Vec<String>,
         directory: String,
     },
+    Observe {
+        contract: verifier::OutputContract,
+        argv: Vec<String>,
+        exit: i32,
+        process_failed: bool,
+        limit: usize,
+    },
+    Canonical {
+        argv: Vec<String>,
+    },
     Check {
         contract: Option<verifier::OutputContract>,
         stdout: Vec<u8>,
@@ -61,6 +71,36 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     verifier::bind_compiler_directory(&mut argv, &directory);
                     serde_json::to_writer(output, &argv).map_err(|e| e.to_string())
                 }
+                Compiler::Observe {
+                    contract,
+                    argv,
+                    exit,
+                    process_failed,
+                    limit,
+                } => {
+                    let root = std::env::current_dir().map_err(|e| e.to_string())?;
+                    let files = CompilerFiles(&root);
+                    let contract = Some(contract);
+                    let dependency = verifier::sources::observe_dependency(
+                        &contract,
+                        &argv,
+                        exit,
+                        process_failed,
+                        limit,
+                        &files,
+                    );
+                    let artifact =
+                        verifier::observe_artifact(&contract, &argv, exit, process_failed, &files);
+                    serde_json::to_writer(
+                        output,
+                        &serde_json::json!({"dependency":dependency,"artifact":artifact}),
+                    )
+                    .map_err(|e| e.to_string())
+                }
+                Compiler::Canonical { argv } => {
+                    serde_json::to_writer(output, &verifier::canonical_verifier_arguments(&argv))
+                        .map_err(|e| e.to_string())
+                }
                 Compiler::Check {
                     contract,
                     stdout,
@@ -89,5 +129,31 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
             }
         }
         _ => Err("unsupported route evidence operation".into()),
+    }
+}
+
+struct CompilerFiles<'a>(&'a std::path::Path);
+impl verifier::sources::DependencyRead for CompilerFiles<'_> {
+    fn read(&self, path: &[u8], limit: u64) -> Result<Vec<u8>, String> {
+        std::str::from_utf8(path)
+            .map_err(|e| e.to_string())
+            .and_then(|path| std::fs::File::open(self.0.join(path)).map_err(|e| e.to_string()))
+            .and_then(|file| {
+                let mut bytes = Vec::new();
+                file.take(limit)
+                    .read_to_end(&mut bytes)
+                    .map(|_| bytes)
+                    .map_err(|e| e.to_string())
+            })
+    }
+}
+
+impl verifier::ArtifactRead for CompilerFiles<'_> {
+    fn identity(&self, path: &[u8]) -> Result<(Vec<u8>, u64), String> {
+        std::str::from_utf8(path)
+            .map_err(|e| e.to_string())
+            .and_then(|path| crate::no_symlink_parents(self.0, path))
+            .and_then(|path| crate::file_identity(&path))
+            .map(|(digest, length)| (digest.into_bytes(), length))
     }
 }

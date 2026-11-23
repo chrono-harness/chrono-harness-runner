@@ -55,3 +55,5 @@ The local checkout must match the candidate. The report and operation streams ar
 `retained-artifacts-v1` 的外部执行者用 `begin-directory` 打开原件目录，`write-directory` 在登记目录中写入意图和结果，`execute-retained` 按命令、SHA-256、超时与输出上限执行一次，并保留 stdout、stderr 和 launch.json。`check-directory-write` 再核对保管预算。`finish-directory` 接受最终结果和输入依赖，在业务进程已结束后封存。生成分配、判定执行结果与决定释放时机由项目负责。
 
 在报告收集过程中，同一个 `retained-artifacts-v1` 会话提供 `resolve-map`、`transport-map` 和 `restage-map` 处理已登记原件，`artifact-identity` 核对摘要与长度，`read-artifact-text` 读取原文，`read-bounded-text` 执行有上限的本地读取。调用 `check-preparation` 核验准备阶段的封存输入、可选转运位置和原件映射。
+
+`compiler-output-v1` 的 `canonical` 操作返回参数是否对应登记的编译器输出；`observe` 在原工作目录读取声明的依赖文件并核对库的实际 SHA-256 与长度，在进程失败时保留原始判断结果。

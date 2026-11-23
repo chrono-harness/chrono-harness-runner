@@ -224,6 +224,28 @@ fn public_compiler_query_preserves_owner_paths_and_rejects_missing_originals() {
         .unwrap_err()
         .contains("E_VERUS_RESULT")
     );
+    let mut original = Vec::new();
+    let invalid = json!({"operation":"observe","contract":{"version":"1","commit":"x"},
+        "argv":[],"exit":1,"process_failed":true,"limit":128});
+    serve(
+        "compiler-output-v1",
+        invalid.to_string().as_bytes(),
+        &mut original,
+    )
+    .unwrap();
+    let observed: Value = serde_json::from_slice(&original).unwrap();
+    assert!(
+        observed["dependency"]["Err"]
+            .as_str()
+            .unwrap()
+            .contains("E_VERUS_SOURCES")
+    );
+    assert!(
+        observed["artifact"]["Err"]
+            .as_str()
+            .unwrap()
+            .contains("E_VERUS_ARTIFACT")
+    );
     let raw = json!({"root":".","program":"missing","version_argv":[],"environment":{},"timeout_seconds":1,"output_limit_bytes":100});
     assert_eq!(
         serve("observed-tool-v1", raw.to_string().as_bytes(), Vec::new()).unwrap_err(),
