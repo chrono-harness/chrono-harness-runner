@@ -63,62 +63,136 @@ pub(crate) fn judge_entry(
     .1
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Prepared {
+    request_id: String,
+    #[serde(default)]
+    outputs: BTreeMap<String, Value>,
+    result: Result<Value, String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Decision {
+    status: Status,
+    findings: Vec<Finding>,
+    outputs: BTreeMap<String, Value>,
+}
+
+fn protocol_limits(req: &Request) -> Result<Value, String> {
+    let config = crate::load_selected_config(&req.candidate.root, &req.config_path)?;
+    Ok(config["protocol"].clone())
+}
+fn run_data(
+    req: &Request,
+    limits: &Value,
+    [program, operation]: [&str; 2],
+    input: &[u8],
+) -> Result<Vec<u8>, String> {
+    let env: BTreeMap<String, String> =
+        serde_json::from_value(req.observations["environment"]["effective"].clone())
+            .map_err(|e| e.to_string())?;
+    let timeout_seconds = limits["timeout_seconds"]
+        .as_u64()
+        .ok_or("invalid protocol timeout")?;
+    let output_limit_bytes = limits["stdout_limit_bytes"]
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or("invalid protocol output bound")?;
+    let command = CommandSpec {
+        program: program.into(),
+        args: vec![operation.into()],
+        env,
+        timeout_seconds,
+        output_limit_bytes,
+    };
+    let process = crate::run_process(&req.candidate.root, &command, input)?;
+    if process.exit_code != 0 {
+        let error = std::str::from_utf8(&process.stderr_bytes).map_err(|e| e.to_string())?;
+        return Err(if error.is_empty() {
+            format!("{program} {operation} exited with {}", process.exit_code)
+        } else {
+            error.strip_suffix('\n').unwrap_or(error).into()
+        });
+    }
+    Ok(process.stdout_bytes)
+}
+
+fn sealed_data(req: &Request, command: [&str; 2]) -> Result<Vec<u8>, String> {
+    req.validate()?;
+    let limits = protocol_limits(req)?;
+    let payload = serde_json::json!({"request":req,"protocol":limits});
+    run_data(req, &limits, command, &canonical(&payload)?)
+}
+
+/// The installed evaluator owns its findings. The caller chooses the admission error code.
+pub(crate) fn single_judge(req: &Request, command: [&str; 2], error_code: &str) -> Response {
+    let mut response = req.response(Status::Pass);
+    match sealed_data(req, command).and_then(|bytes| decode::<Decision>(&bytes)) {
+        Ok(decision) => {
+            response.status = decision.status;
+            response.findings = decision.findings;
+            response.outputs = decision.outputs;
+        }
+        Err(message) => {
+            response.status = Status::Error;
+            response.findings.push(Finding {
+                code: error_code.into(),
+                level: "error".into(),
+                message,
+                delta_refs: vec!["/request".into()],
+                causes: vec![],
+            });
+        }
+    }
+    response
+}
+
+/// An installed input producer can use the same admission and bounds outside the native judge entry.
+pub(crate) fn prepare_command(
+    command: [&str; 2],
+    input: impl std::io::Read,
+    mut output: impl std::io::Write,
+) -> Result<(), String> {
+    use std::io::Read;
+    let mut bytes = vec![];
+    input
+        .take(64 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > 64 * 1024 * 1024 {
+        return Err("E_PROTOCOL: request read/bound".into());
+    }
+    let req: Request = decode(&bytes)?;
+    let result = sealed_data(&req, command).and_then(|bytes| {
+        let prepared: Prepared = decode(&bytes)?;
+        if prepared.request_id != req.request_id {
+            return Err("E_PROTOCOL: prepared input identity".into());
+        }
+        Ok(bytes)
+    });
+    let bytes = match result {
+        Ok(bytes) => bytes,
+        Err(error) => canonical(
+            &serde_json::json!({"request_id":req.request_id,"outputs":{},"result":{"Err":error}}),
+        )?,
+    };
+    output
+        .write_all(&bytes)
+        .and_then(|_| output.flush())
+        .map_err(|e| e.to_string())
+}
 /// Two installed data commands form a judge. Request admission, both limits and response publication stay in the runner.
 pub(crate) fn judge_pipeline(
     req: &Request,
     preparation: [&str; 2],
     evaluation: [&str; 2],
 ) -> Response {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Prepared {
-        request_id: String,
-        #[serde(default)]
-        outputs: BTreeMap<String, Value>,
-        result: Result<Value, String>,
-    }
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Decision {
-        status: Status,
-        findings: Vec<Finding>,
-        outputs: BTreeMap<String, Value>,
-    }
     let mut response = req.response(Status::Pass);
     let mut evaluate = || -> Result<(), String> {
         req.validate()?;
-        let config = crate::load_selected_config(&req.candidate.root, &req.config_path)?;
-        let limits = &config["protocol"];
-        let env: BTreeMap<String, String> =
-            serde_json::from_value(req.observations["environment"]["effective"].clone())
-                .map_err(|e| e.to_string())?;
-        let timeout_seconds = limits["timeout_seconds"]
-            .as_u64()
-            .ok_or("invalid protocol timeout")?;
-        let output_limit_bytes = limits["stdout_limit_bytes"]
-            .as_u64()
-            .and_then(|n| usize::try_from(n).ok())
-            .ok_or("invalid protocol output bound")?;
-        let run = |[program, operation]: [&str; 2], input: &[u8]| -> Result<Vec<u8>, String> {
-            let command = CommandSpec {
-                program: program.into(),
-                args: vec![operation.into()],
-                env: env.clone(),
-                timeout_seconds,
-                output_limit_bytes,
-            };
-            let process = crate::run_process(&req.candidate.root, &command, input)?;
-            if process.exit_code != 0 {
-                let error =
-                    std::str::from_utf8(&process.stderr_bytes).map_err(|e| e.to_string())?;
-                return Err(if error.is_empty() {
-                    format!("{program} {operation} exited with {}", process.exit_code)
-                } else {
-                    error.strip_suffix('\n').unwrap_or(error).into()
-                });
-            }
-            Ok(process.stdout_bytes)
-        };
+        let limits = protocol_limits(req)?;
+        let run = |command, input: &[u8]| run_data(req, &limits, command, input);
         let prepared: Prepared = decode(&run(preparation, &req.canonical()?)?)?;
         if prepared.request_id != req.request_id {
             return Err("E_PROTOCOL: prepared input identity".into());

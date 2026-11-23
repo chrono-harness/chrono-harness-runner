@@ -2867,5 +2867,47 @@ pub fn cli_main() -> std::process::ExitCode {
             }
         }));
     }
+    if mode.as_deref() == Some(std::ffi::OsStr::new("prepare-command-v1")) {
+        let args: Vec<_> = std::env::args_os().skip(2).collect();
+        let result = match args.as_slice() {
+            [p, op] => p
+                .to_str()
+                .zip(op.to_str())
+                .ok_or_else(|| "E_USAGE: non UTF-8 command".to_owned())
+                .and_then(|(p, op)| {
+                    wire::prepare_command(
+                        [p, op],
+                        std::io::stdin().lock(),
+                        std::io::stdout().lock(),
+                    )
+                }),
+            _ => Err("E_USAGE: prepare-command-v1 PROGRAM OPERATION".into()),
+        };
+        return match result {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                2.into()
+            }
+        };
+    }
+    if mode.as_deref() == Some(std::ffi::OsStr::new("judge-command-v1")) {
+        let name = std::env::args_os().nth(2);
+        let name = name
+            .as_deref()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or("chrono-harness");
+        return std::process::ExitCode::from(logged_text_main(name, |args| {
+            let [_, name, version, p, op, error, rest @ ..] = args else {
+                eprintln!(
+                    "E_USAGE: judge-command-v1 NAME VERSION PROGRAM OPERATION ERROR_CODE [ARGS]"
+                );
+                return 2;
+            };
+            wire::judge_entry(name, version, rest, |req| {
+                wire::single_judge(req, [p, op], error)
+            })
+        }));
+    }
     std::process::ExitCode::from(logged_text_main("chrono-harness", dispatch_cli))
 }
