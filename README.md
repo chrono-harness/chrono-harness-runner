@@ -35,6 +35,8 @@ The local checkout must match the candidate. The report and operation streams ar
 
 后续请求的 `op` 可取 `delta`、`observation`，或带 `endpoint`（`base` 或 `candidate`）的 `verify-tree`、`registry-snapshot`、`checked-out-snapshot`、`json-blob`。`json-blob` 另需相对路径 `path`。快照返回 `originals`、`values`、`effective_path`、`selection`，检出快照还核对 HEAD 和配置原字节。发生操作错误后仍可读取该会话已执行的 Git 观察，再关闭输入并等待进程退出。
 
+`git-facts-v1` 的 `checkout-excluding` 接收宿主登记的 `artifacts` 路径列表，返回当前固定候选的 HEAD、跟踪变更、范围外的未跟踪路径和 index 标志。项目判官在执行前后使用同一 Git 读取会话核对候选输入，并将 Git 观察纳入响应。
+
 
 独立 routes 通过 `source-coverage-v1` 提交两个固定端点、受影响节点、登记方法的 owner/tool/operation 与选中证明调用的 argv、输出合同和输出上限。runner 返回两端提交、实际 Git 观察及首个验证错误。Git 来源支持原判官封存请求、已有观察和旧式未绑定读取。完整库存与选中根使用同一份连续性证据。
 
@@ -43,5 +45,11 @@ The local checkout must match the candidate. The report and operation streams ar
 `installed-query-v1` 按调用方声明的工作目录、程序、操作与环境执行已安装的 JSON 查询，保留原输出。调用方用 `inherited` 保留启动坐标，或用 `search-path` 指定登记查询只继承 PATH。
 
 `judge-command-v1` 的 `--inherited` 选项供保留原启动坐标和环境的判官使用。它将已核验的请求作为 `{"request":...}` 传入求值命令；准入失败使用 fail 和原错误前缀。
+
+公开的 Git 会话也接受 `verify-commit` 和 `ancestors`（参数 `commit` 为完整 OID）、`check-branch-name`（参数 `branch`）及 `shallow-boundaries`。已封存请求内的读取使用同一个宿主绑定的 Git 进程记录。只检查调用方给出的分支上下文时，可以用 `{"mode":"history"}` 打开无配置的历史读取会话。
+
+`chrono-harness judge-evidence-v1` 读取逐行 JSON 并逐行回复 `{"Ok":值}` 或 `{"Err":"错误"}`。workflow 通过 `expand-record`、`check-process`、`report-transport-bytes` 和 `retained-judges` 重放 runner 报告。`retained-judges` 校验封存的原请求、登记顺序、每个实际进程的原始流与响应，返回所选判官的输入请求和汇总状态。协议还提供严格 JSON 解码（`decode-json`）、原请求校验（`validate-request`）和按选择计算执行单元（`required-units`）。`retained-artifacts-v1` 的 `checked-path` 核对已登记相对路径的符号链接，读取租约仍由同一保管会话持有至 EOF。
+
+`judge-command-v1` 的 `--admission-result` 选项将 `{"request":请求,"admission":{"Ok":null}}` 或带原错误的 `{"Err":"…"}` 交给独立判官。判官可对准入失败使用其已登记的 finding 和严重程度。
 
 `retained-artifacts-v1` 的外部执行者用 `begin-directory` 打开原件目录，`write-directory` 在登记目录中写入意图和结果，`execute-retained` 按命令、SHA-256、超时与输出上限执行一次，并保留 stdout、stderr 和 launch.json。`check-directory-write` 再核对保管预算。`finish-directory` 接受最终结果和输入依赖，在业务进程已结束后封存。生成分配、判定执行结果与决定释放时机由项目负责。

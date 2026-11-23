@@ -46,6 +46,9 @@ enum Operation {
         outcome: Value,
         inputs: Vec<String>,
     },
+    CheckedPath {
+        path: String,
+    },
     Accepts {
         producer: String,
         path: String,
@@ -190,6 +193,7 @@ impl Session<'_> {
                 directory.finish(self.inventory.as_ref(), terminal, outcome, &inputs)?;
                 Ok(Value::Null)
             }
+            Operation::CheckedPath { path } => Ok(json!(no_symlink_parents(root, &path)?)),
             Operation::Accepts { producer, path } => Ok(json!(
                 self.inventory
                     .as_ref()

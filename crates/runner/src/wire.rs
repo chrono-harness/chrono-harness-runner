@@ -130,10 +130,19 @@ pub(crate) fn single_judge(
     req: &Request,
     command: [&str; 2],
     error_code: &str,
-    inherited: bool,
+    mode: &str,
 ) -> Response {
     let mut response = req.response(Status::Pass);
-    let data = if inherited {
+    let inherited = mode == "inherited";
+    let data = if mode == "admission-result" {
+        let admission = req.validate();
+        crate::installed_query::inherited(
+            &req.candidate.root,
+            command[0],
+            command[1],
+            &serde_json::json!({"request":req,"admission":admission}),
+        )
+    } else if inherited {
         req.validate().and_then(|()| {
             crate::installed_query::inherited(
                 &req.candidate.root,
