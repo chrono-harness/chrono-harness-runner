@@ -23,3 +23,7 @@ The local checkout must match the candidate. The report and operation streams ar
 预览版从已合入 dev 的提交打标签，正式版从 main 发布。每个版本在本仓构建 Linux x86_64 和 macOS arm64 的单个 `chrono-harness` 二进制，并附 SHA256SUMS。下载所需标签的二进制和校验文件，验算目标平台的 SHA-256 后将它安装为 `chrono-harness`。升级或回退时按同样方式替换该程序。当前源码构建仍使用 Cargo.lock 中固定的 diagnostics 修订。
 
 已安装的外部判官可将协议处理交给 `chrono-harness judge-pipeline NAME VERSION PRODUCER OPERATION EVALUATOR OPERATION --protocol chrono-judge/v1`。runner 在已登记的限额与环境下，向输入生产者发送封存请求。生产者返回请求 ID、观察到的输出以及准备好的 JSON 或原错误。求值程序只读取该 JSON，返回状态、findings 与 outputs。两个程序均通过标准输入输出通信，响应共享请求身份，重复输出键会报错。
+
+`chrono-harness git-facts-v1` 在当前宿主打开一次 Git 读取会话。stdin 和 stdout 使用逐行 JSON，每行请求得到一个 `{"Ok":...}` 或 `{"Err":"原始诊断"}`，关闭 stdin 会结束会话。首行是 `{"mode":"config","config":"…","base":"完整提交 ID","candidate":"完整提交 ID"}`，或 `{"mode":"request","request":封存请求}`。打开成功返回 `{"bound":true|false}`。单行输入上限为 64 MiB。
+
+后续请求的 `op` 可取 `delta`、`observation`，或带 `endpoint`（`base` 或 `candidate`）的 `verify-tree`、`registry-snapshot`、`checked-out-snapshot`、`json-blob`。`json-blob` 另需相对路径 `path`。快照返回 `originals`、`values`、`effective_path`、`selection`，检出快照还核对 HEAD 和配置原字节。发生操作错误后仍可读取该会话已执行的 Git 观察，再关闭输入并等待进程退出。

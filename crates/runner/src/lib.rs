@@ -43,6 +43,8 @@ mod facts_binding;
 #[cfg(not(verus_keep_ghost))]
 mod facts_configs;
 #[cfg(not(verus_keep_ghost))]
+pub mod git_facts_session;
+#[cfg(not(verus_keep_ghost))]
 mod process_child;
 #[cfg(feature = "retention-test")]
 #[doc(hidden)]
@@ -2799,6 +2801,24 @@ fn dispatch_cli(arguments: &[String]) -> u8 {
 #[cfg(not(verus_keep_ghost))]
 pub fn cli_main() -> std::process::ExitCode {
     let mode = std::env::args_os().nth(1);
+    if mode.as_deref() == Some(std::ffi::OsStr::new("git-facts-v1")) {
+        if std::env::args_os().len() != 2 {
+            eprintln!("E_USAGE: git-facts-v1");
+            return 2.into();
+        }
+        let result = std::env::current_dir()
+            .map_err(|e| e.to_string())
+            .and_then(|cwd| {
+                git_facts_session::serve(&cwd, std::io::stdin().lock(), std::io::stdout().lock())
+            });
+        return match result {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                2.into()
+            }
+        };
+    }
     if mode.as_deref() == Some(std::ffi::OsStr::new("judge-pipeline")) {
         let name = std::env::args_os().nth(2);
         let name = name
