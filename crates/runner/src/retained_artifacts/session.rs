@@ -19,6 +19,9 @@ use std::{
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
+    CheckedPath {
+        path: String,
+    },
     Accepts {
         producer: String,
         path: String,
@@ -112,6 +115,7 @@ impl Session<'_> {
     fn apply(&mut self, op: Operation) -> Result<Value, String> {
         let root = self.root;
         match op {
+            Operation::CheckedPath { path } => Ok(json!(no_symlink_parents(root, &path)?)),
             Operation::Accepts { producer, path } => Ok(json!(
                 self.inventory
                     .as_ref()

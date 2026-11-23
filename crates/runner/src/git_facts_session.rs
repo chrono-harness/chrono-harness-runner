@@ -12,6 +12,7 @@ use std::{
 #[derive(Deserialize)]
 #[serde(tag = "mode", rename_all = "kebab-case", deny_unknown_fields)]
 enum Open {
+    History,
     Config {
         config: String,
         base: String,
@@ -31,6 +32,10 @@ enum Endpoint {
 #[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
     VerifyTree { endpoint: Endpoint },
+    VerifyCommit { commit: String },
+    CheckBranchName { branch: String },
+    Ancestors { commit: String },
+    ShallowBoundaries,
     Delta,
     RegistrySnapshot { endpoint: Endpoint },
     CheckedOutSnapshot { endpoint: Endpoint },
@@ -47,6 +52,13 @@ struct Session {
 impl Session {
     fn open(cwd: &Path, open: Open) -> Result<Self, String> {
         let (root, config, base, candidate, reader) = match open {
+            Open::History => (
+                cwd.to_owned(),
+                String::new(),
+                String::new(),
+                String::new(),
+                facts::Reader::legacy(),
+            ),
             Open::Config {
                 config,
                 base,
@@ -112,6 +124,18 @@ impl Session {
         )
     }
     fn execute(&self, op: Operation) -> Result<Value, String> {
+        if self.config.is_empty()
+            && !matches!(
+                op,
+                Operation::VerifyCommit { .. }
+                    | Operation::Ancestors { .. }
+                    | Operation::ShallowBoundaries
+                    | Operation::CheckBranchName { .. }
+                    | Operation::Observation
+            )
+        {
+            return Err("E_PROTOCOL: no configured history endpoints".into());
+        }
         match op {
             Operation::RegistrySnapshot { endpoint } => self.snapshot(endpoint, false),
             Operation::CheckedOutSnapshot { endpoint } => self.snapshot(endpoint, true),
@@ -119,6 +143,32 @@ impl Session {
                 .reader
                 .verify_oid(&self.root, self.commit(endpoint))?
                 .into()),
+            Operation::VerifyCommit { commit } => {
+                Ok(self.reader.verify_oid(&self.root, &commit)?.into())
+            }
+            Operation::CheckBranchName { branch } => {
+                let reference = format!("refs/heads/{branch}");
+                self.reader
+                    .git(&self.root, &["check-ref-format", &reference])?;
+                Ok(Value::Null)
+            }
+            Operation::Ancestors { commit } => {
+                facts::full_oid(&commit)?;
+                let list = facts::utf8(self.reader.git(&self.root, &["rev-list", &commit])?)?;
+                Ok(json!(list.lines().collect::<Vec<_>>()))
+            }
+            Operation::ShallowBoundaries => {
+                let path = facts::utf8(
+                    self.reader
+                        .git(&self.root, &["rev-parse", "--git-path", "shallow"])?,
+                )?;
+                let boundaries = match fs::read_to_string(self.root.join(path.trim())) {
+                    Ok(text) => text,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+                    Err(error) => return Err(format!("E_HISTORY_MISSING: {error}")),
+                };
+                Ok(json!(boundaries.lines().collect::<Vec<_>>()))
+            }
             Operation::Delta => {
                 let before = self.reader.tree(&self.root, &self.base)?;
                 let after = self.reader.tree(&self.root, &self.candidate)?;
