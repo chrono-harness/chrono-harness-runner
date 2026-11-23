@@ -58,6 +58,9 @@ mod process_ownership;
 pub fn load_selected_config(root: &Path, path: &str) -> Result<Value, String> {
     facts_configs::load(root, path).map(|(_, _, config, _)| config)
 }
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+pub mod command_stream;
 #[cfg(not(verus_keep_ghost))]
 mod facts_inputs;
 #[cfg(not(verus_keep_ghost))]
@@ -74,9 +77,6 @@ pub mod observation;
 pub mod ownership;
 #[cfg(not(verus_keep_ghost))]
 pub mod prepared;
-#[cfg(unix)]
-#[cfg(not(verus_keep_ghost))]
-pub mod command_stream;
 #[cfg(not(verus_keep_ghost))]
 pub mod process_fds;
 #[cfg(not(verus_keep_ghost))]
