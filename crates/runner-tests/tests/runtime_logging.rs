@@ -252,3 +252,78 @@ fn public_compiler_query_preserves_owner_paths_and_rejects_missing_originals() {
         "tool resolution requires declared PATH"
     );
 }
+
+#[test]
+fn compiler_originals_use_the_operation_directory_and_its_byte_limit() {
+    use chrono_harness::route_evidence::serve;
+    use serde_json::{Value, json};
+    let root = std::env::current_dir().unwrap();
+    let dir = tempfile::tempdir_in(&root).unwrap();
+    let output = dir
+        .path()
+        .join("library.rlib")
+        .strip_prefix(&root)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let args = json!([
+        "--crate-type=lib",
+        "--no-cheating",
+        "--no-external-by-default",
+        "--num-threads",
+        "2",
+        "--output-json",
+        "--compile",
+        format!("--emit=link={output},dep-info={output}.d"),
+        "bounded.rs",
+        "-o",
+        output,
+        "-Zchecksum-hash-algorithm=sha256",
+    ]);
+    let observe = |exit: i32, failure: Option<&str>| {
+        let input = json!({"operation":"observe","contract":{"version":"fixture","commit":"fixture"},
+            "argv":args,"exit":exit,"process_failed":failure.is_some(),"limit":4});
+        let mut bytes = Vec::new();
+        serve(
+            "compiler-output-v1",
+            input.to_string().as_bytes(),
+            &mut bytes,
+        )
+        .unwrap();
+        serde_json::from_slice::<Value>(&bytes).unwrap()
+    };
+    let dependency = |exit, failure| {
+        serde_json::from_value::<Result<Vec<u8>, String>>(
+            observe(exit, failure)["dependency"].clone(),
+        )
+        .unwrap()
+    };
+    let artifact = || {
+        serde_json::from_value::<Result<chrono_harness::verified_verifier::CompiledArtifact, String>>(observe(0, None)["artifact"].clone()).unwrap()
+    };
+    assert!(dependency(0, None).is_err());
+    assert!(artifact().is_err());
+    std::fs::write(dir.path().join("library.rlib.d"), [0u8, 255, 1, 127]).unwrap();
+    let content = vec![255u8; 65537];
+    std::fs::write(dir.path().join("library.rlib"), &content).unwrap();
+    assert_eq!(dependency(0, None).unwrap(), [0, 255, 1, 127]);
+    let original = artifact().unwrap();
+    assert_eq!(original.path, output.as_bytes());
+    assert_eq!(
+        original.sha256,
+        b"ef9993e97e36b66b65b16a741da437aecddffa22185e176a49f8cfe9ecc7a07c"
+    );
+    assert_eq!(original.length, 65537);
+    assert!(dependency(9, None).is_err());
+    assert!(dependency(0, Some("capture failed")).is_err());
+    std::fs::write(dir.path().join("library.rlib.d"), [255u8; 5]).unwrap();
+    assert!(
+        dependency(0, None)
+            .unwrap_err()
+            .contains("exceeds its bound")
+    );
+    std::fs::remove_file(dir.path().join("library.rlib")).unwrap();
+    std::os::unix::fs::symlink("library.rlib.d", dir.path().join("library.rlib")).unwrap();
+    assert!(artifact().is_err());
+}
