@@ -10,51 +10,150 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 pub const PROTOCOL: &str = "chrono-judge/v1";
 /// 运行共用判官协议入口，具体求值由调用方负责。
 pub fn judge_main(name: &str, version: &str, judge: impl FnOnce(&Request) -> Response) -> u8 {
-    crate::logged_text_main(name, |args| {
-        use std::io::Read;
-        let (state, outcome) = crate::verified_cli::run_judge_entry(
-            (),
-            crate::verified_cli::judge_owned_mode(args),
-            |()| {
-                let mut bytes = vec![];
-                let result = std::io::stdin()
-                    .take(crate::verified_cli::JUDGE_READ_LIMIT)
-                    .read_to_end(&mut bytes)
-                    .map(|_| bytes);
-                ((), result)
-            },
-            |(), bytes| ((), crate::decode::<Request>(&bytes)),
-            |(), request| {
-                let response = judge(&request);
-                let exit = response.status.exit_code() as u8;
-                ((), response, exit)
-            },
-            |(), response| ((), canonical(&response)),
-            |(), bytes| {
-                let result =
-                    crate::publication::write_output(&mut std::io::stdout().lock(), &bytes);
-                ((), result)
-            },
-        );
-        crate::verified_cli::finish_judge_entry(
-            state,
-            outcome,
-            |()| println!("{name} {version}"),
-            |()| {
-                crate::log_cli_error("E_USAGE: --protocol chrono-judge/v1");
-                eprintln!("E_USAGE: --protocol chrono-judge/v1");
-            },
-            |()| {
-                crate::log_cli_error("E_PROTOCOL: request read/bound");
-                eprintln!("E_PROTOCOL: request read/bound");
-            },
-            |(), error| {
-                crate::log_cli_error(&format!("E_PROTOCOL: {error}"));
-                eprintln!("E_PROTOCOL: {error}");
-            },
-        )
-        .1
-    })
+    crate::logged_text_main(name, |args| judge_entry(name, version, args, judge))
+}
+
+pub(crate) fn judge_entry(
+    name: &str,
+    version: &str,
+    args: &[String],
+    judge: impl FnOnce(&Request) -> Response,
+) -> u8 {
+    use std::io::Read;
+    let (state, outcome) = crate::verified_cli::run_judge_entry(
+        (),
+        crate::verified_cli::judge_owned_mode(args),
+        |()| {
+            let mut bytes = vec![];
+            let result = std::io::stdin()
+                .take(crate::verified_cli::JUDGE_READ_LIMIT)
+                .read_to_end(&mut bytes)
+                .map(|_| bytes);
+            ((), result)
+        },
+        |(), bytes| ((), crate::decode::<Request>(&bytes)),
+        |(), request| {
+            let response = judge(&request);
+            let exit = response.status.exit_code() as u8;
+            ((), response, exit)
+        },
+        |(), response| ((), canonical(&response)),
+        |(), bytes| {
+            let result = crate::publication::write_output(&mut std::io::stdout().lock(), &bytes);
+            ((), result)
+        },
+    );
+    crate::verified_cli::finish_judge_entry(
+        state,
+        outcome,
+        |()| println!("{name} {version}"),
+        |()| {
+            crate::log_cli_error("E_USAGE: --protocol chrono-judge/v1");
+            eprintln!("E_USAGE: --protocol chrono-judge/v1");
+        },
+        |()| {
+            crate::log_cli_error("E_PROTOCOL: request read/bound");
+            eprintln!("E_PROTOCOL: request read/bound");
+        },
+        |(), error| {
+            crate::log_cli_error(&format!("E_PROTOCOL: {error}"));
+            eprintln!("E_PROTOCOL: {error}");
+        },
+    )
+    .1
+}
+
+/// Two installed data commands form a judge. Request admission, both limits and response publication stay in the runner.
+pub(crate) fn judge_pipeline(
+    req: &Request,
+    preparation: [&str; 2],
+    evaluation: [&str; 2],
+) -> Response {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Prepared {
+        request_id: String,
+        #[serde(default)]
+        outputs: BTreeMap<String, Value>,
+        result: Result<Value, String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Decision {
+        status: Status,
+        findings: Vec<Finding>,
+        outputs: BTreeMap<String, Value>,
+    }
+    let mut response = req.response(Status::Pass);
+    let mut evaluate = || -> Result<(), String> {
+        req.validate()?;
+        let config = crate::load_selected_config(&req.candidate.root, &req.config_path)?;
+        let limits = &config["protocol"];
+        let env: BTreeMap<String, String> =
+            serde_json::from_value(req.observations["environment"]["effective"].clone())
+                .map_err(|e| e.to_string())?;
+        let timeout_seconds = limits["timeout_seconds"]
+            .as_u64()
+            .ok_or("invalid protocol timeout")?;
+        let output_limit_bytes = limits["stdout_limit_bytes"]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or("invalid protocol output bound")?;
+        let run = |[program, operation]: [&str; 2], input: &[u8]| -> Result<Vec<u8>, String> {
+            let command = CommandSpec {
+                program: program.into(),
+                args: vec![operation.into()],
+                env: env.clone(),
+                timeout_seconds,
+                output_limit_bytes,
+            };
+            let process = crate::run_process(&req.candidate.root, &command, input)?;
+            if process.exit_code != 0 {
+                let error =
+                    std::str::from_utf8(&process.stderr_bytes).map_err(|e| e.to_string())?;
+                return Err(if error.is_empty() {
+                    format!("{program} {operation} exited with {}", process.exit_code)
+                } else {
+                    error.strip_suffix('\n').unwrap_or(error).into()
+                });
+            }
+            Ok(process.stdout_bytes)
+        };
+        let prepared: Prepared = decode(&run(preparation, &req.canonical()?)?)?;
+        if prepared.request_id != req.request_id {
+            return Err("E_PROTOCOL: prepared input identity".into());
+        }
+        response.outputs = prepared.outputs;
+        let input = prepared.result?;
+        let decision: Decision = decode(&run(evaluation, &canonical(&input)?)?)?;
+        if decision
+            .outputs
+            .keys()
+            .any(|key| response.outputs.contains_key(key))
+        {
+            return Err("E_PROTOCOL: duplicate judge output".into());
+        }
+        response.status = decision.status;
+        response.findings = decision.findings;
+        response.outputs.extend(decision.outputs);
+        Ok(())
+    };
+    if let Err(message) = evaluate() {
+        response.status = Status::Error;
+        let code = message
+            .split(':')
+            .next()
+            .filter(|s| s.starts_with("E_"))
+            .unwrap_or("E_INPUT");
+        response.findings.push(Finding {
+            code: code.into(),
+            level: "error".into(),
+            message,
+            delta_refs: vec!["/request".into()],
+            causes: vec![],
+        });
+    }
+    response
 }
 
 pub fn canonical<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {

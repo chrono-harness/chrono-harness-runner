@@ -2798,5 +2798,34 @@ fn dispatch_cli(arguments: &[String]) -> u8 {
 
 #[cfg(not(verus_keep_ghost))]
 pub fn cli_main() -> std::process::ExitCode {
+    let mode = std::env::args_os().nth(1);
+    if mode.as_deref() == Some(std::ffi::OsStr::new("judge-pipeline")) {
+        let name = std::env::args_os().nth(2);
+        let name = name
+            .as_deref()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or("chrono-harness");
+        return std::process::ExitCode::from(logged_text_main(name, |args| {
+            let [
+                _,
+                name,
+                version,
+                producer,
+                operation,
+                evaluator,
+                evaluation,
+                rest @ ..,
+            ] = args
+            else {
+                eprintln!(
+                    "E_USAGE: judge-pipeline NAME VERSION PRODUCER OPERATION EVALUATOR OPERATION [ARGS]"
+                );
+                return 2;
+            };
+            wire::judge_entry(name, version, rest, |req| {
+                wire::judge_pipeline(req, [producer, operation], [evaluator, evaluation])
+            })
+        }));
+    }
     std::process::ExitCode::from(logged_text_main("chrono-harness", dispatch_cli))
 }
