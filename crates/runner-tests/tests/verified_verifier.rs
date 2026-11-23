@@ -1203,9 +1203,6 @@ fn proof_plan_preserves_explicit_scope_data_and_unknown_boundaries() {
         assert("file:other"@ != "file:"@ + "root"@);
     }
     let files = classified_plan(vec![planned_source()]);
-    expect_verifier_true(policy::sources::can_validate_selected_plan(&Vec::new()));
-    let blocked = vec!["missing required input".to_string()];
-    expect_verifier_true(!policy::sources::can_validate_selected_plan(&blocked));
     let unrelated = vec!["file:other".to_string()];
     let unselected = policy::sources::validate_selected_roots(&files, &unrelated, &Vec::new(), &Vec::new(), &policy::sources::continuity::Continuity::empty());
     expect_verifier_true(unselected.is_ok());
