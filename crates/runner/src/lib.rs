@@ -58,6 +58,9 @@ mod process_ownership;
 pub fn load_selected_config(root: &Path, path: &str) -> Result<Value, String> {
     facts_configs::load(root, path).map(|(_, _, config, _)| config)
 }
+#[cfg(unix)]
+#[cfg(not(verus_keep_ghost))]
+pub mod command_stream;
 #[cfg(not(verus_keep_ghost))]
 mod facts_inputs;
 #[cfg(not(verus_keep_ghost))]
@@ -74,7 +77,6 @@ pub mod observation;
 pub mod ownership;
 #[cfg(not(verus_keep_ghost))]
 pub mod prepared;
-#[cfg(unix)]
 #[cfg(not(verus_keep_ghost))]
 pub mod process_fds;
 #[cfg(not(verus_keep_ghost))]
@@ -2846,6 +2848,24 @@ pub fn cli_main() -> std::process::ExitCode {
             wire::judge_entry(name, version, rest, |req| {
                 wire::judge_pipeline(req, [producer, operation], [evaluator, evaluation])
             })
+        }));
+    }
+    if mode.as_deref() == Some(std::ffi::OsStr::new("run-command-v1")) {
+        return std::process::ExitCode::from(logged_text_main("chrono-harness", |args| {
+            if args.len() != 1 {
+                eprintln!("E_USAGE: run-command-v1 reads the command from stdin");
+                return 2;
+            }
+            let result = std::env::current_dir()
+                .map_err(|error| error.to_string())
+                .and_then(|root| command_stream::command(&root));
+            match result {
+                Ok(()) => 0,
+                Err(error) => {
+                    eprintln!("{error}");
+                    2
+                }
+            }
         }));
     }
     if mode.as_deref() == Some(std::ffi::OsStr::new("prepare-command-v1")) {
