@@ -11,17 +11,17 @@
     {"path": ".github/ISSUE_TEMPLATE/enhancement.yml", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": ".github/ISSUE_TEMPLATE/question.yml", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": ".github/PULL_REQUEST_TEMPLATE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": ".config/mise/conf.d/chrono-harness.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": ".config/mise/conf.d/chrono-harness.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
     {"path": ".chrono-harness/pr.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".chrono-harness/USAGE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": ".chrono-harness/template-answers.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".chrono-harness/.gitignore", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".chrono-harness/FILEMAP.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}]},
-    {"path": ".chrono-harness/check.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}]},
-    {"path": ".chrono-harness/projects.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}]},
+    {"path": ".chrono-harness/FILEMAP.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
+    {"path": ".chrono-harness/check.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
+    {"path": ".chrono-harness/projects.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
     {"path": ".github/roadmap.cjs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".github/workflows/issue-roadmap.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".github/workflows/check.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": ".github/workflows/check.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
     {"path": ".github/workflows/release.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": ".gitignore", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "README.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
@@ -62,7 +62,7 @@
     {"path": "crates/runner-tests/tests/verified_cli.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/verified_fixture.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/verified_git_binding.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_limits.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": "crates/runner-tests/tests/verified_limits.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}], "verification": {"role": "program", "roots": [{"path": "crates/runner-tests/tests/verified_limits.rs", "operation": "verify.resource-limits-tests"}]}},
     {"path": "crates/runner-tests/tests/verified_identifiers.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/verified_paths.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/verified_release.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
@@ -127,7 +127,7 @@
     {"path": "crates/proofs/verifier/src/verified_continuity.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/verified_export.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/verified_git_binding.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/verified_limits.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": "crates/runner/src/verified_limits.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}], "verification": {"role": "program", "roots": [{"path": "crates/runner/src/verified_limits.rs", "operation": "verify.resource-limits"}, {"path": "crates/runner-tests/tests/verified_limits.rs", "operation": "verify.resource-limits-tests"}]}},
     {"path": "crates/proofs/identifiers/src/lib.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}], "verification": {"role": "program", "roots": [{"path": "crates/proofs/identifiers/src/lib.rs", "operation": "verify.identifiers"}]}},
     {"path": "crates/runner/src/verified_paths.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/verified_scope.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
@@ -138,7 +138,7 @@
     {"path": "crates/runner/src/wire.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/test-process/Cargo.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/test-process/src/lib.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "rust-toolchain.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]}
+    {"path": "rust-toolchain.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]}
   ],
   "project_edges": [],
   "cost_models": {
@@ -158,6 +158,14 @@
     {
       "test": "identifiers",
       "cost": "unmeasured"
+    },
+    {
+      "test": "resource-limits",
+      "cost": "unmeasured"
+    },
+    {
+      "test": "resource-limits-tests",
+      "cost": "unmeasured"
     }
   ],
   "execution_plans": {
@@ -171,6 +179,20 @@
     "test:identifiers": {
       "operations": [
         "verify.identifiers"
+      ],
+      "timeout_seconds": 1800,
+      "output_limit_bytes": 1048576
+    },
+    "test:resource-limits": {
+      "operations": [
+        "verify.resource-limits"
+      ],
+      "timeout_seconds": 1800,
+      "output_limit_bytes": 1048576
+    },
+    "test:resource-limits-tests": {
+      "operations": [
+        "verify.resource-limits-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576

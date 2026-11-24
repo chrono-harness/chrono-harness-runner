@@ -1,4 +1,8 @@
 //! Nonblocking hints to the existing maintenance owner. No task or disposal state.
+#[cfg(verus_keep_ghost)]
+#[path = "artifact_disposal.rs"]
+#[rustfmt::skip]
+pub mod artifact_disposal;
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
