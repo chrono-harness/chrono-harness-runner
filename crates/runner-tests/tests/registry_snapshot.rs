@@ -293,10 +293,16 @@ fn registration_inventory_uses_the_observed_candidate_and_optional_baseline() {
             json!({"op":"candidate-inventory"}),
             json!({"op":"verify-tree","endpoint":"base"}),
             json!({"op":"observation"}),
-            json!({"op":"tree-entries","endpoint":"candidate"}),
+            json!({"op":"tree-entries","endpoint":"candidate","retain_output_modes":true}),
             json!({"op":"tree-entries","endpoint":"base"}),
             json!({"op":"blob-batch","endpoint":"candidate","paths":[path,path]}),
             json!({"op":"registry-at","endpoint":"candidate","config":CONFIG}),
+            json!({"op":"bind-operation-output","state":"passed","operation":"unit","original":null}),
+            json!({"op":"prepare-output-binding","methods":[{"operation":"unit","argv":["test"],"output_limit_bytes":4096}],"registry":null}),
+            json!({"op":"bind-operation-output","state":"blocked","operation":"unit","original":null}),
+            json!({"op":"bind-operation-output","state":"passed","operation":"unit","original":null}),
+            json!({"op":"bind-operation-output","state":"passed","operation":"unit","original":{"operation":"unit","argv":["tool","test"],"stdout":[],"exit":0,"failed":false}}),
+            json!({"op":"bind-operation-output","state":"passed","operation":"unit","original":{"operation":"unit","argv":["tool","different"],"stdout":[],"exit":0,"failed":false}}),
         ] {
             serde_json::to_writer(&mut frames, &query).unwrap();
             frames.push(b'\n');
@@ -310,6 +316,23 @@ fn registration_inventory_uses_the_observed_candidate_and_optional_baseline() {
     };
     let initial = run(None, json!({}));
     assert_eq!(initial[0], Ok(json!({"bound":false})));
+    assert_eq!(
+        initial[9],
+        Err("E_PROTOCOL: no registered CI output binding".into())
+    );
+    assert_eq!(initial[10], Ok(json!(null)));
+    assert_eq!(initial[11], Ok(json!(null)));
+    assert_eq!(
+        initial[12],
+        Err("E_VERUS_RESULT: successful operation has no original receipt".into())
+    );
+    assert_eq!(initial[13], Ok(json!(null)));
+    assert!(
+        initial[14]
+            .as_ref()
+            .unwrap_err()
+            .starts_with("E_VERUS_RESULT:")
+    );
     assert_eq!(initial[1], Ok(json!(root)));
     let inventory = initial[2].as_ref().unwrap();
     assert!(inventory["delta"].is_null());
