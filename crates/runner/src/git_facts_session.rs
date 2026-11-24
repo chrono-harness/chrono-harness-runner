@@ -20,6 +20,12 @@ enum Open {
         base: String,
         candidate: String,
     },
+    Observed {
+        config: String,
+        base: Option<String>,
+        candidate: String,
+        observations: Value,
+    },
     Request {
         request: Box<wire::Request>,
     },
@@ -47,6 +53,8 @@ enum Operation {
     },
     ShallowBoundaries,
     Delta,
+    CheckoutRoot,
+    CandidateInventory,
     RegistrySnapshot {
         endpoint: Endpoint,
     },
@@ -100,7 +108,7 @@ enum Operation {
 struct Session {
     root: PathBuf,
     config: String,
-    base: String,
+    base: Option<String>,
     candidate: String,
     reader: facts::Reader,
 }
@@ -110,7 +118,7 @@ impl Session {
             Open::History => (
                 cwd.to_owned(),
                 String::new(),
-                String::new(),
+                None,
                 String::new(),
                 facts::Reader::legacy(),
             ),
@@ -129,6 +137,20 @@ impl Session {
                 } else {
                     facts::Reader::for_config(cwd, &config)?
                 };
+                (cwd.to_owned(), config, Some(base), candidate, reader)
+            }
+            Open::Observed {
+                config,
+                base,
+                candidate,
+                observations,
+            } => {
+                if let Some(base) = &base {
+                    facts::full_oid(base)?;
+                }
+                facts::full_oid(&candidate)?;
+                let reader =
+                    facts::Reader::from_observations(cwd, &config, &candidate, &observations)?;
                 (cwd.to_owned(), config, base, candidate, reader)
             }
             Open::Request { request } => {
@@ -136,7 +158,7 @@ impl Session {
                 (
                     request.candidate.root,
                     request.config_path,
-                    request.base.commit,
+                    Some(request.base.commit),
                     request.candidate.commit,
                     reader,
                 )
@@ -150,14 +172,17 @@ impl Session {
             reader,
         })
     }
-    fn commit(&self, endpoint: Endpoint) -> &str {
+    fn commit(&self, endpoint: Endpoint) -> Result<&str, String> {
         match endpoint {
-            Endpoint::Base => &self.base,
-            Endpoint::Candidate => &self.candidate,
+            Endpoint::Base => self
+                .base
+                .as_deref()
+                .ok_or_else(|| "E_PROTOCOL: no base endpoint".into()),
+            Endpoint::Candidate => Ok(&self.candidate),
         }
     }
     fn snapshot(&self, endpoint: Endpoint, checked_out: bool) -> Result<Value, String> {
-        let commit = self.commit(endpoint);
+        let commit = self.commit(endpoint)?;
         if checked_out {
             self.reader.verify_config(&self.root, commit)?;
             self.reader.verify_oid(&self.root, commit)?;
@@ -210,7 +235,7 @@ impl Session {
             }
             Operation::VerifyTree { endpoint } => Ok(self
                 .reader
-                .verify_oid(&self.root, self.commit(endpoint))?
+                .verify_oid(&self.root, self.commit(endpoint)?)?
                 .into()),
             Operation::VerifyCommit { commit } => {
                 Ok(self.reader.verify_oid(&self.root, &commit)?.into())
@@ -238,14 +263,38 @@ impl Session {
                 };
                 Ok(json!(boundaries.lines().collect::<Vec<_>>()))
             }
+            Operation::CheckoutRoot => {
+                let top = facts::utf8(
+                    self.reader
+                        .git(&self.root, &["rev-parse", "--show-toplevel"])?,
+                )?;
+                let path = fs::canonicalize(top.trim()).map_err(|error| error.to_string())?;
+                serde_json::to_value(path).map_err(|error| error.to_string())
+            }
+            Operation::CandidateInventory => {
+                let before = self
+                    .base
+                    .as_ref()
+                    .map(|oid| self.reader.tree(&self.root, oid))
+                    .transpose()?;
+                let after = self.reader.tree(&self.root, &self.candidate)?;
+                let delta = before.map(|tree| facts::delta(&tree, &after));
+                let entries: BTreeMap<_, _> = after
+                    .into_iter()
+                    .map(|(path, entry)| (path.text, json!({"mode":entry.mode,"kind":entry.kind})))
+                    .collect();
+                Ok(json!({"entries":entries,"delta":delta}))
+            }
             Operation::Delta => {
-                let before = self.reader.tree(&self.root, &self.base)?;
+                let before = self.reader.tree(&self.root, self.commit(Endpoint::Base)?)?;
                 let after = self.reader.tree(&self.root, &self.candidate)?;
                 Ok(json!(facts::delta(&before, &after)))
             }
             Operation::JsonBlob { endpoint, path } => {
                 crate::relative_path(&path)?;
-                let bytes = self.reader.blob(&self.root, self.commit(endpoint), &path)?;
+                let bytes = self
+                    .reader
+                    .blob(&self.root, self.commit(endpoint)?, &path)?;
                 crate::json(&bytes).map_err(|error| format!("E_SEMANTIC_INPUT: {path}: {error}"))
             }
             Operation::Observation => Ok(self.reader.observation()),

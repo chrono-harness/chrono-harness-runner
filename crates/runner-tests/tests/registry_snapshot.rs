@@ -272,3 +272,55 @@ fn selector_snapshot_keeps_entry_and_independent_endpoint_targets() {
     let missing = git(root, &["rev-parse", "HEAD"]);
     assert!(facts::registry_snapshot(root, &missing, selector).is_err());
 }
+
+#[test]
+fn registration_inventory_uses_the_observed_candidate_and_optional_baseline() {
+    if !git_fixture::isolated(
+        "registration_inventory_uses_the_observed_candidate_and_optional_baseline",
+    ) {
+        return;
+    }
+    let (dir, _, before) = fixture();
+    let root = fs::canonicalize(dir.path()).unwrap();
+    let path = "registered café.txt";
+    fs::write(root.join(path), b"added\n").unwrap();
+    let candidate = commit(&root);
+    let run = |base: Option<&str>, observations: serde_json::Value| {
+        let mut frames = Vec::new();
+        for query in [
+            json!({"mode":"observed","config":CONFIG,"base":base,"candidate":candidate,"observations":observations}),
+            json!({"op":"checkout-root"}),
+            json!({"op":"candidate-inventory"}),
+            json!({"op":"verify-tree","endpoint":"base"}),
+            json!({"op":"observation"}),
+        ] {
+            serde_json::to_writer(&mut frames, &query).unwrap();
+            frames.push(b'\n');
+        }
+        let mut output = Vec::new();
+        chrono_harness::git_facts_session::serve(&root, frames.as_slice(), &mut output).unwrap();
+        serde_json::Deserializer::from_slice(&output)
+            .into_iter::<Result<serde_json::Value, String>>()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    let initial = run(None, json!({}));
+    assert_eq!(initial[0], Ok(json!({"bound":false})));
+    assert_eq!(initial[1], Ok(json!(root)));
+    let inventory = initial[2].as_ref().unwrap();
+    assert!(inventory["delta"].is_null());
+    assert_eq!(
+        inventory["entries"][path],
+        json!({"kind":"blob","mode":"100644"})
+    );
+    assert!(initial[3].is_err());
+    assert_eq!(initial[4], Ok(serde_json::Value::Null));
+    let pair = run(Some(&before), json!({}));
+    let delta = &pair[2].as_ref().unwrap()["delta"];
+    assert_eq!(delta.as_array().unwrap().len(), 1);
+    assert_eq!(delta[0]["kind"], "A");
+    assert_eq!(delta[0]["path"], path);
+    let refused = run(None, json!({"git_facts":{"schema":"wrong"}}));
+    assert_eq!(refused.len(), 1);
+    assert!(refused[0].as_ref().unwrap_err().contains("binding"));
+}
