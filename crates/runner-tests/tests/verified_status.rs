@@ -9073,4 +9073,61 @@ fn evidence_clone_keeps_every_field_without_identity_filtering() {
     expect_status_text(copied.kind.as_str(), "原种类\0\n");
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn finding_namespaces_choose_the_recorded_owner() {
+    use policy::{finding_owner,FindingOwner::*};
+    proof {
+        reveal_strlit("config"); reveal_strlit("filemap"); reveal_strlit("judges"); reveal_strlit("workflow");
+        reveal_strlit("projects"); reveal_strlit("candidate"); reveal_strlit("request"); reveal_strlit("registries");
+        reveal_strlit("base"); reveal_strlit("digest"); reveal_strlit(""); reveal_strlit("bogus");
+        reveal_strlit("/base/filemap/0"); reveal_strlit("/filemap/0"); reveal_strlit("/0"); reveal_strlit("impact");
+        reveal_strlit("/candidate/filemap/0"); reveal_strlit("/digest"); reveal_strlit("/missing"); reveal_strlit("/request/0");
+    }
+    proof {
+        assert(""@.len() == 0);
+        assert("/digest"@.len() == 7 && "/candidate/filemap/0"@.len() > 0);
+        assert("/missing"@.len() == 8);
+        assert("/base/filemap/0"@.len() > 0 && "/filemap/0"@.len() > 0);
+        assert("impact"@[0] == 'i');
+        assert("bogus"@[0] == 'b');
+        assert("registries"@[0] == 'r');
+        assert("request"@[0] == 'r');
+        assert("config"@[0] == 'c');
+        assert("filemap"@[0] == 'f');
+        assert("projects"@[0] == 'p');
+        assert("judges"@[0] == 'j');
+        assert("workflow"@[0] == 'w');
+        assert("digest"@[0] == 'd');
+        assert("candidate"@[0] == 'c');
+        assert("base"@[0] == 'b');
+        assert("base"@[1] == 'a');
+        assert("bogus"@[1] == 'o');
+        assert("registries"@[2] == 'g');
+        assert("request"@[2] == 'q');
+        assert("candidate"@[1] == 'a');
+        assert("config"@[1] == 'o');
+    }
+    let empty = ("","");
+    expect_status_true(matches!(finding_owner("/request/0",("request","/0"),empty,empty,true,false),
+        Request(p) if scope_text::equal_text(p,"/0")));
+    expect_status_true(matches!(finding_owner("/missing",("impact","/missing"),empty,empty,false,true),Request(_)));
+    expect_status_true(matches!(finding_owner("/missing",("bogus",""),empty,empty,false,false),Unknown));
+    expect_status_true(matches!(finding_owner("",("registries",""),empty,empty,true,false),RegistryIdentity));
+    expect_status_true(matches!(finding_owner("/digest",("registries","/digest"),("digest",""),empty,false,true),Request(_)));
+    expect_status_true(matches!(finding_owner("",("filemap","/0"),empty,empty,false,false),
+        Document {endpoint,role,pointer} if scope_text::equal_text(endpoint,"candidate")
+            && scope_text::equal_text(role,"filemap") && scope_text::equal_text(pointer,"/0")));
+    expect_status_true(matches!(finding_owner("",("registries","/filemap/0"),("filemap","/0"),empty,true,false),
+        Document {endpoint,role,pointer} if scope_text::equal_text(endpoint,"candidate")
+            && scope_text::equal_text(role,"filemap") && scope_text::equal_text(pointer,"/0")));
+    expect_status_true(matches!(finding_owner("",("registries","/candidate/filemap/0"),("candidate","/filemap/0"),("filemap","/0"),true,false),
+        Document {endpoint,role,pointer} if scope_text::equal_text(endpoint,"candidate")
+            && scope_text::equal_text(role,"filemap") && scope_text::equal_text(pointer,"/0")));
+    expect_status_true(matches!(finding_owner("",("registries","/base/filemap/0"),("base","/filemap/0"),("filemap","/0"),false,false),
+        Document {endpoint,role,pointer} if scope_text::equal_text(endpoint,"base")
+            && scope_text::equal_text(role,"filemap") && scope_text::equal_text(pointer,"/0")));
+    expect_status_true(matches!(finding_owner("",("registries","/base/filemap/0"),("base","/filemap/0"),("filemap","/0"),true,false),Unknown));
+    expect_status_true(matches!(finding_owner("",("registries","/missing"),("bogus",""),empty,false,true),Unknown));
+}
+
 }
