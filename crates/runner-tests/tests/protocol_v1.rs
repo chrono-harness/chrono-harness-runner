@@ -2950,7 +2950,8 @@ fn delayed_monitor_helper() {
         args: vec!["child".into()],
         env: Default::default(),
         timeout_seconds: 1,
-        output_limit_bytes: 4096,
+        // The child writes 512 bytes before the suspended reader can drain the pipe.
+        output_limit_bytes: 511,
     };
     // Complete this launcher's first owned process handoff before the short
     // experiment. The probe uses the same executable,
@@ -3062,7 +3063,7 @@ fn delayed_monitor(case: &str) -> chrono_harness::ProcessResult {
         serde_json::from_slice(&fs::read(root.path().join("result.json")).unwrap()).unwrap();
     assert_eq!(result.exit_code, 7, "{result:?}; kernel: {observed}");
     if case == "overflow" {
-        assert_eq!(result.stdout_bytes, vec![b'x'; 4096]);
+        assert_eq!(result.stdout_bytes, vec![b'x'; 511]);
     } else {
         assert!(result.stdout_bytes.is_empty());
     }
