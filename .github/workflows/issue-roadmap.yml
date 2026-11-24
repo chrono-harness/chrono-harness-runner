@@ -30,6 +30,16 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+      - name: Install the release verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory=$(mktemp -d "$RUNNER_TEMP/release-tool.XXXXXXXX")
+          curl --fail --silent --show-error --location "https://github.com/chrono-harness/chrono-harness-host-release/releases/download/v0.1.0-alpha.18/chrono-host-release-linux-x86_64" -o "$directory/chrono-host-release"
+          (cd "$directory" && echo "146f0146278a7e25110981ade433f200fd4f57e5f8bb14e36a469996fdcd0b3f  chrono-host-release" | sha256sum --check --status)
+          chmod 755 "$directory/chrono-host-release"
+          echo "$directory" >> "$GITHUB_PATH"
+
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
           script: await require('./.github/roadmap.cjs').releaseIssue(github, context)
@@ -45,6 +55,16 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+      - name: Install the release verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory=$(mktemp -d "$RUNNER_TEMP/release-tool.XXXXXXXX")
+          curl --fail --silent --show-error --location "https://github.com/chrono-harness/chrono-harness-host-release/releases/download/v0.1.0-alpha.18/chrono-host-release-linux-x86_64" -o "$directory/chrono-host-release"
+          (cd "$directory" && echo "146f0146278a7e25110981ade433f200fd4f57e5f8bb14e36a469996fdcd0b3f  chrono-host-release" | sha256sum --check --status)
+          chmod 755 "$directory/chrono-host-release"
+          echo "$directory" >> "$GITHUB_PATH"
+
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
           script: |
