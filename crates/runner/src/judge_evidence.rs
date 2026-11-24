@@ -9,6 +9,16 @@ use std::{
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
+    ScopedReportPath {
+        config: crate::CheckConfig,
+        scope: crate::units::Scope,
+    },
+    ScopedReferencePublication {
+        config: crate::CheckConfig,
+    },
+    CheckoutIndexIssue {
+        flags: Vec<crate::verified_status::IndexFlag>,
+    },
     DecodeJson {
         text: String,
     },
@@ -91,6 +101,15 @@ enum Operation {
 impl Operation {
     fn evaluate(self) -> Result<Value, String> {
         match self {
+            Operation::ScopedReportPath { config, scope } => Ok(json!(scope.report_path(&config)?)),
+            Operation::ScopedReferencePublication { config } => {
+                Ok(json!(crate::units::reference_publication(&config)?))
+            }
+            Operation::CheckoutIndexIssue { flags } => Ok(json!(
+                crate::verified_status::first_unsupported_index_flag(&flags)
+                    .map(|(entry, reason)| json!({"path":entry.path,"reason":reason.message()}))
+            )),
+
             Operation::DecodeJson { text } => crate::json(text.as_bytes()),
             Operation::ValidateRequest { request } => {
                 request.validate()?;
