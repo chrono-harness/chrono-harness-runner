@@ -216,6 +216,14 @@ enum Operation {
         request: Box<crate::prepared::InputRequest>,
         result: Box<crate::prepared::PreparedCheck>,
     },
+    ValidatePortableBinding {
+        binding: Value,
+        transport: Option<ArtifactTransport>,
+    },
+    RestoreScopedProcess {
+        process: Value,
+        limit: u64,
+    },
     ReadOriginal {
         original: Original,
         transport: Option<ArtifactTransport>,
@@ -678,6 +686,23 @@ impl Session<'_> {
                 crate::prepared::validate_result(&request, &result)?;
                 Ok(Value::Null)
             }
+            Operation::ValidatePortableBinding { binding, transport } => {
+                crate::prepared::validate_portable_binding_with_reader(
+                    root,
+                    &binding,
+                    transport.as_ref(),
+                    |original| requested_original(input, output, original, 64 * 1024 * 1024),
+                )?;
+                Ok(Value::Null)
+            }
+            Operation::RestoreScopedProcess { process, mut limit } => {
+                let restored = crate::scoped_report::restore_process(&process, |original| {
+                    let bytes = requested_original(input, output, original, limit)?;
+                    limit -= bytes.len() as u64;
+                    Ok(bytes)
+                })?;
+                serde_json::to_value(restored).map_err(|error| error.to_string())
+            }
             Operation::ReadOriginal {
                 original,
                 transport,
@@ -764,6 +789,39 @@ impl Write for Bounded<'_> {
         self.file.flush()
     }
 }
+/// The collector supplies each original under its own cumulative budget and declared paths.
+fn requested_original(
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    original: &Original,
+    limit: u64,
+) -> Result<Vec<u8>, String> {
+    write_frame(output, &json!({"read_original": original}))?;
+    let mut header = String::new();
+    input
+        .take(MAX_FRAME + 1)
+        .read_line(&mut header)
+        .map_err(|error| error.to_string())?;
+    if header.len() as u64 > MAX_FRAME || !header.ends_with('\n') {
+        return Err("invalid original reader header".into());
+    }
+    let length = serde_json::from_str::<Result<u64, String>>(&header)
+        .map_err(|error| error.to_string())??;
+    if length > limit {
+        return Err("original exceeds collection bound".into());
+    }
+    write_frame(output, &json!({"send_original":true}))?;
+    let mut bytes = Vec::new();
+    input
+        .take(length)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 != length {
+        return Err("truncated collection original".into());
+    }
+    Ok(bytes)
+}
+
 fn write_frame(output: &mut impl Write, frame: &impl serde::Serialize) -> Result<(), String> {
     serde_json::to_writer(&mut *output, frame).map_err(|e| e.to_string())?;
     output
@@ -771,6 +829,8 @@ fn write_frame(output: &mut impl Write, frame: &impl serde::Serialize) -> Result
         .and_then(|()| output.flush())
         .map_err(|e| e.to_string())
 }
+
+const MAX_FRAME: u64 = 128 * 1024 * 1024;
 
 pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Result<(), String> {
     let mut session = Session {
@@ -786,13 +846,13 @@ pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Re
     loop {
         let mut line = Vec::new();
         (&mut input)
-            .take(128 * 1024 * 1024 + 1)
+            .take(MAX_FRAME + 1)
             .read_until(b'\n', &mut line)
             .map_err(|e| e.to_string())?;
         if line.is_empty() {
             return Ok(());
         }
-        if line.len() > 128 * 1024 * 1024 || !line.ends_with(b"\n") {
+        if line.len() as u64 > MAX_FRAME || !line.ends_with(b"\n") {
             return Err("invalid retained operation frame".into());
         }
         let result = decode(&line).and_then(|op| session.apply(op, &mut input, &mut output));

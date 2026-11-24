@@ -86,6 +86,8 @@ CI 提供者用 `git-facts-v1` 的 `config` 模式打开登记的 Git 配置。�
 
 在报告收集过程中，同一个 `retained-artifacts-v1` 会话提供 `resolve-map`、`transport-map` 和 `restage-map` 处理已登记原件，`artifact-identity` 核对摘要与长度，`read-artifact-text` 读取原文，`read-bounded-text` 执行有上限的本地读取。调用 `check-preparation` 核验准备阶段的封存输入、可选转运位置和原件映射。
 
+离线 CI 收集器使用 `validate-portable-binding` 核验准备结果和可选转运目录，使用 `restore-scoped-process` 按调用方给定的剩余字节数重建进程回执。两项操作逐件发出 `{"read_original":{"path":"…","sha256":"…"}}`。收集器持有读取租约、核对宿主路径与配额，回复一行 `{"Ok":字节数}` 或 `{"Err":"读取错误"}`。runner 接受长度后发出一行 `{"send_original":true}`，收集器随后写入指定长度的原始字节。最后一行 `{"Ok":结果}` 或 `{"Err":"校验错误"}` 结束本次操作。
+
 `compiler-output-v1` 的 `canonical` 操作返回参数是否对应登记的编译器输出；`observe` 在原工作目录读取声明的依赖文件并核对库的实际 SHA-256 与长度，在进程失败时保留原始判断结果。
 
 runner 的生产和专属测试项目可分别用各自的 Cargo manifest 和 lock 构建。使用宿主日志时，在 PATH 中安装本仓清单固定的 chrono-diagnostics。它通过 cli-events-v1 写入宿主选择的滚动文件，接收真实进程的 PID、span、退出状态和诊断。原生输出发布失败时，runner 把同一个 Rust I/O 错误留给调用方，并将错误记录送到 diagnostics 的显式 stderr 输出接口。
