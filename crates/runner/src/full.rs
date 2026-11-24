@@ -688,7 +688,7 @@ pub fn validate_execution(
                 ));
             }
             if let Some(process_error) = record["process"].get("failure_record") {
-                let expected: chrono_diagnostics::error::ErrorRecord =
+                let expected: crate::process_error::ErrorRecord =
                     serde_json::from_value(process_error.clone()).map_err(|e| {
                         format!("E_SELF_DIAGNOSTIC: record {id} process failure record: {e}")
                     })?;
@@ -1605,10 +1605,10 @@ pub fn check_prepared(
         }
         Err(error) => {
             publication_failures.push(
-                chrono_diagnostics::error::Failure::wrap(
+                crate::process_error::Failure::wrap(
                     "E_FULL_REPORT_PUBLISH",
                     "full report publication failed",
-                    chrono_diagnostics::error::NativeIoError::new(error),
+                    crate::process_error::NativeIoError::new(error),
                 )
                 .at("path", path.to_string_lossy().into_owned())
                 .at("phase", "write"),
@@ -1654,10 +1654,10 @@ pub fn check_prepared(
     }
     if let Some(error) = handoff_error {
         publication_failures.push(
-            chrono_diagnostics::error::Failure::wrap(
+            crate::process_error::Failure::wrap(
                 "E_FULL_REPORT_HANDOFF",
                 "full report publication handoff failed",
-                chrono_diagnostics::error::NativeIoError::new(std::io::Error::other(error)),
+                crate::process_error::NativeIoError::new(std::io::Error::other(error)),
             )
             .at("path", publication_path),
         );
@@ -1672,10 +1672,10 @@ pub fn check_prepared(
             .transpose()
             .map_err(|e| e.to_string())?;
         let mut failure = match original {
-            Some(original) => chrono_diagnostics::error::Failure::wrap(
+            Some(original) => crate::process_error::Failure::wrap(
                 "E_FULL_REPORT_EVIDENCE",
                 "full report publication failed after judge failure",
-                chrono_diagnostics::error::ReceivedError::from(original.error),
+                crate::process_error::ReceivedError::from(original.error),
             ),
             None => publication_failures.remove(0),
         };

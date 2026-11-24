@@ -3795,6 +3795,11 @@ fn producer_logging_and_invalid_os_argument_keep_existing_text_boundary() {
     let (root, _) = producer_host();
     fs::create_dir(root.path().join(".chrono-harness")).unwrap();
     fs::write(root.path().join(".chrono-harness/logging.json"), br#"{"schema":"chrono-runtime-logging/v1","level":"info","directory":".chrono-harness/state/logs/","max_bytes":8192,"max_files":3,"stderr":false}"#).unwrap();
+    fs::write(
+        root.path().join("mock-diagnostics.json"),
+        br#"{"record":true}"#,
+    )
+    .unwrap();
     let output = producer_command(root.path(), &["--version"], b"")
         .output()
         .unwrap();
@@ -3810,27 +3815,18 @@ fn producer_logging_and_invalid_os_argument_keep_existing_text_boundary() {
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
     assert_eq!(error["event"], "cli.invalid_argument");
     assert!(!root.path().join("producer-evaluated").exists());
-    let rows: Vec<serde_json::Value> = fs::read_dir(root.path().join(".chrono-harness/state/logs"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
-        .flat_map(|path| {
-            fs::read_to_string(path)
-                .unwrap()
-                .lines()
-                .map(|line| serde_json::from_str(line).unwrap())
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    assert!(rows.iter().any(|row| row["event"] == "cli.started"));
+    let requests = fs::read_to_string(root.path().join("mock-diagnostics.jsonl")).unwrap();
+    let rows = requests
+        .lines()
+        .map(|r| serde_json::from_str::<serde_json::Value>(r).unwrap())
+        .collect::<Vec<_>>();
+    assert!(rows.iter().any(|r| r["start"]["operation"] == "--version"));
+    assert!(rows.iter().any(|r| r["exit_code"] == 0));
     assert!(
         rows.iter()
-            .any(|row| row["event"] == "cli.finished" && row["fields"]["exit_code"] == 0)
+            .any(|r| r["invalid_argument"]["bytes"].is_array())
     );
-    assert!(
-        rows.iter()
-            .any(|row| row["event"] == "cli.invalid_argument")
-    );
+    assert!(rows.iter().any(|r| r["exit_code"] == 2));
 }
 
 // 新模式预期与真实子进程使用同一 helper；其余协议与 IO 用例保留原生执行。

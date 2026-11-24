@@ -2369,3 +2369,36 @@ fn prepared_initial_identity_requires_the_explicit_profile_and_standalone_scope(
         "both profile identities are request-bound"
     );
 }
+
+#[test]
+fn disconnected_diagnostic_owner_cannot_discard_the_original_writer_error() {
+    use std::io::{self, Write};
+    struct Broken(&'static str);
+    impl Write for Broken {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other(self.0))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let output = chrono_harness::CliOutput {
+        exit_code: 1,
+        stdout: "business".into(),
+        stderr: String::new(),
+    };
+    let failure = chrono_harness::publish_output(
+        &output,
+        &mut Broken("primary"),
+        Broken("observed before session disconnect"),
+    )
+    .unwrap_err();
+    assert_eq!(failure.record().error.code, "E_OUTPUT_PUBLISH");
+    assert!(failure.related().any(|(role, cause)| {
+        role == "diagnostic_publication"
+            && cause
+                .source()
+                .and_then(|e| e.downcast_ref::<io::Error>())
+                .is_some_and(|e| e.to_string() == "observed before session disconnect")
+    }));
+}

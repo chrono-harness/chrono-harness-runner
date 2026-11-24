@@ -137,3 +137,10 @@ path = "tests/maintenance_signal.rs"
 [[test]]
 name = "verified_identifiers"
 path = "tests/verified_identifiers.rs"
+
+
+[[bin]]
+name = "chrono-test-diagnostics"
+path = "tests/support/diagnostics_mock.rs"
+test = false
+bench = false

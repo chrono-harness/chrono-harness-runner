@@ -1,9 +1,6 @@
 //! The CLI boundary owns output policy; diagnostics owns records and logging.
 use crate::CliOutput;
-use chrono_diagnostics::{
-    error::{Failure, NativeIoError},
-    logging::{self, LogFailure, Logger},
-};
+use crate::process_error::{Failure, NativeIoError};
 use std::io::{self, Write};
 
 /// Write through the supplied output handle without duplicating its descriptor.
@@ -187,26 +184,12 @@ pub fn publish_output<WOut: Write, WErr: Write + Send + 'static>(
         needs_newline: stderr.last_byte.is_some_and(|byte| byte != b'\n'),
         writer: stderr.writer,
     };
-    let logger = Logger::new("chrono-harness", logging::Level::INFO, writer);
-    if let Err(source) = logger.run(|| {
-        logging::failure(
-            "runner.output_publication_failed",
-            &error.to_string(),
-            &error.record(),
-        )
-    }) {
-        error = error.with_related(
-            "diagnostic_serialization",
-            LogFailure::Json {
-                source,
-                observed_fields: Default::default(),
-            },
-        );
-    }
-    if let Err(failures) = logger.finish() {
-        for failure in failures {
-            error = error.with_related("diagnostic_publication", failure);
-        }
+    for failure in crate::diagnostic_session::publish_failure(
+        "runner.output_publication_failed",
+        &error,
+        writer,
+    ) {
+        error = error.with_related("diagnostic_publication", failure);
     }
     Err(error)
 }

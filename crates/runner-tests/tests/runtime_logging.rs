@@ -19,13 +19,12 @@ fn policy(root: &Path, max_bytes: u64) {
 }
 
 #[test]
-fn actual_cli_records_success_failure_and_rotates_without_stdout_changes() {
+fn cli_forwards_lifecycle_and_diagnostics_without_changing_the_business_streams() {
     let fixture = tempfile::tempdir().unwrap();
-    let root = fs::canonicalize(fixture.path()).unwrap();
+    let root = fixture.path().canonicalize().unwrap();
     policy(&root, 1024);
-    // Check the diagnostic while it is in the retained window, after enough normal
-    // invocations to exercise rotation. Old records may correctly have expired.
-    for arg in ["--version", "--version", "--version", "unknown-command"] {
+    fs::write(root.join("mock-diagnostics.json"), br#"{"record":true}"#).unwrap();
+    for arg in ["--version", "unknown-command"] {
         let expected = chrono_harness::dispatch(&[arg]);
         let actual = Command::new(binary())
             .arg(arg)
@@ -36,90 +35,47 @@ fn actual_cli_records_success_failure_and_rotates_without_stdout_changes() {
         assert_eq!(actual.stdout, expected.stdout.as_bytes());
         assert_eq!(actual.stderr, expected.stderr.as_bytes());
     }
-    let directory = root.join(".chrono-harness/state/logs");
-    let mut rows = Vec::new();
-    for entry in fs::read_dir(&directory).expect("normal CLI execution must create runtime logs") {
-        let path = entry.unwrap().path();
-        if path.extension().is_some_and(|e| e == "jsonl") {
-            let bytes = fs::read(path).unwrap();
-            assert!(bytes.len() <= 1024 && bytes.ends_with(b"\n"));
-            rows.extend(
-                std::str::from_utf8(&bytes)
-                    .unwrap()
-                    .lines()
-                    .map(|s| serde_json::from_str::<Value>(s).unwrap()),
-            );
-        }
-    }
-    assert!(directory.join("runtime.1.jsonl").exists());
-    assert!(!directory.join("runtime.3.jsonl").exists());
-    assert!(
-        rows.iter()
-            .all(|r| r["schema"] == "chrono-log/v1" && r["producer"] == "chrono-harness")
-    );
-    assert!(rows.iter().any(|r| r["event"] == "cli.started"));
-    assert!(
-        rows.iter()
-            .any(|r| r["event"] == "cli.diagnostic" && r["message"] == "E_USAGE: use --help\n")
-    );
-    assert!(rows.iter().any(|r| r["event"] == "cli.finished"
-        && r["level"] == "error"
-        && r["fields"]["exit_code"] == 2));
-    assert!(
-        rows.iter()
-            .any(|r| r["event"] == "cli.finished" && r["fields"]["exit_code"] == 0)
-    );
+    let lines = fs::read_to_string(root.join("mock-diagnostics.jsonl")).unwrap();
+    let rows = lines
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .collect::<Vec<_>>();
+    let starts = rows
+        .iter()
+        .filter(|r| r.get("start").is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(starts.len(), 2);
+    assert_eq!(starts[0]["start"]["name"], "chrono-harness");
+    assert_eq!(starts[0]["start"]["operation"], "--version");
+    assert!(starts[0]["start"]["pid"].as_u64().unwrap() > 0);
+    assert!(rows.iter().any(|r| r["exit_code"] == 0));
+    assert!(rows.iter().any(|r| r["exit_code"] == 2));
+    assert!(lines.contains("cli.diagnostic"));
 }
-
 #[test]
-fn actual_cli_reports_log_failure_and_preserves_operation_exit() {
+fn cli_preserves_owner_failure_before_ready_and_after_business_output() {
     let fixture = tempfile::tempdir().unwrap();
-    let root = fs::canonicalize(fixture.path()).unwrap();
-    policy(&root, 1);
-    for (argument, operation_exit) in [("unknown-command", 2), ("--version", 0)] {
-        let actual = Command::new(binary())
-            .arg(argument)
+    let root = fixture.path().canonicalize().unwrap();
+    policy(&root, 1024);
+    for (mode, diagnostic, output) in [
+        ("reject", "mock policy rejected", false),
+        ("finish_failure", "mock cannot finish", true),
+    ] {
+        fs::write(
+            root.join("mock-diagnostics.json"),
+            serde_json::to_vec(&json!({mode:true})).unwrap(),
+        )
+        .unwrap();
+        let cli = Command::new(binary())
+            .arg("--version")
             .current_dir(&root)
             .output()
             .unwrap();
-        let original = chrono_harness::dispatch(&[argument]);
-        assert_eq!(actual.status.code(), Some(2));
-        assert_eq!(actual.stdout, original.stdout.as_bytes());
-        let stderr = std::str::from_utf8(&actual.stderr).unwrap();
-        assert!(stderr.starts_with(&original.stderr));
-        let event: Value = serde_json::from_str(stderr.lines().last().unwrap()).unwrap();
-        assert_eq!(event["event"], "runtime.logging_failed");
-        assert_eq!(
-            event["error"]["error"]["context"]["operation_exit_code"],
-            operation_exit
-        );
-        assert!(
-            !event["error"]["error"]["related"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
+        assert_eq!(cli.status.code(), Some(2));
+        assert_eq!(!cli.stdout.is_empty(), output);
+        assert_eq!(std::str::from_utf8(&cli.stderr).unwrap().trim(), diagnostic);
     }
 }
-
-#[test]
-fn actual_cli_rejects_invalid_policy_before_business_execution() {
-    let fixture = tempfile::tempdir().unwrap();
-    let root = fs::canonicalize(fixture.path()).unwrap();
-    policy(&root, 1024);
-    fs::write(root.join(".chrono-harness/logging.json"), b"invalid json").unwrap();
-    let actual = Command::new(binary())
-        .arg("--version")
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    assert_eq!(actual.status.code(), Some(2));
-    assert!(actual.stdout.is_empty());
-    let event: Value = serde_json::from_slice(&actual.stderr).unwrap();
-    assert_eq!(event["event"], "runtime.logging_failed");
-    assert!(event["error"]["error"]["source"].is_object());
-}
-
 #[test]
 fn absent_host_adoption_leaves_argument_errors_with_the_command() {
     let fixture = tempfile::tempdir().unwrap();
