@@ -125,6 +125,23 @@ struct BlobObject {
 }
 #[cfg(not(verus_keep_ghost))]
 impl BlobObject {
+    fn parse(header: &str, oid_length: usize) -> Result<Self, String> {
+        let mut fields = header.split(' ');
+        let oid = fields.next().ok_or("missing batch object")?;
+        if oid.len() != oid_length || fields.next() != Some("blob") {
+            return Err("expected exact blob metadata".into());
+        }
+        facts::full_oid(oid)?;
+        let size = fields.next().ok_or("missing batch size")?;
+        let length = size.parse::<usize>().map_err(|_| "invalid blob length")?;
+        if length.to_string() != size || fields.next().is_some() {
+            return Err("noncanonical blob metadata".into());
+        }
+        Ok(Self {
+            oid: oid.into(),
+            length,
+        })
+    }
     fn header(&self) -> String {
         format!("{} blob {}\n", self.oid, self.length)
     }
@@ -158,6 +175,52 @@ pub struct RegistryBlob {
     pub path: String,
     pub bytes: Vec<u8>,
     receipt: BlobReceipt,
+}
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn matches_blob_oid(oid: &str, bytes: &[u8]) -> bool {
+    BlobObject {
+        oid: oid.into(),
+        length: bytes.len(),
+    }
+    .matches(bytes)
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn retained_batch_blob<'a>(
+    mut stream: &'a [u8],
+    wanted: &str,
+    stdin_sha256: &str,
+) -> Result<Option<&'a [u8]>, String> {
+    let mut input = String::new();
+    let mut found = None;
+    while !stream.is_empty() {
+        let end = stream
+            .iter()
+            .position(|b| *b == b'\n')
+            .ok_or("incomplete batch header")?;
+        let header = std::str::from_utf8(&stream[..end]).map_err(|e| e.to_string())?;
+        let object = BlobObject::parse(header, wanted.len())?;
+        let payload = &stream[end + 1..];
+        let data = payload
+            .get(..object.length)
+            .ok_or("incomplete batch blob")?;
+        if payload.get(object.length) != Some(&b'\n') {
+            return Err("invalid batch delimiter".into());
+        }
+        input.push_str(&object.oid);
+        input.push('\n');
+        if object.oid == wanted {
+            if !object.matches(data) {
+                return Err("registry blob differs from fixed Git tree".into());
+            }
+            found = Some(data);
+        }
+        stream = &payload[object.length + 1..];
+    }
+    if sha256(input.as_bytes()) != stdin_sha256 {
+        return Err("registry batch differs from recorded Git input".into());
+    }
+    Ok(found)
 }
 /// Acquire only explicit immutable registry paths through the caller's bounded
 /// Git transport. Metadata partitions requests under the same output limit.
@@ -210,23 +273,7 @@ pub fn acquire_registry_blobs(
                 return Err("batch metadata count mismatch".into());
             }
             rows.iter()
-                .map(|row| {
-                    let fields = row.split(' ').collect::<Vec<_>>();
-                    if fields.len() != 3 || fields[1] != "blob" || fields[0].len() != oid.len() {
-                        return Err("expected exact blob metadata".into());
-                    }
-                    facts::full_oid(fields[0])?;
-                    let length = fields[2]
-                        .parse::<usize>()
-                        .map_err(|_| "invalid blob length")?;
-                    if length.to_string() != fields[2] {
-                        return Err("noncanonical blob length".into());
-                    }
-                    Ok(BlobObject {
-                        oid: fields[0].into(),
-                        length,
-                    })
-                })
+                .map(|row| BlobObject::parse(row, oid.len()))
                 .collect()
         };
         let objects = parse().map_err(|e| error(&e))?;

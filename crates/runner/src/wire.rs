@@ -675,18 +675,27 @@ pub(crate) fn validate_response_at(
 fn validate_request_pointers(request: &impl Serialize, r: &Response) -> Result<(), String> {
     // Build the JSON view only when a finding names an actual protocol field.
     let document = std::cell::LazyCell::new(|| serde_json::to_value(request));
+    let mut registry = None;
     for reference in r.findings.iter().flat_map(|finding| &finding.delta_refs) {
         let Some(tokens) = reference.strip_prefix('/') else {
             continue; // The verified field check already matched the exact DELTA path.
         };
-        let (root, tail) = tokens.split_once('/').unwrap_or((tokens, ""));
+        let root = tokens.split('/').next().unwrap_or_default();
         let pointer = match root {
             "request" if reference == "/request" => continue,
             "request" => &reference["/request".len()..],
-            // These names belong to the registered documents or FILEMAP's derived impact.
-            "registries" | "config" | "judges" | "filemap" | "projects" | "workflow"
-            | "records" => continue,
-            "impact" if tail.starts_with("workflow/requirements/") => continue,
+            _ if crate::finding_registry::owns(root) => {
+                let value = document
+                    .as_ref()
+                    .map_err(|e| format!("E_PROTOCOL: request JSON: {e}"))?;
+                registry
+                    .get_or_insert_with(|| crate::finding_registry::Resolver::new(value))
+                    .check(reference)
+                    .map_err(|e| {
+                        format!("E_PROTOCOL: invalid finding reference {reference}: {e}")
+                    })?;
+                continue;
+            }
             _ => reference.as_str(),
         };
         let value = document
