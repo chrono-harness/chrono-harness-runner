@@ -287,6 +287,47 @@ fn initial_fixture(
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn independent_initial_judge_checks_the_sealed_request_and_profile() {
+    let (_dir, mut request, binding) = initial_fixture(value!({}));
+    let mut profile = value!({
+        "schema":"chrono-initial-check/v1","host_config":request.config_path,
+        "judges":[binding],"timeout_seconds":1,"stdout_limit_bytes":4096
+    });
+    let valid_request = value!({"operation":"validate-initial-request","request":request});
+    let valid_profile = value!({"operation":"validate-initial-profile","profile":profile});
+    request.profile_sha256 = "c".repeat(64);
+    profile["stdout_limit_bytes"] = value!(0);
+    let operations = [
+        valid_request,
+        valid_profile,
+        value!({"operation":"validate-initial-request","request":request}),
+        value!({"operation":"validate-initial-profile","profile":profile}),
+    ];
+    let mut input = Vec::new();
+    for operation in operations {
+        serde_json::to_writer(&mut input, &operation).unwrap();
+        input.push(b'\n');
+    }
+    let mut output = Vec::new();
+    chrono_harness::judge_evidence::serve(input.as_slice(), &mut output).unwrap();
+    let replies: Vec<Result<(), String>> = serde_json::Deserializer::from_slice(&output)
+        .into_iter()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(replies.len(), 4);
+    assert_eq!(replies[0], Ok(()));
+    assert_eq!(replies[1], Ok(()));
+    assert!(replies[2].as_ref().unwrap_err().contains("identity/mode"));
+    assert!(
+        replies[3]
+            .as_ref()
+            .unwrap_err()
+            .contains("profile/config/limits")
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn initial_transport_has_one_endpoint_and_preserves_real_response_failures() {
     for (name, mut case) in [
         ("pass", value!({})),

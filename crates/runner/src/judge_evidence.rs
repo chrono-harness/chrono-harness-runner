@@ -15,6 +15,12 @@ enum Operation {
     ValidateRequest {
         request: Box<crate::wire::Request>,
     },
+    ValidateInitialRequest {
+        request: Box<crate::initial::Request>,
+    },
+    ValidateInitialProfile {
+        profile: crate::initial::Profile,
+    },
     RequiredUnits {
         units: BTreeMap<String, crate::units::Unit>,
         selected: std::collections::BTreeSet<String>,
@@ -71,6 +77,14 @@ impl Operation {
             Operation::DecodeJson { text } => crate::json(text.as_bytes()),
             Operation::ValidateRequest { request } => {
                 request.validate()?;
+                Ok(Value::Null)
+            }
+            Operation::ValidateInitialRequest { request } => {
+                request.validate()?;
+                Ok(Value::Null)
+            }
+            Operation::ValidateInitialProfile { profile } => {
+                profile.validate()?;
                 Ok(Value::Null)
             }
             Operation::RequiredUnits { units, selected } => {
