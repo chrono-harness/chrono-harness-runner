@@ -215,6 +215,7 @@ impl Session {
             && !matches!(
                 op,
                 Operation::VerifyCommit { .. }
+                    | Operation::BlobBytes { .. }
                     | Operation::Ancestors { .. }
                     | Operation::ShallowBoundaries
                     | Operation::CheckBranchName { .. }
