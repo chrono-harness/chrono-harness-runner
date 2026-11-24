@@ -1703,6 +1703,18 @@ fn full_execution_units_preserve_path_boundaries() {
         ("collection.json", "parent", "parent/child", false),
         ("collection.json", "parent/child", "parent", false),
         ("collection.json", "", "two.json", false),
+        ("collected.json", "one.json", "two.json", true),
+        ("collected.json", "unit", "unit-other", true),
+        ("汇总.json", "单元一.json", "单元二.json", true),
+        ("collected.json", "report.json", "two.json", false),
+        ("one.json", "one.json", "two.json", false),
+        ("reports", "reports/one.json", "two.json", false),
+        ("reports/all.json", "reports", "two.json", false),
+        ("collected.json", "one.json", "one.json", false),
+        ("collected.json", "reports", "reports/two.json", false),
+        ("collected.json", "reports/one.json", "reports", false),
+        ("", "one.json", "two.json", false),
+        ("collected.json", "", "two.json", false),
     ] {
         let profile = profile(collection, one, two);
         let result = chrono_harness::units::full_execution_units(&profile);
