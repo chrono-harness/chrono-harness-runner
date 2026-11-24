@@ -15,6 +15,8 @@ enum Open {
     History,
     Config {
         config: String,
+        #[serde(default)]
+        observe_failure: bool,
         base: String,
         candidate: String,
     },
@@ -31,17 +33,69 @@ enum Endpoint {
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
-    VerifyTree { endpoint: Endpoint },
-    VerifyCommit { commit: String },
-    CheckBranchName { branch: String },
-    Ancestors { commit: String },
+    VerifyTree {
+        endpoint: Endpoint,
+    },
+    VerifyCommit {
+        commit: String,
+    },
+    CheckBranchName {
+        branch: String,
+    },
+    Ancestors {
+        commit: String,
+    },
     ShallowBoundaries,
     Delta,
-    RegistrySnapshot { endpoint: Endpoint },
-    CheckedOutSnapshot { endpoint: Endpoint },
-    CheckoutExcluding { artifacts: Vec<String> },
-    JsonBlob { endpoint: Endpoint, path: String },
+    RegistrySnapshot {
+        endpoint: Endpoint,
+    },
+    CheckedOutSnapshot {
+        endpoint: Endpoint,
+    },
+    CheckoutExcluding {
+        artifacts: Vec<String>,
+    },
+    JsonBlob {
+        endpoint: Endpoint,
+        path: String,
+    },
     Observation,
+    VerifyConfig {
+        candidate: String,
+    },
+    Head,
+    CommitAvailable {
+        commit: String,
+    },
+    FetchCommit {
+        commit: String,
+        shallow: bool,
+    },
+    ResolveCommit {
+        commit: String,
+    },
+    CheckReference {
+        reference: String,
+    },
+    RemoteReference {
+        reference: String,
+    },
+    ChangedPaths {
+        base: Option<String>,
+        candidate: String,
+    },
+    Parents {
+        commit: String,
+    },
+    ShowText {
+        commit: String,
+        path: String,
+    },
+    BlobBytes {
+        commit: String,
+        path: String,
+    },
 }
 struct Session {
     root: PathBuf,
@@ -62,12 +116,19 @@ impl Session {
             ),
             Open::Config {
                 config,
+                observe_failure,
                 base,
                 candidate,
             } => {
                 facts::full_oid(&base)?;
                 facts::full_oid(&candidate)?;
-                let reader = facts::Reader::for_config(cwd, &config)?;
+                let reader = if observe_failure {
+                    facts::Reader::for_config_observed(cwd, &config).map_err(|e| {
+                        json!({"message":e.message,"git_facts":e.observation}).to_string()
+                    })?
+                } else {
+                    facts::Reader::for_config(cwd, &config)?
+                };
                 (cwd.to_owned(), config, base, candidate, reader)
             }
             Open::Request { request } => {
@@ -188,6 +249,70 @@ impl Session {
                 crate::json(&bytes).map_err(|error| format!("E_SEMANTIC_INPUT: {path}: {error}"))
             }
             Operation::Observation => Ok(self.reader.observation()),
+            Operation::VerifyConfig { candidate } => {
+                facts::full_oid(&candidate)?;
+                self.reader.verify_config(&self.root, &candidate)?;
+                Ok(Value::Null)
+            }
+            Operation::Head => Ok(json!(facts::utf8(
+                self.reader.git(&self.root, &["rev-parse", "HEAD"])?
+            )?)),
+            Operation::CommitAvailable { commit } => {
+                Ok(json!(self.reader.commit_available(&self.root, &commit)?))
+            }
+            Operation::FetchCommit { commit, shallow } => {
+                facts::full_oid(&commit)?;
+                let mut args = vec!["fetch", "--no-tags"];
+                if shallow {
+                    args.extend(["--depth=2", "--filter=blob:none"]);
+                }
+                args.extend(["origin", &commit]);
+                Ok(json!(facts::utf8(self.reader.git(&self.root, &args)?)?))
+            }
+            Operation::ResolveCommit { commit } => {
+                facts::full_oid(&commit)?;
+                Ok(json!(facts::utf8(self.reader.git(
+                    &self.root,
+                    &["rev-parse", &format!("{commit}^{{commit}}")]
+                )?)?))
+            }
+            Operation::CheckReference { reference } => {
+                self.reader
+                    .git(&self.root, &["check-ref-format", &reference])?;
+                Ok(Value::Null)
+            }
+            Operation::RemoteReference { reference } => Ok(json!(facts::utf8(
+                self.reader
+                    .git(&self.root, &["ls-remote", "--refs", "origin", &reference])?
+            )?)),
+            Operation::ChangedPaths { base, candidate } => {
+                let after = self.reader.tree(&self.root, &candidate)?;
+                let paths: Vec<_> = if let Some(base) = base {
+                    facts::delta(&self.reader.tree(&self.root, &base)?, &after)
+                        .into_iter()
+                        .map(|d| d.path)
+                        .collect()
+                } else {
+                    after.keys().map(|p| p.text.clone()).collect()
+                };
+                Ok(json!(paths))
+            }
+            Operation::Parents { commit } => Ok(json!(self.reader.parents(&self.root, &commit)?)),
+            Operation::ShowText { commit, path } => {
+                facts::full_oid(&commit)?;
+                crate::relative_path(&path)?;
+                let bytes = self
+                    .reader
+                    .git(&self.root, &["show", &format!("{commit}:{path}")])?;
+                Ok(json!(
+                    String::from_utf8(bytes).map_err(|_| "git output not UTF-8")?
+                ))
+            }
+            Operation::BlobBytes { commit, path } => {
+                facts::full_oid(&commit)?;
+                crate::relative_path(&path)?;
+                Ok(json!(self.reader.blob(&self.root, &commit, &path)?))
+            }
         }
     }
 }
