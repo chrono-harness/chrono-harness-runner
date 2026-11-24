@@ -24,6 +24,11 @@ enum Compiler {
     ValidateContract {
         contract: verifier::OutputContract,
     },
+    SourceDeclarations {
+        files: Vec<verifier::sources::SourceFile>,
+        operations: Vec<String>,
+        reference_paths: Vec<String>,
+    },
     ProofRows {
         contract: verifier::OutputContract,
         rows: Vec<String>,
@@ -91,6 +96,30 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                 Compiler::ValidateContract { contract } => {
                     verifier::validate_contract(&Some(contract))?;
                     serde_json::to_writer(output, &()).map_err(|e| e.to_string())
+                }
+                Compiler::SourceDeclarations {
+                    files,
+                    operations,
+                    reference_paths,
+                } => {
+                    for file in files {
+                        verifier::sources::validate_source_declaration(&file)
+                            .map_err(|error| format!("{}: {error}", file.path))?;
+                        if !verifier::sources::proof_roots_have_registered_operations(
+                            &file,
+                            &operations,
+                        ) {
+                            return Err(format!(
+                                "{}: E_VERUS_COVERAGE: proof root operation is not registered",
+                                file.path
+                            ));
+                        }
+                    }
+                    let canonical: Vec<bool> = reference_paths
+                        .iter()
+                        .map(|path| verifier::sources::canonical_source_name(path))
+                        .collect();
+                    serde_json::to_writer(output, &canonical).map_err(|error| error.to_string())
                 }
                 Compiler::ProofRows { contract, rows } => {
                     let normalized: Vec<Option<bool>> = rows

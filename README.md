@@ -66,7 +66,7 @@ The local checkout must match the candidate. The report and operation streams ar
 
 CI 提供者用 `git-facts-v1` 的 `config` 模式打开登记的 Git 配置。它可以验证配置与提交的一致性（`verify-config`），读取 HEAD、父提交、原始文件及差异路径，按完整提交 ID 从 origin 获取已登记历史。所有原执行记录通过同一会话的 `observation` 返回。设置 `observe_failure:true` 时，打开失败也返回原始 Git 观察。
 
-公开的 Git 会话也接受 `verify-commit` 和 `ancestors`（参数 `commit` 为完整 OID）、`check-branch-name`（参数 `branch`）及 `shallow-boundaries`。已封存请求内的读取使用同一个宿主绑定的 Git 进程记录。只检查调用方给出的分支上下文时，可以用 `{"mode":"history"}` 打开无配置的历史读取会话。
+公开的 Git 会话也接受 `verify-commit` 和 `ancestors`（参数 `commit` 为完整 OID）、`check-branch-name`（参数 `branch`）及 `shallow-boundaries`。已封存请求内的读取使用同一个宿主绑定的 Git 进程记录。只检查调用方给出的分支上下文时，可以用 `{"mode":"history"}` 打开无配置的历史读取会话。历史调度可用同一会话的 `blob-bytes` 读取完整提交 ID 与仓内相对路径指定的 Git 原字节。
 
 `chrono-harness judge-evidence-v1` 读取逐行 JSON 并逐行回复 `{"Ok":值}` 或 `{"Err":"错误"}`。workflow 通过 `expand-record`、`check-process`、`report-transport-bytes` 和 `retained-judges` 重放 runner 报告。`retained-judges` 校验封存的原请求、登记顺序、每个实际进程的原始流与响应，返回所选判官的输入请求和汇总状态。协议还提供严格 JSON 解码（`decode-json`）、原请求校验（`validate-request`）和按选择计算执行单元（`required-units`）。`retained-artifacts-v1` 的 `checked-path` 核对已登记相对路径的符号链接，读取租约仍由同一保管会话持有至 EOF。
 
@@ -85,3 +85,4 @@ runner 的生产和专属测试项目可分别用各自的 Cargo manifest 和 lo
 CI 判官通过同一 `git-facts-v1` 进程读取两个固定提交的原件。开场 `{"mode":"scoped","config":null,"base":null,"candidate":"完整 OID"}` 使用普通 Git。登记了 Git 观察时提供 `config`，打开失败会返回原观察。需要为收集准备请求时，使用 `prepared-collection`，提供 `config`、`base`、`candidate`、`context`、`scope` 和目标 `judge`。回复同时包含封存的 `request`、选定的 `config` 和读取绑定 `bound`。后续 `tree-entries` 返回指定端点每个路径的 mode、kind、OID，`registry-at` 按给定登记路径返回原文和有效配置，`blob-batch` 按输入路径顺序返回原始字节。所有这些读取都记入该进程的 `observation`。
 
 收集会话持有准备出来的基线快照，直至宿主关闭 stdin。启用保管政策时，最后一个读取租约结束后由已登记的维护程序按期回收。普通宿主的临时目录在会话退出时回收。
+登记判官通过 `compiler-output-v1` 的 `source-declarations` 操作提交带有验证声明的文件、已登记操作及引用路径（`files`、`operations`、`reference_paths`）。runner 校验每项声明及证明根所用操作，并按输入顺序返回每条引用路径的规范性布尔值。无效声明返回原文件名和错误。

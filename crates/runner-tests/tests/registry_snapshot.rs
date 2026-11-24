@@ -343,3 +343,47 @@ fn registration_inventory_uses_the_observed_candidate_and_optional_baseline() {
     assert_eq!(refused.len(), 1);
     assert!(refused[0].as_ref().unwrap_err().contains("binding"));
 }
+
+#[test]
+fn unconfigured_history_reads_only_explicit_blob_coordinates() {
+    if !git_fixture::isolated("unconfigured_history_reads_only_explicit_blob_coordinates") {
+        return;
+    }
+    let (dir, _, _) = fixture();
+    let path = "historical profile.json";
+    let bytes = b"{\"schema\":\"old\"}\n";
+    fs::write(dir.path().join(path), bytes).unwrap();
+    let candidate = commit(dir.path());
+    fs::write(dir.path().join(path), b"working copy").unwrap();
+    let mut input = Vec::new();
+    for operation in [
+        json!({"mode":"history"}),
+        json!({"op":"blob-bytes","commit":candidate,"path":path}),
+        json!({"op":"blob-bytes","commit":"HEAD","path":path}),
+        json!({"op":"blob-bytes","commit":candidate,"path":"../profile"}),
+        json!({"op":"registry-snapshot","endpoint":"candidate"}),
+        json!({"op":"observation"}),
+    ] {
+        serde_json::to_writer(&mut input, &operation).unwrap();
+        input.push(b'\n');
+    }
+    let mut output = Vec::new();
+    chrono_harness::git_facts_session::serve(dir.path(), input.as_slice(), &mut output).unwrap();
+    let replies: Vec<Result<serde_json::Value, String>> =
+        serde_json::Deserializer::from_slice(&output)
+            .into_iter()
+            .collect::<Result<_, _>>()
+            .unwrap();
+    assert_eq!(replies.len(), 6);
+    assert_eq!(replies[0], Ok(json!({"bound":false})));
+    assert_eq!(replies[1], Ok(json!(bytes.as_slice())));
+    assert!(replies[2].is_err());
+    assert!(replies[3].is_err());
+    assert!(
+        replies[4]
+            .as_ref()
+            .unwrap_err()
+            .contains("no configured history endpoints")
+    );
+    assert_eq!(replies[5], Ok(serde_json::Value::Null));
+}
