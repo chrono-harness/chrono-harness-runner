@@ -10210,6 +10210,45 @@ fn failed_final_original_rolls_after_diagnostics_and_a_real_exact_consumer() {
 }
 
 #[test]
+fn maintenance_session_emits_each_observation_before_the_summary() {
+    use std::io::{BufRead, Cursor};
+    let host = host(512, 16);
+    let root = host.path();
+    let path = tree(root, "streamed-maintenance");
+    let publication = inventory(root)
+        .begin("fixture", &path, json!({"started":true}))
+        .unwrap();
+    let id = publication.id().to_owned();
+    publication.complete(json!({"passed":true})).unwrap();
+    let request = b"{\"operation\":\"observe-maintenance\"}\n";
+    let mut response = Vec::new();
+    chrono_harness::retained_artifacts::session::serve(
+        root,
+        Cursor::new(&request[..]),
+        &mut response,
+    )
+    .unwrap();
+    let mut frames = Cursor::new(response)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+        .collect::<Vec<_>>();
+    let summary: Result<Value, String> = serde_json::from_value(frames.pop().unwrap()).unwrap();
+    assert_eq!(
+        summary.unwrap()["schema"],
+        "chrono-output-retention-sweep/v1"
+    );
+    assert!(
+        frames.iter().all(
+            |frame| frame.as_object().unwrap().len() == 1 && frame.get("observation").is_some()
+        )
+    );
+    assert!(frames.iter().any(|frame| {
+        let row = &frame["observation"];
+        row["kind"] == "declaration" && row["namespace"] == "objects" && row["address"] == id
+    }));
+}
+
+#[test]
 fn removal_session_refuses_overlaps_and_holds_each_selected_path_until_eof() {
     const NAME: &str = "removal_session_refuses_overlaps_and_holds_each_selected_path_until_eof";
     if !isolated_capability_test(NAME) {

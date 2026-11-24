@@ -27,6 +27,8 @@ enum Operation {
     Inventory {
         fact: inventory::Fact,
     },
+    ObserveMaintenance,
+    ExplicitReadScopes,
     ValidateLaunch {
         original: Original,
     },
@@ -118,6 +120,13 @@ enum Operation {
         producer: String,
         path: String,
         source: PathBuf,
+        sha256: String,
+        length: u64,
+        outcome: Value,
+    },
+    PublishStream {
+        producer: String,
+        path: String,
         sha256: String,
         length: u64,
         outcome: Value,
@@ -227,6 +236,7 @@ enum Operation {
 
 struct Session<'a> {
     publications: publication::Publications,
+    implicit_reads: Option<retention::ReadScope>,
     removal: Option<retention::RemovalGuard>,
     root: &'a Path,
     inventory: Option<Inventory>,
@@ -258,10 +268,29 @@ impl Drop for Session<'_> {
     }
 }
 impl Session<'_> {
-    fn apply(&mut self, op: Operation) -> Result<Value, String> {
+    fn apply(
+        &mut self,
+        op: Operation,
+        input: &mut impl BufRead,
+        output: &mut impl Write,
+    ) -> Result<Value, String> {
         let root = self.root;
         match op {
             Operation::Inventory { fact } => self.inventory_fact(fact),
+            Operation::ExplicitReadScopes => {
+                self.implicit_reads.take();
+                Ok(Value::Null)
+            }
+            Operation::ObserveMaintenance => {
+                let inventory = self
+                    .inventory
+                    .as_ref()
+                    .ok_or("adopted original inventory unavailable")?;
+                inventory.maintain_explicit_observed(|record| {
+                    // Each row reaches the caller before the owner advances to the next object.
+                    write_frame(output, &json!({"observation": record}))
+                })
+            }
             Operation::ValidateLaunch { original } => {
                 let path = no_symlink_parents(root, &original.path)?;
                 let raw = fs::read(&path).map_err(|e| e.to_string())?;
@@ -433,6 +462,26 @@ impl Session<'_> {
             } => Ok(json!(retention::publish_owned_file(
                 root, &producer, &path, &source, &sha256, length, outcome
             )?)),
+            Operation::PublishStream {
+                producer,
+                path,
+                sha256,
+                length,
+                outcome,
+            } => {
+                write_frame(output, &json!({"receive": length}))?;
+                let mut body = input.take(length);
+                let result = retention::publish_streamed_original(
+                    root, &producer, &path, &sha256, length, outcome, &mut body,
+                );
+                // Reuse the session even when the owner rejected or already owned this address.
+                std::io::copy(&mut body, &mut std::io::sink())
+                    .map_err(|error| error.to_string())?;
+                if body.limit() != 0 {
+                    return Err("incomplete original content frame".into());
+                }
+                result.map(|published| json!(published))
+            }
             Operation::PublishText {
                 producer,
                 path,
@@ -715,9 +764,17 @@ impl Write for Bounded<'_> {
         self.file.flush()
     }
 }
+fn write_frame(output: &mut impl Write, frame: &impl serde::Serialize) -> Result<(), String> {
+    serde_json::to_writer(&mut *output, frame).map_err(|e| e.to_string())?;
+    output
+        .write_all(b"\n")
+        .and_then(|()| output.flush())
+        .map_err(|e| e.to_string())
+}
+
 pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Result<(), String> {
-    let _scope = retention::read_scope(root)?;
     let mut session = Session {
+        implicit_reads: Some(retention::read_scope(root)?),
         publications: Default::default(),
         removal: None,
         root,
@@ -738,12 +795,8 @@ pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Re
         if line.len() > 128 * 1024 * 1024 || !line.ends_with(b"\n") {
             return Err("invalid retained operation frame".into());
         }
-        let result = decode(&line).and_then(|op| session.apply(op));
-        serde_json::to_writer(&mut output, &result).map_err(|e| e.to_string())?;
-        output
-            .write_all(b"\n")
-            .and_then(|()| output.flush())
-            .map_err(|e| e.to_string())?;
+        let result = decode(&line).and_then(|op| session.apply(op, &mut input, &mut output));
+        write_frame(&mut output, &result)?;
     }
 }
 
