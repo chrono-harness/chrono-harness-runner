@@ -2,7 +2,9 @@
   "schema_version": 1,
   "owners": [
     "runner",
-    "identifiers"
+    "identifiers",
+    "resource-limits",
+    "resource-limits-tests"
   ],
   "projects": [],
   "scripts": [
@@ -38,6 +40,62 @@
             "crates/proofs/identifiers/src/lib.rs",
             "-o",
             "{operation_state}/verify.identifiers.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      }
+    },
+    {
+      "id": "resource-limits",
+      "path": "crates/runner/src/verified_limits.rs",
+      "actions": {
+        "execute": {
+          "operation": "verify.resource-limits",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link={operation_state}/verify.resource-limits.rlib,dep-info={operation_state}/verify.resource-limits.rlib.d",
+            "crates/runner/src/verified_limits.rs",
+            "-o",
+            "{operation_state}/verify.resource-limits.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      }
+    },
+    {
+      "id": "resource-limits-tests",
+      "path": "crates/runner-tests/tests/verified_limits.rs",
+      "actions": {
+        "execute": {
+          "operation": "verify.resource-limits-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link={operation_state}/verify.resource-limits-tests.rlib,dep-info={operation_state}/verify.resource-limits-tests.rlib.d",
+            "crates/runner-tests/tests/verified_limits.rs",
+            "-o",
+            "{operation_state}/verify.resource-limits-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {

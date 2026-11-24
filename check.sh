@@ -69,7 +69,7 @@ collect chrono-verifier crates/proofs/verifier/Cargo.toml "$verifier_src/lib.rs"
 paths=("$src/verified_paths.rs")
 status=("$src/verified_status.rs" "$src/facts.rs" "$src/facts_binding.rs" "$src/verified_paths.rs"
         "$src/verified_scope.rs" "$src/verified_export.rs" "$src/lib.rs")
-limits=("$src/verified_limits.rs" "$src/maintenance_signal.rs" "$src/artifact_disposal.rs")
+maintenance=("$src/maintenance_signal.rs" "$src/artifact_disposal.rs")
 release=("$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs"
          "$src/retained_artifacts/manifest.rs" "$src/retained_artifacts/partition.rs"
          "$src/retained_artifacts/retention_command.rs" "$src/scoped_report.rs")
@@ -78,7 +78,8 @@ cli="$src/verified_cli.rs"
 
 collect_root "${paths[@]}"
 collect_root "${status[@]}"
-collect_root "${limits[@]}"
+collect_root "$src/verified_limits.rs"
+collect_root "${maintenance[@]}"
 collect_root "${release[@]}"
 collect_root "${git_binding[@]}"
 collect_root "$cli"
@@ -87,7 +88,8 @@ collect_root "$tests/verified_paths.rs" "${paths[@]}"
 collect_root "$tests/verified_fixture.rs" "$tests/support/cli_child.rs" "$tests/support/isolated_capability.rs" \
   crates/test-process/src/lib.rs "$tests/protocol_v1.rs" "$tests/retention.rs"
 collect_root "$tests/verified_status.rs" "${status[@]}"
-collect_root "$tests/verified_limits.rs" "${limits[@]}" "$tests/maintenance_signal.rs"
+collect_root "$tests/verified_limits.rs" "$src/verified_limits.rs"
+collect_root "$tests/maintenance_signal.rs" "${maintenance[@]}"
 collect_root "$tests/verified_verifier.rs" "$tests/support/verified_continuity.rs" "$tests/support/source_pipeline.rs"
 collect_root "$tests/verified_release.rs" "${release[@]}" "$tests/support/retention_frontier.rs"
 collect_root "$tests/verified_git_binding.rs" "${git_binding[@]}"

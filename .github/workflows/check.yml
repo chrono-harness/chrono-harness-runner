@@ -52,13 +52,17 @@ jobs:
             check_change "$target/debug/chrono-harness"
             jq '{status: .response.status, results: .response.results}' .chrono-harness/state/check.json
           fi
+          if jq -e 'any(.response.results[]; (.id == "verify.resource-limits" or .id == "verify.resource-limits-tests") and .status == "passed")' .chrono-harness/state/check.json >/dev/null; then
+            echo 'RUNNER_LIMITS_RECEIPTS=true' >> "$GITHUB_ENV"
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: failure()
+        if: failure() || env.RUNNER_LIMITS_RECEIPTS == 'true'
         with:
           name: runner-check
           path: |
             .chrono-harness/state/check.json
             .chrono-harness/state/*.operation-*/stdout
             .chrono-harness/state/*.operation-*/stderr
+            .chrono-harness/state/*.operation-*/*.json
           include-hidden-files: true
           retention-days: 1

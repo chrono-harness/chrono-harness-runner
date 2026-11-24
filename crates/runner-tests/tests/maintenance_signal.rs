@@ -1,11 +1,12 @@
 #![cfg(unix)]
 #![allow(unexpected_cfgs)]
 #[cfg(verus_keep_ghost)]
-use super::policy::artifact_disposal as disposal;
-#[cfg(verus_keep_ghost)]
-use super::policy::maintenance_signal as signal;
+#[path = "../../runner/src/maintenance_signal.rs"]
+mod signal;
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::artifact_disposal as disposal;
+#[cfg(verus_keep_ghost)]
+use signal::artifact_disposal as disposal;
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
