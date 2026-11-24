@@ -4084,6 +4084,8 @@ fn request_pointers_resolve_in_the_actual_protocol_request() {
         ("/observations/问题~1~0/0", true, true),
         ("/unregistered", false, false),
         ("/requestish", false, false),
+        ("/records/missing", false, false),
+        ("/impact/workflow/requirements/999", false, false),
     ];
     for (reference, expect_full, expect_initial) in cases {
         let findings = value!([{
@@ -4141,6 +4143,8 @@ fn offline_consumers_resolve_findings_against_the_recorded_request() {
     for (reference, expected) in [
         ("/request/context", true),
         ("/request/absent", false),
+        ("/records/missing", false),
+        ("/impact/workflow/requirements/999", false),
         ("/~2", false),
         ("not-in-delta", false),
     ] {
@@ -4159,5 +4163,101 @@ fn offline_consumers_resolve_findings_against_the_recorded_request() {
         for result in [audit, collection] {
             assert_eq!(result.is_ok(), expected, "{reference}: {result:?}");
         }
+    }
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn registry_finding_uses_the_selected_fixed_git_blob_and_its_recorded_bytes() {
+    use sha1::{Digest, Sha1};
+    let root = tempfile::tempdir().unwrap();
+    let mut request = fixture_request(root.path());
+    let root = request.candidate.root.clone();
+    let git = "/mock/git";
+    let tool_hash = "4".repeat(64);
+    let receipt = |args: Vec<String>, input: &[u8], stdout: &[u8]| {
+        let mut argv = vec![
+            git.into(),
+            "--no-optional-locks".into(),
+            "--no-replace-objects".into(),
+            "-C".into(),
+            root.to_str().unwrap().to_owned(),
+        ];
+        argv.extend(args);
+        let process = value!({"argv":argv,"cwd":root,"environment":{},"environment_digest":sha256(b"{}"),"stdin_sha256":sha256(input),"stdout_bytes":stdout,"stderr_bytes":[],"stdout_complete":true,"stderr_complete":true,"stdout_sha256":sha256(stdout),"stderr_sha256":sha256(b""),"failure":null,"exit_code":0,"stdout":String::from_utf8_lossy(stdout),"stderr":"","executable":git,"sha256":tool_hash});
+        chrono_harness::full::compact_process(&process).unwrap()
+    };
+    let blob = |data: &[u8]| {
+        let mut hash = Sha1::new();
+        hash.update(format!("blob {}\0", data.len()));
+        hash.update(data);
+        format!("{:x}", hash.finalize())
+    };
+    let mut originals = Vec::new();
+    for (endpoint, marker) in [(&request.base, "removed"), (&request.candidate, "added")] {
+        let config_path = format!("policy/{marker}.json");
+        let map_path = format!("maps/{marker}.json");
+        let config = value!({"registries":{"filemap":map_path}}).to_string();
+        let map = value!({"files":[{(marker):true,"escaped/~":null}]}).to_string();
+        let config_oid = blob(config.as_bytes());
+        let map_oid = blob(map.as_bytes());
+        let tree =
+            format!("100644 blob {config_oid}\t{config_path}\0100644 blob {map_oid}\t{map_path}\0");
+        originals.push(receipt(
+            vec![
+                "ls-tree".into(),
+                "-rz".into(),
+                "--full-tree".into(),
+                endpoint.commit.clone(),
+            ],
+            b"",
+            tree.as_bytes(),
+        ));
+        originals.push(receipt(
+            vec!["show".into(), format!("{}:{config_path}", endpoint.commit)],
+            b"",
+            config.as_bytes(),
+        ));
+        let stream = format!(
+            "{config_oid} blob {}\n{config}\n{map_oid} blob {}\n{map}\n",
+            config.len(),
+            map.len()
+        );
+        originals.push(receipt(
+            vec!["cat-file".into(), "--batch".into()],
+            format!("{config_oid}\n{map_oid}\n").as_bytes(),
+            stream.as_bytes(),
+        ));
+    }
+    request.observations = value!({"git_facts":{"binding":{"path":git,"sha256":tool_hash},"processes":originals},"registry_bindings":{"base":{"effective_path":"policy/removed.json"},"candidate":{"effective_path":"policy/added.json"}}});
+    let validate = |request: &wire::Request, reference: &str| {
+        let mut response = request.response(wire::Status::Warn);
+        response.findings = serde_json::from_value(value!([{"code":"W_REGISTRY","level":"warning","message":"identified registry record","delta_refs":[reference],"causes":[]}])).unwrap();
+        wire::validate_response(request, &response, 0)
+    };
+    for (name, expected) in [
+        ("/filemap/files/0/added", true),
+        ("/registries/filemap/files/0/escaped~1~0", true),
+        ("/registries/base/filemap/files/0/removed", true),
+        ("/registries/candidate/filemap/files/0/removed", false),
+        ("/filemap/files/1", false),
+        ("/registries/candidate/missing", false),
+        ("/config/registries/filemap", true),
+    ] {
+        assert_eq!(validate(&request, name).is_ok(), expected, "{name}");
+    }
+    for (index, field, wrong) in [
+        (5, "stdin_sha256", value!(sha256(b"wrong Git input"))),
+        (5, "stdout_sha256", value!(sha256(b"truncated Git output"))),
+        (3, "stdout_complete", value!(false)),
+        (3, "sha256", value!("0".repeat(64))),
+        (3, "cwd", value!("/another-root")),
+    ] {
+        let mut changed = request.clone();
+        changed.observations["git_facts"]["processes"][index][field] = wrong;
+        assert!(
+            validate(&changed, "/filemap/files/0/added").is_err(),
+            "{index}/{field}"
+        );
     }
 }

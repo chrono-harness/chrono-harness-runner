@@ -43,6 +43,8 @@ mod facts_binding;
 #[cfg(not(verus_keep_ghost))]
 mod facts_configs;
 #[cfg(not(verus_keep_ghost))]
+mod finding_registry;
+#[cfg(not(verus_keep_ghost))]
 pub mod git_facts_session;
 #[cfg(not(verus_keep_ghost))]
 pub mod judge_evidence;
