@@ -3042,7 +3042,7 @@ impl Inventory {
         &self,
         observed: u64,
         gate: &Gate,
-        admitted_member: bool,
+        admitted: Option<&str>,
     ) -> Result<Value, String> {
         let began = self.round_began.get().unwrap_or_else(Instant::now);
         let entered_micros = began.elapsed().as_micros() as u64;
@@ -3282,8 +3282,9 @@ impl Inventory {
             .unwrap_or(self.policy.max_nodes_per_round);
         // One node selects the object and another processes its sealed member.
         // An already-spent node or byte allowance cannot authorize the step.
-        let admitted_member = admitted_member && node_limit.saturating_sub(nodes) >= 2;
         for (id, _) in order {
+            let admitted_member =
+                admitted == Some(id.as_str()) && node_limit.saturating_sub(nodes) >= 2;
             let metadata_room = self.metadata_room();
             let elapsed = began.elapsed();
             if let Some(reason) = crate::verified_release::retirement_deferral(
@@ -3348,6 +3349,7 @@ impl Inventory {
                     continue;
                 }
             };
+            let selected_at_node = nodes;
             let mut disposal_fact = "verified-absent";
             let effect = (|| -> Result<bool, String> {
                 let root = no_symlink_parents(&self.root, &o.path)?;
@@ -3649,8 +3651,11 @@ impl Inventory {
                                     .get()
                                     .unwrap_or(self.policy.max_nodes_per_round)
                             && self.metadata_room()
-                            && began.elapsed().as_millis()
-                                < self.policy.max_millis_per_round as u128
+                            && crate::verified_release::retirement_time_available(
+                                admitted_member && nodes == selected_at_node,
+                                began.elapsed().as_millis(),
+                                self.policy.max_millis_per_round,
+                            )
                         {
                             nodes += 1;
                             l.outputs[i]

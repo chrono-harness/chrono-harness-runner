@@ -2120,7 +2120,26 @@ impl Inventory {
                                     && matches!(output.phase.as_str(), "released" | "disposing")
                             })
                     });
-                self.maintain_locked(observed, &gate, independent)
+                // Address lookup also admits the first pending edge of the
+                // selected retiring report once its physical members are gone.
+                let admitted = if independent {
+                    Some(id.as_str())
+                } else {
+                    gate.retiring_report.as_deref().filter(|report| {
+                        single_address
+                            && gate.objects.borrow().get(*report).is_some_and(|record| {
+                                record.output.as_ref().is_some_and(|output| {
+                                    output.phase == "disposing"
+                                        && output.manifest.sealed
+                                        && output.manifest.entries.is_empty()
+                                        && !output.overflow_disposal
+                                        && !output.references.is_empty()
+                                        && output.expires <= observed
+                                })
+                            })
+                    })
+                };
+                self.maintain_locked(observed, &gate, admitted)
                     .map(|round| {
                         let observations = gate.measurements(self.policy.max_output_bytes);
                         (
