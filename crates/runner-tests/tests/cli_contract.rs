@@ -1357,22 +1357,11 @@ fn retained_reference_local_fixture_preserves_assertions_under_each_enclosing_so
     }
 }
 
-#[test]
-fn retained_reference_cli_registers_process_evidence_before_judge_spawn() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::create_dir_all(dir.path().join(".chrono-harness/ci")).unwrap();
-    fs::create_dir_all(dir.path().join(".chrono-harness/state")).unwrap();
-    fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/retention.json"),
-        dir.path().join(".chrono-harness/retention.json"),
-    )
-    .unwrap();
-    fs::write(dir.path().join("cli-case.json"), b"{}").unwrap();
+fn retained_cli_config() -> Value {
     let shell = env!("CARGO_BIN_EXE_chrono-test-cli-child");
     let shell_hash = chrono_harness::sha256(&fs::read(shell).unwrap());
     let producer = env!("CARGO_BIN_EXE_chrono-test-prepared-producer");
-    let judge = env!("CARGO_BIN_EXE_chrono-test-cli-child");
-    let config = json!({
+    json!({
         "schema_version": 4,
         "runner": {"path": "chrono-harness"},
         "canonical_check": {
@@ -1400,7 +1389,101 @@ fn retained_reference_cli_registers_process_evidence_before_judge_spawn() {
         },
         "artifacts": [{"path": ".chrono-harness/state/", "owner": "host", "kind": "evidence", "tracked": false}],
         "protocol": {"timeout_seconds": 15, "stdout_limit_bytes": 65536}
+    })
+}
+
+#[test]
+fn short_scopes_read_units_from_the_selected_platform_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let policy_dir = dir.path().join(".chrono-harness");
+    fs::create_dir(&policy_dir).unwrap();
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/retention.json"),
+        policy_dir.join("retention.json"),
+    )
+    .unwrap();
+    let entry = ".chrono-harness/config.json";
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    let target = ".chrono-harness/platform.json";
+    fs::write(
+        dir.path().join(entry),
+        serde_json::to_vec(
+            &json!({"schema":"chrono-git-configs/v1","platforms":{platform:target}}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut config = retained_cli_config();
+    config["canonical_check"]["profile"] = json!(entry);
+    config["execution_units"] = json!({
+        "units": {"example":{"tests":["test:example"],"report_path":".chrono-harness/state/example/check.json"}},
+        "shared_operations":{},
+        "report_path":".chrono-harness/state/collection/check.json",
+        "collection_limits":{"manifest_bytes":1024,"report_bytes":1024}
     });
+    for args in [
+        &["check", "--unit", "example"][..],
+        &["check", "--collect"][..],
+    ] {
+        let cli = || {
+            Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
+                .args(args)
+                .current_dir(dir.path())
+                .env(chrono_harness::prepared::SOURCE, "local")
+                .env(
+                    "CHRONO_TEST_AUTHENTICATION",
+                    "inert authentication fixture λ",
+                )
+                .env_remove("CHRONO_TEST_AUTHENTICATION_ABSENT")
+                .output()
+                .unwrap()
+        };
+        fs::write(
+            dir.path().join(target),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
+        let result = cli();
+        // The bare-only mock receives the request and returns an incompatible scope.
+        assert_eq!(result.status.code(), Some(2));
+        assert!(
+            String::from_utf8_lossy(&result.stderr)
+                .contains("prepared check identity/scope mismatch"),
+            "{result:?}"
+        );
+        let mut incomplete = config.clone();
+        incomplete
+            .as_object_mut()
+            .unwrap()
+            .remove("execution_units");
+        fs::write(
+            dir.path().join(target),
+            serde_json::to_vec(&incomplete).unwrap(),
+        )
+        .unwrap();
+        let result = cli();
+        assert_eq!(result.status.code(), Some(2));
+        assert!(
+            String::from_utf8_lossy(&result.stderr)
+                .contains("full independent scopes require registered execution units"),
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn retained_reference_cli_registers_process_evidence_before_judge_spawn() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join(".chrono-harness/ci")).unwrap();
+    fs::create_dir_all(dir.path().join(".chrono-harness/state")).unwrap();
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/retention.json"),
+        dir.path().join(".chrono-harness/retention.json"),
+    )
+    .unwrap();
+    fs::write(dir.path().join("cli-case.json"), b"{}").unwrap();
+    let config = retained_cli_config();
+    let judge = env!("CARGO_BIN_EXE_chrono-test-cli-child");
     fs::write(
         dir.path().join(".chrono-harness/config.json"),
         serde_json::to_vec(&config).unwrap(),

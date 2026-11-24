@@ -808,9 +808,7 @@ pub fn prepare(
         selection,
         prepared: None,
     };
-    let profile = crate::json(
-        &fs::read(no_symlink_parents(root, &req.profile)?).map_err(|e| e.to_string())?,
-    )?;
+    let profile = crate::load_selected_config(root, &req.profile)?;
     if matches!(
         profile["schema"].as_str(),
         Some("chrono-ci-check/v1" | "chrono-ci-check/v2" | "chrono-ci-check/v3")
