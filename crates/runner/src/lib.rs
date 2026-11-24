@@ -267,6 +267,8 @@ pub struct ProcessResult {
     pub stderr: String,
     pub executable: PathBuf,
     pub sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judge_version_process: Option<Box<ProcessResult>>,
     /// Retained process records bind the launch identity to this receipt.
     /// These fields are optional only for historical inline records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1235,6 +1237,21 @@ fn run_process_inner(
     })
 }
 #[cfg(not(verus_keep_ghost))]
+fn executable_digest(executable: &Path, expected: Option<&str>) -> Result<String, ProcessFailure> {
+    let hash = sha256(
+        &fs::read(executable)
+            .map_err(|e| ProcessFailure::native("E_PROCESS_EXECUTABLE_READ", e.to_string(), e))?,
+    );
+    if expected.is_some_and(|v| v != hash) {
+        return Err(ProcessFailure::domain(
+            "E_PROCESS_EXECUTABLE_DIGEST",
+            "prelaunch executable digest mismatch",
+        ));
+    }
+    Ok(hash)
+}
+
+#[cfg(not(verus_keep_ghost))]
 fn run_process_inner_with_stdout(
     root: &Path,
     s: &CommandSpec,
@@ -1304,16 +1321,7 @@ fn run_process_inner_with_stdout(
         env
     };
     let stdin_sha256 = sha256(input);
-    let hash = sha256(
-        &fs::read(&executable)
-            .map_err(|e| ProcessFailure::native("E_PROCESS_EXECUTABLE_READ", e.to_string(), e))?,
-    );
-    if expected.is_some_and(|v| v != hash) {
-        return Err(ProcessFailure::domain(
-            "E_PROCESS_EXECUTABLE_DIGEST",
-            "prelaunch executable digest mismatch",
-        ));
-    }
+    let hash = executable_digest(&executable, expected)?;
     let mut command = Command::new(&executable);
     if expected.is_some() {
         command.env_clear();
@@ -1966,6 +1974,7 @@ fn run_process_inner_with_stdout(
             },
             executable,
             sha256: hash,
+            judge_version_process: None,
             launcher_pid: Some(launcher_pid),
             child_pid: Some(pid),
             timeout_seconds: Some(s.timeout_seconds),

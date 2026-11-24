@@ -275,7 +275,7 @@ pub fn retained_judges(
         let process =
             crate::ProcessResult::deserialize(&record["process"]).map_err(|e| e.to_string())?;
         crate::observation::process_success(&process)?;
-        let executable = template.candidate.root.join(&binding.executable);
+        let executable = binding.receipt_image(&template.candidate.root, &process)?;
         let argv: Vec<String> = std::iter::once(
             executable
                 .to_str()
@@ -296,7 +296,6 @@ pub fn retained_judges(
             || record["exit_code"] != process.exit_code
             || process.stdin_sha256 != digest
             || process.cwd != template.candidate.root
-            || process.executable != executable
             || binding.sha256.as_deref() != Some(process.sha256.as_str())
             || process.argv != argv
             || process.environment != environment
@@ -708,10 +707,20 @@ pub fn validate_execution(
                     .map_err(|e| format!("E_SELF_DIAGNOSTIC: record {id} process: {e}"))?;
                 validate_process_receipt(&process, &format!("record {id}"))
                     .map_err(|e| format!("E_SELF_DIAGNOSTIC: {e}"))?;
-                let expected_executable =
-                    no_symlink_parents(&template.candidate.root, &binding.executable).map_err(
-                        |e| format!("E_SELF_DIAGNOSTIC: record {id} executable binding: {e}"),
-                    )?;
+                let (expected_executable, installed) =
+                    wire::judge_executable(&template.candidate.root, binding).map_err(|e| {
+                        format!("E_SELF_DIAGNOSTIC: record {id} executable binding: {e}")
+                    })?;
+                if installed != process.judge_version_process.is_some() {
+                    return Err(format!(
+                        "E_SELF_DIAGNOSTIC: record {id} installed version receipt missing or unexpected"
+                    ));
+                }
+                binding
+                    .receipt_image(&template.candidate.root, &process)
+                    .map_err(|e| {
+                        format!("E_SELF_DIAGNOSTIC: record {id} executable binding: {e}")
+                    })?;
                 let expected_argv =
                     std::iter::once(expected_executable.to_string_lossy().into_owned())
                         .chain(binding.argv.iter().map(|arg| match arg.as_str() {
@@ -1419,7 +1428,7 @@ pub fn check_prepared(
             executables.push(value!({
                 "path":judge["process"]["executable"],
                 "sha256":judge["process"]["sha256"],
-                "version":null
+                "version":judge["process"]["judge_version_process"]["stdout"].as_str().map(str::trim_end)
             }));
             judge["executable_index"] = value!(executable_index);
             for (field, process_field) in [("path", "executable"), ("sha256", "sha256")] {
@@ -1428,10 +1437,18 @@ pub fn check_prepared(
                     vec![format!("/judges/{index}/process/{process_field}")],
                 );
             }
-            unresolved.insert(
-                format!("/executables/{executable_index}/version"),
-                format!("judge version was not observed; configured metadata is /judges/{index}/binding/version"),
-            );
+            let version_ref = format!("/executables/{executable_index}/version");
+            if judge["process"]["judge_version_process"].is_object() {
+                sources.insert(
+                    version_ref,
+                    vec![format!(
+                        "/judges/{index}/process/judge_version_process/stdout"
+                    )],
+                );
+            } else {
+                unresolved.insert(version_ref,
+                    format!("judge version was not observed; configured metadata is /judges/{index}/binding/version"));
+            }
         } else {
             missing_processes.push(judge["id"].clone());
         }

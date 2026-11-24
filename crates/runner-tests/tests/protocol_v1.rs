@@ -3941,3 +3941,125 @@ fn finding_record_references_use_json_pointer_escapes() {
         assert!(!valid_finding_reference(pointer, Some(&[])), "{pointer:?}");
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn initial_and_full_judges_run_a_digest_pinned_installed_executable() {
+    use std::os::unix::fs::symlink;
+    let (root, initial, mut binding) = initial_fixture(value!({"marker":"ran"}));
+    let mut ordinary = fixture_request(root.path());
+    ordinary.observations = value!({"environment":{"effective":{}}});
+    let install = tempfile::tempdir().unwrap();
+    let target = install.path().join("judge");
+    let query = |binding: &wire::Binding| {
+        let frame = format!(
+            "{}\n",
+            value!({"operation":"bound-judge-path","binding":binding})
+        );
+        let command = chrono_harness::CommandSpec {
+            program: env!("CARGO_BIN_EXE_chrono-harness-test-cli").to_owned(),
+            args: vec!["judge-evidence-v1".to_owned()],
+            env: Default::default(),
+            timeout_seconds: FIXTURE_TIMEOUT_SECONDS,
+            output_limit_bytes: 8192,
+        };
+        let response =
+            chrono_harness::run_process(root.path(), &command, frame.as_bytes()).unwrap();
+        assert_eq!(response.exit_code, 0, "{}", response.stderr);
+        json(&response.stdout_bytes).unwrap()
+    };
+    assert_eq!(query(&binding)["Ok"], value!(root.path().join("judge")));
+    fs::rename(root.path().join("judge"), &target).unwrap();
+    let bin = root.path().join(".chrono-harness/bin");
+    fs::create_dir_all(&bin).unwrap();
+    let alias = bin.join("judge");
+    symlink(&target, &alias).unwrap();
+    binding.executable = ".chrono-harness/bin/judge".into();
+    binding.version = "fixture".into();
+    let run = |b: &wire::Binding| {
+        chrono_harness::initial::invoke(
+            &initial,
+            b,
+            &Default::default(),
+            FIXTURE_TIMEOUT_SECONDS,
+            8192,
+        )
+    };
+    let (_, result) = run(&binding).unwrap();
+    assert_eq!(
+        query(&binding)["Ok"],
+        value!(fs::canonicalize(&target).unwrap())
+    );
+    let version = result.judge_version_process.as_ref().unwrap();
+    assert_eq!(result.executable, fs::canonicalize(&target).unwrap());
+    assert_eq!(version.executable, result.executable);
+    assert_eq!(version.sha256, result.sha256);
+    assert_eq!(version.stdout_bytes, b"judge fixture\n");
+    binding.selector = "every-delta".into();
+    binding.modes = vec!["evaluate".into()];
+    let bindings = [binding.clone()];
+    let template = chrono_harness::full::judge_request(&ordinary, &binding, &[]).unwrap();
+    let (status, records) = chrono_harness::full::execute(
+        &template,
+        &bindings,
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    assert_eq!(status, wire::Status::Pass);
+    let audit = |rows: &[serde_json::Value]| {
+        chrono_harness::full::validate_execution(&template, &bindings, &status, rows)
+    };
+    let retained = |rows: &[serde_json::Value]| {
+        chrono_harness::full::retained_judges(&template, &bindings, rows)
+    };
+    audit(&records).unwrap();
+    retained(&records).unwrap();
+    for (field, altered) in [
+        ("stdout_bytes", value!([0])),
+        ("sha256", value!("0".repeat(64))),
+        ("stdin_sha256", value!("0".repeat(64))),
+        ("owned_work_joined", value!(false)),
+    ] {
+        let mut rows = records.clone();
+        rows[0]["process"]["judge_version_process"][field] = altered;
+        assert!(audit(&rows).is_err(), "{field}");
+        assert!(retained(&rows).is_err(), "{field}");
+    }
+    binding.selector = "every-initial".into();
+    binding.modes = vec!["inventory".into()];
+    fs::remove_file(root.path().join("ran")).unwrap();
+    for (version, digest) in [
+        ("wrong", binding.sha256.clone()),
+        ("fixture", Some("0".repeat(64))),
+        ("fixture", None),
+    ] {
+        let invalid = wire::Binding {
+            version: version.into(),
+            sha256: digest,
+            ..binding.clone()
+        };
+        let failure = run(&invalid).unwrap_err();
+        if version == "wrong" {
+            assert_eq!(
+                failure.diagnostic().error.error.context["version_process"]["stdout"],
+                "judge fixture\n"
+            );
+        } else {
+            assert!(query(&invalid)["Err"].is_string());
+        }
+        assert!(!root.path().join("ran").exists());
+    }
+    assert!(chrono_harness::no_symlink_parents(root.path(), &binding.executable).is_err());
+    let wrong_name = install.path().join("other");
+    fs::rename(&target, &wrong_name).unwrap();
+    fs::remove_file(&alias).unwrap();
+    symlink(&wrong_name, &alias).unwrap();
+    assert!(query(&binding)["Err"].is_string());
+    assert!(run(&binding).is_err());
+    fs::remove_file(&wrong_name).unwrap();
+    assert!(run(&binding).is_err());
+    assert!(audit(&records).is_err());
+    retained(&records).unwrap();
+}
