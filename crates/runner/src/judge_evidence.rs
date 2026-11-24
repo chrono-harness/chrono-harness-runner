@@ -51,6 +51,12 @@ enum Operation {
         report: String,
         units: Vec<String>,
     },
+    FullExecutionUnits {
+        profile: Value,
+    },
+    ValidateSchedule {
+        bindings: Vec<crate::wire::Binding>,
+    },
     ArtifactDirectories {
         config: Value,
     },
@@ -136,6 +142,13 @@ impl Operation {
                 units,
             } => {
                 crate::units::validate_collection_paths(&manifest, &report, &units)?;
+                Ok(Value::Null)
+            }
+            Operation::FullExecutionUnits { profile } => {
+                Ok(json!(crate::units::full_execution_units(&profile)?))
+            }
+            Operation::ValidateSchedule { bindings } => {
+                crate::full::schedule(&bindings)?;
                 Ok(Value::Null)
             }
             Operation::ArtifactDirectories { config } => {

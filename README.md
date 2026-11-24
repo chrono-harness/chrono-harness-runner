@@ -15,6 +15,7 @@ bootstrap 通过 `retained-artifacts-v1` 中的 `publication` 操作创建或接
 `chrono-harness-runner` 提供 `chrono-harness` 命令和同名 Rust 库。宿主提供检查配置，runner 调用判官并返回真实退出状态与报告。
 
 `chrono-harness retained-artifacts-v1` 为外部生产者在当前仓库保持一次读取作用域。每行一个 JSON 请求，回复一行 `Ok` 或 `Err`。涉及创建暂存、写原件、依赖登记、读取与消费者保管的操作使用宿主已有 retention 策略。读取能力持续到调用方关闭 stdin；durable consumer 由后续的实际使用方通过原有 retention 命令释放。
+CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请求并取得保留目录，使用 `retain-original-text` 按内容登记 UTF-8 原件。`identify-original` 和 `verify-original` 分别取得及核对路径与摘要。`validate-preparation-result` 核对返回结果、所用请求与实际原件。
 
 
 ## 使用
