@@ -31,16 +31,37 @@ enum Endpoint {
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
-    VerifyTree { endpoint: Endpoint },
-    VerifyCommit { commit: String },
-    CheckBranchName { branch: String },
-    Ancestors { commit: String },
+    VerifyTree {
+        endpoint: Endpoint,
+    },
+    VerifyCommit {
+        commit: String,
+    },
+    CheckBranchName {
+        branch: String,
+    },
+    Ancestors {
+        commit: String,
+    },
     ShallowBoundaries,
     Delta,
-    RegistrySnapshot { endpoint: Endpoint },
-    CheckedOutSnapshot { endpoint: Endpoint },
-    CheckoutExcluding { artifacts: Vec<String> },
-    JsonBlob { endpoint: Endpoint, path: String },
+    RegistrySnapshot {
+        endpoint: Endpoint,
+    },
+    CheckedOutSnapshot {
+        endpoint: Endpoint,
+    },
+    CheckoutExcluding {
+        artifacts: Vec<String>,
+    },
+    JsonBlob {
+        endpoint: Endpoint,
+        path: String,
+    },
+    Blobs {
+        endpoint: Endpoint,
+        paths: Vec<String>,
+    },
     Observation,
 }
 struct Session {
@@ -186,6 +207,13 @@ impl Session {
                 crate::relative_path(&path)?;
                 let bytes = self.reader.blob(&self.root, self.commit(endpoint), &path)?;
                 crate::json(&bytes).map_err(|error| format!("E_SEMANTIC_INPUT: {path}: {error}"))
+            }
+            Operation::Blobs { endpoint, paths } => {
+                for path in &paths {
+                    crate::relative_path(path)?;
+                }
+                let commit = self.commit(endpoint);
+                Ok(json!(self.reader.blobs(&self.root, commit, &paths)?))
             }
             Operation::Observation => Ok(self.reader.observation()),
         }

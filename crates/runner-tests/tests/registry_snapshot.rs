@@ -272,3 +272,43 @@ fn selector_snapshot_keeps_entry_and_independent_endpoint_targets() {
     let missing = git(root, &["rev-parse", "HEAD"]);
     assert!(facts::registry_snapshot(root, &missing, selector).is_err());
 }
+
+#[test]
+fn git_facts_returns_ordered_original_blob_bytes_for_each_endpoint() {
+    if !git_fixture::isolated("git_facts_returns_ordered_original_blob_bytes_for_each_endpoint") {
+        return;
+    }
+    let (dir, originals, base) = fixture();
+    let root = dir.path();
+    let path = ".chrono-harness/projects café.json";
+    let changed = [0xff, 0, b'\n'];
+    fs::write(root.join(path), changed).unwrap();
+    let candidate = commit(root);
+    let messages = [
+        json!({"mode":"config","config":CONFIG,"base":base,"candidate":candidate}),
+        json!({"op":"blobs","endpoint":"base","paths":[path,CONFIG,path]}),
+        json!({"op":"blobs","endpoint":"candidate","paths":[path]}),
+        json!({"op":"blobs","endpoint":"base","paths":["../outside"]}),
+        json!({"op":"blobs","endpoint":"base","paths":["absent"]}),
+    ];
+    let mut input = Vec::new();
+    for message in messages {
+        serde_json::to_writer(&mut input, &message).unwrap();
+        input.push(b'\n');
+    }
+    let mut output = Vec::new();
+    chrono_harness::git_facts_session::serve(root, input.as_slice(), &mut output).unwrap();
+    let replies = serde_json::Deserializer::from_slice(&output)
+        .into_iter::<Result<serde_json::Value, String>>()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(replies.len(), 5, "{replies:?}");
+    assert_eq!(replies[0], Ok(json!({"bound":false})));
+    assert_eq!(
+        replies[1],
+        Ok(json!([originals[path], originals[CONFIG], originals[path]]))
+    );
+    assert_eq!(replies[2], Ok(json!([changed])));
+    assert!(replies[3].is_err(), "{replies:?}");
+    assert!(replies[4].is_err(), "{replies:?}");
+}
