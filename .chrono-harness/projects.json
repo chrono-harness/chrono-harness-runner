@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "owners": [
-    "runner"
+    "runner",
+    "identifiers"
   ],
   "projects": [],
   "scripts": [
@@ -15,6 +16,34 @@
           "argv": [
             "check.sh"
           ]
+        }
+      }
+    },
+    {
+      "id": "identifiers",
+      "path": "crates/proofs/identifiers/src/lib.rs",
+      "actions": {
+        "execute": {
+          "operation": "verify.identifiers",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link={operation_state}/verify.identifiers.rlib,dep-info={operation_state}/verify.identifiers.rlib.d",
+            "crates/proofs/identifiers/src/lib.rs",
+            "-o",
+            "{operation_state}/verify.identifiers.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
         }
       }
     }

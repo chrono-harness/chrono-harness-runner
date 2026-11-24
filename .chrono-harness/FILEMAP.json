@@ -16,9 +16,9 @@
     {"path": ".chrono-harness/USAGE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": ".chrono-harness/template-answers.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".chrono-harness/.gitignore", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".chrono-harness/FILEMAP.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": ".chrono-harness/check.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": ".chrono-harness/projects.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": ".chrono-harness/FILEMAP.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}]},
+    {"path": ".chrono-harness/check.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}]},
+    {"path": ".chrono-harness/projects.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}]},
     {"path": ".github/roadmap.cjs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".github/workflows/issue-roadmap.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".github/workflows/check.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
@@ -128,7 +128,7 @@
     {"path": "crates/runner/src/verified_export.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/verified_git_binding.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/verified_limits.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/proofs/identifiers/src/lib.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": "crates/proofs/identifiers/src/lib.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}], "verification": {"role": "program", "roots": [{"path": "crates/proofs/identifiers/src/lib.rs", "operation": "verify.identifiers"}]}},
     {"path": "crates/runner/src/verified_paths.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/verified_scope.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/proofs/verifier/src/verified_source_pipeline.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
@@ -154,12 +154,23 @@
     {
       "test": "runner",
       "cost": "unmeasured"
+    },
+    {
+      "test": "identifiers",
+      "cost": "unmeasured"
     }
   ],
   "execution_plans": {
     "test:runner": {
       "operations": [
         "runner.verify"
+      ],
+      "timeout_seconds": 1800,
+      "output_limit_bytes": 1048576
+    },
+    "test:identifiers": {
+      "operations": [
+        "verify.identifiers"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576
