@@ -83,6 +83,7 @@ fn main() {
 
 #[cfg(not(verus_keep_ghost))]
 fn judge() {
+    assert!(std::env::var_os("CHRONO_TEST_PREPARATION_JOB").is_none());
     let case: Value = serde_json::from_slice(&std::fs::read("cli-case.json").unwrap()).unwrap();
     match case["kind"].as_str().unwrap_or("response") {
         "sleep" => {

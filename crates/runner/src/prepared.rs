@@ -31,6 +31,8 @@ pub struct Action {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Inputs {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inherit_environment: Vec<String>,
     pub local: Action,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ci: Option<Action>,
@@ -245,6 +247,7 @@ pub fn declaration(config: &Value) -> Result<Canonical, String> {
         return Err("short check must inherit CHRONO_CHECK_SOURCE without a fixed override".into());
     }
     credential_environment(config)?;
+    preparation_keys(config, &c.inputs)?;
     if !config["artifacts"]
         .as_array()
         .ok_or("artifacts missing")?
@@ -299,7 +302,7 @@ pub(crate) fn participate(root: &Path, args: &[&str]) -> Result<Option<crate::Cl
         }
         return Ok(None);
     }
-    let (env, _) = environment(&cfg)?;
+    let (env, _) = environment(&cfg, &canonical.inputs)?;
     let tool = cfg["tools"]
         .as_array()
         .ok_or("missing participation tools")?
@@ -442,18 +445,34 @@ pub fn process_identities(mut process: ProcessResult) -> ProcessResult {
     process.environment = environment_hashes(&process.environment);
     process
 }
-fn environment(cfg: &Value) -> Result<(BTreeMap<String, String>, Value), String> {
-    let mut env = BTreeMap::new();
-    let mut observed = serde_json::Map::new();
-    let mut seen = BTreeSet::new();
-    for k in cfg["environment"]["inherit"]
+/// Input producers also receive host-declared transport variables. Business
+/// processes and input snapshots use the product environment separately.
+fn preparation_keys<'a>(cfg: &'a Value, inputs: &'a Inputs) -> Result<BTreeSet<&'a str>, String> {
+    let mut keys = BTreeSet::new();
+    for value in cfg["environment"]["inherit"]
         .as_array()
         .ok_or("environment inherit missing")?
     {
-        let k = k.as_str().ok_or("environment key")?;
-        if !seen.insert(k) || k.is_empty() || k.contains(['=', '\0']) {
+        let key = value.as_str().ok_or("environment key")?;
+        if key.is_empty() || key.contains(['=', '\0']) || !keys.insert(key) {
             return Err("invalid/duplicate environment inheritance".into());
         }
+    }
+    for key in &inputs.inherit_environment {
+        if key.is_empty()
+            || key.contains(['=', '\0'])
+            || cfg["environment"]["values"].get(key).is_some()
+            || !keys.insert(key.as_str())
+        {
+            return Err("invalid/overlapping preparation environment inheritance".into());
+        }
+    }
+    Ok(keys)
+}
+fn environment(cfg: &Value, inputs: &Inputs) -> Result<(BTreeMap<String, String>, Value), String> {
+    let mut env = BTreeMap::new();
+    let mut observed = serde_json::Map::new();
+    for k in preparation_keys(cfg, inputs)? {
         match std::env::var(k) {
             Ok(v) => {
                 observed.insert(k.into(), json!(sha256(v.as_bytes())));
@@ -775,7 +794,7 @@ pub fn prepare(
         crate::facts_configs::load(root, ".chrono-harness/config.json")?;
     let c = declaration(&cfg)?;
     facts::git_declaration(&cfg)?;
-    let (env, inherited) = environment(&cfg)?;
+    let (env, inherited) = environment(&cfg, &c.inputs)?;
     let source = env.get(SOURCE).map(String::as_str).unwrap_or("local");
     if !matches!(source, "local" | "ci") {
         return Err("CHRONO_CHECK_SOURCE must be local or ci".into());

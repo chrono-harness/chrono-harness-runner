@@ -112,11 +112,7 @@ pub fn validate_binding(
         return Err("short collection endpoint handoff mismatch".into());
     }
     let mut effective_env = BTreeMap::new();
-    for key in cfg["environment"]["inherit"]
-        .as_array()
-        .ok_or("environment inherit missing")?
-    {
-        let key = key.as_str().ok_or("environment key")?;
+    for key in preparation_keys(cfg, &c.inputs)? {
         let observed = binding["environment"]["inherited"]
             .get(key)
             .ok_or("missing prepared environment observation")?;
