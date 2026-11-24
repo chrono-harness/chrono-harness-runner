@@ -59,6 +59,141 @@ fn has_prefix(text: &str, prefix: &str) -> (valid: bool)
     bytes.len() >= prefix.len() && identifiers::equal_bytes(&bytes[0..prefix.len()], prefix)
 }
 
+pub fn request_header(schema: &str, source: &str, absolute_root: bool, expected_schema: &str) -> (ok: bool)
+    ensures ok == (schema@ == expected_schema@ && (source@ == "local"@ || source@ == "ci"@) && absolute_root),
+{
+    identifiers::equal_text(schema, expected_schema)
+        && (identifiers::equal_text(source, "local") || identifiers::equal_text(source, "ci"))
+        && absolute_root
+}
+
+pub fn select_request_profile<'a>(regular: &'a str, configured: Option<&'a str>, initial: bool, standalone: bool)
+    -> (out: Result<&'a str, &'static str>)
+    ensures
+        out == match (initial, configured) {
+            (true, Some(special)) => if standalone { Ok::<&str,&str>(special) }
+                else { Err::<&str,&str>("initial inventory requires the standalone bare check") },
+            _ => Ok::<&str,&str>(regular),
+        },
+{
+    if initial {
+        if let Some(special) = configured {
+            if !standalone { return Err("initial inventory requires the standalone bare check"); }
+            return Ok(special);
+        }
+    }
+    Ok(regular)
+}
+
+pub enum RequestPolicyError<'a, E> {
+    Relative(&'a str),
+    Location,
+    Drift(&'a str),
+    Read(E),
+}
+
+pub open spec fn policy_location(path: &str) -> bool {
+    text_has_prefix(path, ".chrono-harness/") && !text_has_prefix(path, ".chrono-harness/state/")
+}
+
+pub open spec fn acceptable_request_path(path: &str) -> bool {
+    paths::relative_path(path.spec_bytes()) && policy_location(path)
+}
+
+pub open spec fn matching_observed_file<'a,E,F: Fn(&'a str) -> Result<String,E>>(read:F, file:(&'a str,&'a str)) -> bool {
+    exists|s:String| #[trigger] read.ensures((file.0,), Ok::<String,E>(s)) && s@ == file.1@
+}
+
+pub open spec fn observed_file_failure<'a,E,F: Fn(&'a str) -> Result<String,E>>(
+    read:F, error:RequestPolicyError<'a,E>, file:(&'a str,&'a str),
+) -> bool {
+    match error {
+        RequestPolicyError::Drift(p) => file.0 == p && exists|s:String|
+            #[trigger] read.ensures((p,),Ok::<String,E>(s)) && s@ != file.1@,
+        RequestPolicyError::Read(e) => read.ensures((file.0,),Err::<String,E>(e)),
+        _ => false,
+    }
+}
+
+/// File identities are observations of the host. All locations must pass before the first read.
+pub fn request_files<'a, E, F>(files: &[(&'a str, &'a str)], read: F)
+    -> (out: Result<(), RequestPolicyError<'a, E>>)
+    where F: Fn(&'a str) -> Result<String, E>,
+    requires forall|p: &'a str| read.requires((p,)),
+    ensures
+        match out {
+            Ok(()) => forall|k: int| 0 <= k < files.len() ==> acceptable_request_path(files@[k].0)
+                && matching_observed_file(read, #[trigger] files@[k]),
+            Err(RequestPolicyError::Relative(p)) => exists|position:int| 0 <= position < files.len()
+                && files@[position].0 == p && !paths::relative_path(p.spec_bytes())
+                && forall|k:int| 0 <= k < position ==> acceptable_request_path(files@[k].0),
+            Err(RequestPolicyError::Location) => exists|position:int| 0 <= position < files.len()
+                && paths::relative_path(files@[position].0.spec_bytes()) && !policy_location(files@[position].0)
+                && forall|k:int| 0 <= k < position ==> acceptable_request_path(files@[k].0),
+            Err(other) => (forall|k:int| 0 <= k < files.len() ==> acceptable_request_path(files@[k].0))
+                && exists|position:int| 0 <= position < files.len()
+                    && (forall|k:int| 0 <= k < position ==> matching_observed_file(read, #[trigger] files@[k]))
+                    && #[trigger] observed_file_failure(read,other,files@[position]),
+        },
+{
+    let mut i = 0;
+    while i < files.len()
+        invariant i <= files.len(), forall|k:int| 0 <= k < i ==> acceptable_request_path(files@[k].0),
+        decreases files.len() - i,
+    {
+        let path = files[i].0;
+        if !paths::valid_relative_path(path.as_bytes()) { return Err(RequestPolicyError::Relative(path)); }
+        if !has_prefix(path, ".chrono-harness/") || has_prefix(path, ".chrono-harness/state/") {
+            return Err(RequestPolicyError::Location);
+        }
+        i += 1;
+    }
+    let mut i = 0;
+    while i < files.len()
+        invariant i <= files.len(), forall|p: &'a str| read.requires((p,)),
+            forall|k:int| 0 <= k < files.len() ==> acceptable_request_path(files@[k].0),
+            forall|k:int| 0 <= k < i ==> matching_observed_file(read, #[trigger] files@[k]),
+        decreases files.len() - i,
+    {
+        let (path, expected) = files[i];
+        let observed = match read(path) {
+            Ok(value) => value,
+            Err(e) => {
+                let error = RequestPolicyError::Read(e);
+                assert(observed_file_failure(read, error, files@[i as int]));
+                return Err(error);
+            }
+        };
+        if !identifiers::equal_text(observed.as_str(), expected) {
+            let error = RequestPolicyError::Drift(path);
+            assert(observed_file_failure(read, error, files@[i as int]));
+            return Err(error);
+        }
+        assert(matching_observed_file(read, files@[i as int]));
+        i += 1;
+    }
+    Ok(())
+}
+
+pub fn selected_request_identity(path: &str, expected_path: &str, digest: &str, expected_digest: &str)
+    -> (ok: bool)
+    ensures ok == (path@ == expected_path@ && digest@ == expected_digest@),
+{
+    identifiers::equal_text(path, expected_path) && identifiers::equal_text(digest, expected_digest)
+}
+
+pub fn request_profiles(regular: &str, expected: &str, initial: Option<&str>, wanted: Option<&str>)
+    -> (out: Result<(), &'static str>)
+    ensures out == if regular@ != expected@ { Err::<(),&str>("check input profile disagrees with binding") }
+        else if !(match (initial,wanted) { (Some(a),Some(b)) => a@ == b@, (None,None) => true, _ => false }) { Err::<(),&str>("initial profile disagrees with binding") } else { Ok::<(),&str>(()) },
+{
+    if !identifiers::equal_text(regular, expected) { return Err("check input profile disagrees with binding"); }
+    let same = match (initial,wanted) {
+        (Some(a),Some(b)) => identifiers::equal_text(a,b), (None,None) => true, _ => false,
+    };
+    if same { Ok(()) } else { Err("initial profile disagrees with binding") }
+}
+
 pub open spec fn git_config_schema(schema: Option<&str>) -> GitConfigSchema {
     match schema {
         None => GitConfigSchema::Direct,

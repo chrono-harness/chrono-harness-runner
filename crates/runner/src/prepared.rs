@@ -122,44 +122,53 @@ pub struct PreparedCheck {
 }
 impl InputRequest {
     pub fn profile_for(&self, initial: bool) -> Result<&str, String> {
-        if initial && self.initial_profile.is_some() {
-            if self.selection != Selection::All {
-                return Err("initial inventory requires the standalone bare check".into());
-            }
-            Ok(&self
-                .initial_profile
-                .as_ref()
-                .ok_or("initial profile binding missing")?
-                .path)
-        } else {
-            Ok(&self.profile)
-        }
+        crate::verified_git_binding::select_request_profile(
+            &self.profile,
+            self.initial_profile.as_ref().map(|p| p.path.as_str()),
+            initial,
+            self.selection == Selection::All,
+        )
+        .map_err(String::from)
     }
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema != REQUEST
-            || !matches!(self.source.as_str(), "local" | "ci")
-            || !self.host_root.is_absolute()
-        {
+        use crate::verified_git_binding as policy;
+        if !policy::request_header(
+            &self.schema,
+            &self.source,
+            self.host_root.is_absolute(),
+            REQUEST,
+        ) {
             return Err("invalid check input request/source/root".into());
         }
-        for p in [&self.host_config, &self.effective_config, &self.profile] {
-            relative_path(p)?;
-            if !p.starts_with(".chrono-harness/") || p.starts_with(".chrono-harness/state/") {
-                return Err("check input policy must be beneath .chrono-harness".into());
+        let files = [
+            (self.host_config.as_str(), self.host_config_sha256.as_str()),
+            (
+                self.effective_config.as_str(),
+                self.effective_config_sha256.as_str(),
+            ),
+            (self.profile.as_str(), self.profile_sha256.as_str()),
+        ];
+        policy::request_files(&files, |path| {
+            file_identity(&no_symlink_parents(&self.host_root, path)?).map(|(digest, _)| digest)
+        })
+        .map_err(|error| match error {
+            policy::RequestPolicyError::Relative(path) => {
+                format!("invalid relative path: {path:?}")
             }
-        }
-        for (p, h) in [
-            (&self.host_config, &self.host_config_sha256),
-            (&self.effective_config, &self.effective_config_sha256),
-            (&self.profile, &self.profile_sha256),
-        ] {
-            if file_identity(&no_symlink_parents(&self.host_root, p)?)?.0 != *h {
-                return Err(format!("check input policy drift: {p}"));
+            policy::RequestPolicyError::Location => {
+                "check input policy must be beneath .chrono-harness".into()
             }
-        }
+            policy::RequestPolicyError::Drift(path) => format!("check input policy drift: {path}"),
+            policy::RequestPolicyError::Read(error) => error,
+        })?;
         let (effective, bytes, _, _) =
             crate::facts_configs::load(&self.host_root, &self.host_config)?;
-        if effective != self.effective_config || sha256(&bytes) != self.effective_config_sha256 {
+        if !policy::selected_request_identity(
+            &effective,
+            &self.effective_config,
+            &sha256(&bytes),
+            &self.effective_config_sha256,
+        ) {
             return Err("check input effective selector identity mismatch".into());
         }
         let cfg = crate::json(
@@ -167,14 +176,17 @@ impl InputRequest {
                 .map_err(|e| e.to_string())?,
         )?;
         let c = declaration(&cfg)?;
-        if c.profile != self.profile {
-            return Err("check input profile disagrees with binding".into());
-        }
-        if c.initial_profile.as_deref() != self.initial_profile.as_ref().map(|p| p.path.as_str()) {
-            return Err("initial profile disagrees with binding".into());
-        }
+        policy::request_profiles(
+            &c.profile,
+            &self.profile,
+            c.initial_profile.as_deref(),
+            self.initial_profile.as_ref().map(|p| p.path.as_str()),
+        )?;
         if let Some(p) = &self.initial_profile {
-            if file_identity(&no_symlink_parents(&self.host_root, &p.path)?)?.0 != p.sha256 {
+            if !crate::verified_identifiers::equal_text(
+                &file_identity(&no_symlink_parents(&self.host_root, &p.path)?)?.0,
+                &p.sha256,
+            ) {
                 return Err("initial profile identity drift".into());
             }
             let profile: crate::initial::Profile = decode(
@@ -182,7 +194,7 @@ impl InputRequest {
                     .map_err(|e| e.to_string())?,
             )?;
             profile.validate()?;
-            if profile.host_config != self.host_config {
+            if !crate::verified_identifiers::equal_text(&profile.host_config, &self.host_config) {
                 return Err("initial profile host binding mismatch".into());
             }
         }
