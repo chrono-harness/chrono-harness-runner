@@ -3927,3 +3927,17 @@ fn producer_fixture_requires_explicit_mode() {
     expect_producer_mode(!cli_child::producer_mode(None));
 }
 }
+
+#[test]
+fn finding_record_references_use_json_pointer_escapes() {
+    use chrono_harness::verified_status::valid_finding_reference;
+
+    for pointer in ["/", "//", "/问~0题/~1", "/~01", "/records/~1~0"] {
+        assert!(valid_finding_reference(pointer, None), "{pointer:?}");
+        assert!(valid_finding_reference(pointer, Some(&[])), "{pointer:?}");
+    }
+    for pointer in ["/~", "/~2", "/records/last~", "/~é", "/~~0"] {
+        assert!(!valid_finding_reference(pointer, None), "{pointer:?}");
+        assert!(!valid_finding_reference(pointer, Some(&[])), "{pointer:?}");
+    }
+}

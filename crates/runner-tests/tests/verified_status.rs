@@ -3008,7 +3008,7 @@ fn unlisted_relative_reference_is_rejected(reference: &str, path: &str)
 }
 
 fn record_pointer_is_accepted_in_both_modes(reference: &str)
-    requires reference.spec_bytes().len() > 0, reference.spec_bytes()[0] == 47,
+    requires policy::record_reference(reference@),
 {
     let initial = policy::valid_finding_reference(reference, None);
     let empty: Vec<policy::Delta> = Vec::new();
@@ -3032,6 +3032,10 @@ fn reference_membership_keeps_exact_text_and_initial_scope() {
         assert("X"@[0] == 'X' && "x"@[0] == 'x');
         assert("x".spec_bytes()[0] == 120 && "x/y".spec_bytes()[0] == 120);
         assert("/".spec_bytes()[0] == 47 && "/records/a".spec_bytes()[0] == 47);
+        assert forall|i:int| 0 <= i < "/records/a".spec_bytes().len()
+            implies #[trigger] "/records/a".spec_bytes()[i] != 126 by {
+            assert("/records/a".spec_bytes() == seq![47u8, 114, 101, 99, 111, 114, 100, 115, 47, 97]);
+        }
     }
     delta_equality_distinguishes_each_complete_field("x", "X");
     delta_equality_distinguishes_each_complete_field("", "x");
@@ -4096,7 +4100,7 @@ fn complete_finding(level: &str, reference: &str) -> (out: policy::Finding)
 proof fn response_fixture_texts()
     ensures
         "fixture"@.len() > 0, "independent expectation"@.len() > 0, ""@.len() == 0,
-        "/a".spec_bytes().len() > 0, "/a".spec_bytes()[0] == 47,
+        "/a".spec_bytes().len() > 0, "/a".spec_bytes()[0] == 47, policy::record_reference("/a"@),
         "x".spec_bytes().len() > 0, "x".spec_bytes()[0] != 47,
         "info"@ != "warning"@, "info"@ != "error"@, "warning"@ != "error"@,
 {
