@@ -1665,17 +1665,17 @@ fn checksum_lines_bind_path_hash_and_source_length() {
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
-fn original_compiler_header_decodes_one_target_and_stops_at_the_first_line() {
-    let input = [97u8, 92, 32, 98, 46, 100, 58, 32, 120, 10];
-    assert(input@ =~= seq![97u8, 92, 32, 98, 46, 100, 58, 32, 120, 10]);
-    assert(policy::sources::header_word(seq![97u8, 92, 32, 98, 46, 100, 58, 32, 120, 10])
+fn original_compiler_header_preserves_literal_spaces_and_stops_at_the_first_line() {
+    let input = [97u8, 32, 98, 46, 100, 58, 32, 120, 10];
+    assert(input@ =~= seq![97u8, 32, 98, 46, 100, 58, 32, 120, 10]);
+    assert(policy::sources::header_word(seq![97u8, 32, 98, 46, 100, 58, 32, 120, 10])
         == Some(seq![97u8, 32, 98])) by (compute);
     let decoded = policy::sources::compiler_header_stem(&input).unwrap();
     expect_verifier_true(decoded.len() == 3 && decoded[0] == 97 && decoded[1] == 32 && decoded[2] == 98);
-    let multiple = [97u8, 32, 98, 46, 100, 58, 32, 120, 10];
-    assert(multiple@ =~= seq![97u8, 32, 98, 46, 100, 58, 32, 120, 10]);
-    assert(policy::sources::header_word(seq![97u8, 32, 98, 46, 100, 58, 32, 120, 10]).is_none()) by (compute);
-    expect_verifier_true(policy::sources::compiler_header_stem(&multiple).is_none());
+    let empty = [46u8, 100, 58, 32, 120, 10];
+    assert(empty@ =~= seq![46u8, 100, 58, 32, 120, 10]);
+    assert(policy::sources::header_word(seq![46u8, 100, 58, 32, 120, 10]).is_none()) by (compute);
+    expect_verifier_true(policy::sources::compiler_header_stem(&empty).is_none());
     let next_line = [10u8, 97, 46, 100, 58, 32, 120, 10];
     assert(next_line@ =~= seq![10u8, 97, 46, 100, 58, 32, 120, 10]);
     assert(policy::sources::header_word(seq![10u8, 97, 46, 100, 58, 32, 120, 10]).is_none()) by (compute);

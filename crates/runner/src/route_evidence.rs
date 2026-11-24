@@ -138,11 +138,8 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                 Compiler::DependencyHeader { dependency } => {
                     let header =
                         verifier::sources::compiler_header_stem(&dependency).and_then(|stem| {
-                            let encoded = verifier::sources::encode_path(&stem);
-                            let paths = verifier::sources::compiler_dependency_paths(
-                                &dependency,
-                                &encoded,
-                            )?;
+                            let paths =
+                                verifier::sources::compiler_dependency_paths(&dependency, &stem)?;
                             Some((stem, paths))
                         });
                     serde_json::to_writer(output, &header).map_err(|e| e.to_string())

@@ -544,21 +544,14 @@ pub open spec fn first_header_separator(input: Seq<u8>, at: int) -> Option<int>
 
 pub open spec fn header_word(input: Seq<u8>) -> Option<Seq<u8>> {
     match first_header_separator(input, 0) {
-        None => None,
-        Some(end) => match dependency_scan(input.take(end), Seq::empty(), Seq::empty()) {
-            Some(words) if end > 0 && words.len() == 1 => Some(words[0]),
-            _ => None,
-        },
+        Some(end) if end > 0 => Some(input.take(end)),
+        _ => None,
     }
 }
 
-/// Recover the target spelling that rustc recorded, including path aliases and escaped spaces.
+/// rustc writes its target spelling literally. Escaping applies to source words after the separator.
 pub fn compiler_header_stem(input: &[u8]) -> (stem: Option<Vec<u8>>)
-    ensures
-        (match stem { None => None, Some(word) => Some(word@) }) == header_word(input@),
-        stem matches Some(word) ==> exists|end: int| 0 < end <= input.len()
-        && prefix_at(input@, end, seq![46u8, 100u8, 58u8, 32u8])
-        && dependency_scan(input@.take(end), Seq::empty(), Seq::empty()) == Some(seq![word@]),
+    ensures (match stem { None => None, Some(word) => Some(word@) }) == header_word(input@),
 {
     let mut end = 0usize;
     while end < input.len()
@@ -569,16 +562,8 @@ pub fn compiler_header_stem(input: &[u8]) -> (stem: Option<Vec<u8>>)
         if matches_at(input, end, &[46u8, 100u8, 58u8, 32u8]) {
             if end == 0 { return None; }
             let prefix = copy_range(input, 0, end);
-            let mut words = match parse_dependency_paths(prefix.as_slice()) {
-                Some(words) => words, None => return None,
-            };
-            if words.len() != 1 { return None; }
-            let ghost decoded = dependency_values(words@);
-            let word = words.pop().unwrap();
-            assert(decoded =~= seq![word@]);
             assert(prefix@ =~= input@.take(end as int));
-            assert(prefix_at(input@, end as int, seq![46u8, 100u8, 58u8, 32u8]));
-            return Some(word);
+            return Some(prefix);
         }
         end += 1;
     }
