@@ -48,8 +48,10 @@ pub(super) enum Action {
     EndScope {
         token: u64,
     },
-    CloseSlot {
+    ReferenceHeld {
         slot: String,
+        path: String,
+        inputs: Vec<String>,
     },
     Enroll {
         path: String,
@@ -247,9 +249,9 @@ impl Publications {
                     .ok_or("read scope is not active")?;
                 Ok(Value::Null)
             }
-            Action::CloseSlot { slot } => {
-                self.slots.remove(&slot);
-                Ok(Value::Null)
+            Action::ReferenceHeld { slot, path, inputs } => {
+                let guard = retention::reference_report(root, &slot, &path, &inputs, None)?;
+                self.retain_read(guard)
             }
             Action::Enroll {
                 path,
