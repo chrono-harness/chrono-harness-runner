@@ -327,3 +327,52 @@ fn compiler_originals_use_the_operation_directory_and_its_byte_limit() {
     std::os::unix::fs::symlink("library.rlib.d", dir.path().join("library.rlib")).unwrap();
     assert!(artifact().is_err());
 }
+
+#[test]
+fn observed_command_forwards_binary_streams_and_original_terminal_evidence() {
+    use chrono_harness::{observed_command::serve, sha256};
+    use serde_json::{Value, json};
+    use std::{io::Read, time::Duration};
+    let mut request=serde_json::to_vec(&json!({"command":{"program":"/tool","args":[],"env":{},"timeout_seconds":3,"output_limit_bytes":128},"expected_sha256":"expected","timeout":{"secs":0,"nanos":312}})).unwrap();
+    request.extend_from_slice(b"\n\x00\xff");
+    let mut output = Vec::new();
+    serve(request.as_slice(),&mut output,|spec,input,expected,deadline,fwd|{
+        assert_eq!((spec.program.as_str(),input,expected,deadline),("/tool",b"\0\xff".as_slice(),"expected",Duration::from_nanos(312)));
+        fwd.stderr.write_all(&[0,128]).unwrap();
+        fwd.stdout.write_all(&[255]).unwrap();
+        serde_json::from_value(json!({"argv":["/tool"],"cwd":"/root","environment":{},"environment_digest":"env","stdin_sha256":"input","stdout_bytes":[255],"stderr_bytes":[0,128],"stdout_complete":true,"stderr_complete":false,"stdout_sha256":sha256(&[255]),"stderr_sha256":sha256(&[0,128]),"failure":"stream limit","exit_code":-1,"exit_signal":9,"stdout":"","stderr":"","executable":"/tool","sha256":"expected","launcher_pid":42,"child_pid":43})).map_err(|e|e.to_string())
+    }).unwrap();
+    let mut raw = output.as_slice();
+    let mut next = |tag: u8| {
+        let mut header = [0; 9];
+        raw.read_exact(&mut header).unwrap();
+        assert_eq!(header[0], tag);
+        let mut bytes = vec![0; u64::from_be_bytes(header[1..].try_into().unwrap()) as usize];
+        raw.read_exact(&mut bytes).unwrap();
+        bytes
+    };
+    assert_eq!(next(b'E'), [0, 128]);
+    assert_eq!(next(b'O'), [255]);
+    let result: Value = serde_json::from_slice(&next(b'T')).unwrap();
+    assert_eq!(
+        (
+            result["launcher_pid"].as_u64(),
+            result["child_pid"].as_u64()
+        ),
+        (Some(42), Some(43))
+    );
+    assert_eq!(result["failure"], "stream limit");
+    assert_eq!(result["stderr_complete"], false);
+    assert_eq!(result["exit_signal"], 9);
+    assert_eq!(result["stdout_sha256"], sha256(&[255]));
+    assert!(raw.is_empty());
+    let result = serve(request.as_slice(), Vec::new(), |_, _, _, _, _| {
+        Err("prelaunch error".into())
+    });
+    assert_eq!(result, Err("prelaunch error".into()));
+    let oversized = b"{\"command\":{\"program\":\"/tool\",\"timeout_seconds\":1,\"output_limit_bytes\":1},\"expected_sha256\":\"d\",\"timeout\":{\"secs\":1,\"nanos\":1}}\n";
+    let result = serve(oversized.as_slice(), Vec::new(), |_, _, _, _, _| {
+        panic!("out-of-bounds command reached the launcher")
+    });
+    assert!(result.unwrap_err().contains("timeout exceeds"));
+}
