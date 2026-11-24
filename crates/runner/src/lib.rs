@@ -80,6 +80,8 @@ pub mod maintenance_signal;
 #[cfg(not(verus_keep_ghost))]
 pub mod observation;
 #[cfg(not(verus_keep_ghost))]
+pub mod observed_command;
+#[cfg(not(verus_keep_ghost))]
 pub mod ownership;
 #[cfg(not(verus_keep_ghost))]
 pub mod prepared;
@@ -2931,15 +2933,22 @@ pub fn cli_main() -> std::process::ExitCode {
             })
         }));
     }
-    if mode.as_deref() == Some(std::ffi::OsStr::new("run-command-v1")) {
+    let observed = mode.as_deref() == Some(std::ffi::OsStr::new("observed-command-v1"));
+    if observed || mode.as_deref() == Some(std::ffi::OsStr::new("run-command-v1")) {
         return std::process::ExitCode::from(logged_text_main("chrono-harness", |args| {
             if args.len() != 1 {
-                eprintln!("E_USAGE: run-command-v1 reads the command from stdin");
+                eprintln!("E_USAGE: the command is supplied on stdin");
                 return 2;
             }
             let result = std::env::current_dir()
                 .map_err(|error| error.to_string())
-                .and_then(|root| command_stream::command(&root));
+                .and_then(|root| {
+                    if observed {
+                        observed_command::command(&root)
+                    } else {
+                        command_stream::command(&root)
+                    }
+                });
             match result {
                 Ok(()) => 0,
                 Err(error) => {
