@@ -23,6 +23,8 @@ test = false
 bench = false
 
 [dependencies]
+chrono-identifiers = { path = "../proofs/identifiers" }
+chrono-verifier = { path = "../proofs/verifier" }
 serde_yaml_ng = "=0.10.0"
 litrs = "=1.0.1"
 rustix = {version = "1", features = ["net"]}

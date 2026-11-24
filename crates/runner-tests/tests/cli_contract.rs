@@ -1906,6 +1906,29 @@ fn exit_status_mismatch_fails() {
     }
 }
 #[test]
+fn scoped_config_enforces_execution_bounds_before_launch() {
+    let (_root, path) = fixture(json!({}));
+    let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for (seconds, bytes, valid) in [
+        (1, 1, true),
+        (1, 67_108_864, true),
+        (0, 1, false),
+        (1, 0, false),
+        (1, 67_108_865, false),
+    ] {
+        config["judge"]["timeout_seconds"] = json!(seconds);
+        config["judge"]["output_limit_bytes"] = json!(bytes);
+        fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+        let result = chrono_harness::load_config(Path::new(&path));
+        if valid {
+            result.unwrap();
+        } else {
+            assert_eq!(result.unwrap_err(), "invalid command/bounds");
+        }
+    }
+}
+
+#[test]
 fn bounds_cover_timeout_and_output() {
     for (case, cause, timeout) in [
         (json!({"kind":"sleep"}), "process timed out", 1),

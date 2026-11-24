@@ -33,7 +33,23 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 
 ## 验证
 
-`VERUS=/path/to/verus ./check.sh` 执行格式检查、锁定构建、测试及 Verus 验证。Rust 使用 1.95.0；Verus 使用 0.2026.04.24.f8e1704。标识符的生产实现和边界用例由 runner 维护。Verus 从本仓的 `verified_identifiers.rs` 生成证明元数据，其他证明根按需导入。
+在仓库根运行 `mise exec -- ./check.sh` 执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。编译器在新的临时 target 内按 Cargo 包依赖产生和读取证明元数据，检查结束后回收。
+
+[证明工作区](crates/proofs/Cargo.toml) 登记 `chrono-identifiers`、`chrono-verifier` 及其余各根对应的 Cargo 库目标。生产 runner、Cargo 的原生测试及 Verus 均使用这两个包的同一份源码。runner 保留从固定 Git 端点取数的适配器；验证器包负责根据已经观察到的数据作判断。
+
+| 证明根 | 真实使用方与边界 |
+| --- | --- |
+| `chrono_identifiers`、`identifiers_tests` | runner 解码提交 OID、请求头、状态路径及摘要；验证器以相同依赖判断文本与字节身份 |
+| `chrono_verifier`、`verifier_tests` | `compiler-output-v1` 接纳版本、commit、整根报告和编译原件；验证器测试还覆盖固定源连续性和候选判定 |
+| `runner_paths`、`runner_paths_tests` | 发布、保留和输出路径的准入，逐段处理路径、符号链接及发布错误 |
+| `runner_status`、`runner_status_tests` | 判官响应、固定 Git 事实与运行状态；状态解释使用实际读到的端点和结果 |
+| `runner_limits`、`runner_limits_tests` | 执行计划的正超时、输出量下界和上界 |
+| `retention_release`、`retention_release_tests` | 保管对象的选择、取得及释放，外部文件系统的观察与操作由适配层执行 |
+| `runner_git_binding`、`runner_git_binding_tests` | Git 工具及登记绑定，拒绝无效版本、选择器或输入边 |
+| `runner_cli`、`runner_cli_tests` | CLI 选择、参数解码、判官请求和输出；发布失败会保留产生它的写入或 flush 阶段 |
+| `runner_fixture_tests` | 原生测试的进程替身与输入预期，由测试框架使用 |
+
+每个整根的实际输入见 [Cargo 目标](crates/proofs/expectations/Cargo.toml) 和 [检查入口](check.sh)。原生测试核对换用系统接口后可观察的业务结果，Verus 的结论依赖所登记的工具、编译器和外部模型。
 
 运行库与测试从 [原实现的固定提交](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/runner) 分出。旧宿主的登记表检查由新的采用宿主负责。工作树、CI 生成器及安装器各自负责其命令替身的断言。
 

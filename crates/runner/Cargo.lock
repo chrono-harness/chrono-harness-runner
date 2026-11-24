@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "autocfg"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -43,6 +49,8 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 name = "chrono-harness"
 version = "0.1.0"
 dependencies = [
+ "chrono-identifiers",
+ "chrono-verifier",
  "libc",
  "litrs",
  "miniz_oxide",
@@ -57,6 +65,25 @@ dependencies = [
  "tracing",
  "tracing-tunnel",
  "verus_builtin_macros",
+]
+
+[[package]]
+name = "chrono-identifiers"
+version = "0.1.0"
+dependencies = [
+ "verus_builtin_macros",
+ "vstd",
+]
+
+[[package]]
+name = "chrono-verifier"
+version = "0.1.0"
+dependencies = [
+ "chrono-identifiers",
+ "serde",
+ "serde_json",
+ "verus_builtin_macros",
+ "vstd",
 ]
 
 [[package]]
@@ -139,9 +166,25 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
+
+[[package]]
+name = "hashbrown"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "735eaa21a6a5ffb2e84362faaeb90c05ba8e19797ca30428478cb6ea3a4921bc"
+
+[[package]]
+name = "indexmap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
+dependencies = [
+ "autocfg",
+ "hashbrown 0.12.3",
+]
 
 [[package]]
 name = "indexmap"
@@ -150,7 +193,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
- "hashbrown",
+ "hashbrown 0.17.2",
 ]
 
 [[package]]
@@ -313,7 +356,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f"
 dependencies = [
- "indexmap",
+ "indexmap 2.14.2",
  "itoa",
  "ryu",
  "serde",
@@ -458,6 +501,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "verus_builtin"
+version = "0.0.0-2026-04-12-0118"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a46cb431066009ad2035f6bca936b1c2b7e293bffec93a2090fead0f35ab4276"
+
+[[package]]
 name = "verus_builtin_macros"
 version = "0.0.0-2026-04-20-1748"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -482,6 +531,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "verus_state_machines_macros"
+version = "0.0.0-2026-04-20-1748"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba2497778c0b23d5cbd93f43cce512438af5cb01b1f1435aa7e411da8495efb5"
+dependencies = [
+ "indexmap 1.9.3",
+ "proc-macro2",
+ "quote",
+ "verus_syn",
+]
+
+[[package]]
 name = "verus_syn"
 version = "0.0.0-2026-04-05-0114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -490,6 +551,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "vstd"
+version = "0.0.0-2026-04-20-1748"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d03a77a2ee1b91bc776f8e9ee716d83b519d4338912116d7e855edfa3a8b976"
+dependencies = [
+ "verus_builtin",
+ "verus_builtin_macros",
+ "verus_state_machines_macros",
 ]
 
 [[package]]

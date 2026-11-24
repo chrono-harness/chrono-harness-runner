@@ -9,9 +9,10 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 cargo fmt --check --manifest-path crates/test-process/Cargo.toml
 # This support crate also has its own independently consumed lockfile.
 cargo tree --locked --manifest-path crates/test-process/Cargo.toml --depth 0 >/dev/null
+cargo fmt --check --all --manifest-path crates/proofs/Cargo.toml
 cargo fmt --check --manifest-path crates/runner/Cargo.toml
 cargo fmt --check --manifest-path crates/runner-tests/Cargo.toml
-cargo build --locked --manifest-path crates/runner/Cargo.toml
+cargo build --locked --message-format=json-render-diagnostics --manifest-path crates/runner/Cargo.toml > "$scratch/native.jsonl"
 CHRONO_TEST_GIT=$(command -v chrono-test-git) || { echo "chrono-test-git is required by runner tests" >&2; exit 1; }
 CHRONO_TEST_GIT_PROFILE_BIN=$(command -v chrono-test-git-profile) || { echo "chrono-test-git-profile is required by runner tests" >&2; exit 1; }
 export CHRONO_TEST_GIT CHRONO_TEST_GIT_PROFILE_BIN
@@ -22,39 +23,80 @@ ln -s "$CARGO_TARGET_DIR/debug/chrono-test-diagnostics" "$scratch/mock-bin/chron
 export PATH="$scratch/mock-bin:$PATH"
 cargo test --locked --manifest-path crates/runner-tests/Cargo.toml -- --test-threads=2
 
-proof_bindings=()
-prove() {
-  local label=$1 root=$2
-  local output="$scratch/$label.rlib"
-  "${VERUS:-verus}" --crate-type=lib --no-cheating --no-external-by-default --num-threads 2 \
-    "${proof_bindings[@]}" --output-json --compile "--emit=link=$output,dep-info=$output.d" "$root" -o "$output" \
-    -Zchecksum-hash-algorithm=sha256 > "$scratch/proof.json" || { cat "$scratch/proof.json" >&2; return 1; }
-  jq '."verification-results"' "$scratch/proof.json"
-  jq -e '.verus.version == "0.2026.04.24.f8e1704" and
-    .verus.commit == "f8e17045c4ac17a02e566b8997070f2eecc255be" and
-    (."verification-results" | .success == true and ."is-verifying-entire-crate" == true and
-    ."encountered-error" == false and ."encountered-vir-error" == false and
-    .errors == 0 and .verified > 0)' "$scratch/proof.json" >/dev/null
-  test -s "$output" && test -s "$output.d"
+# Use the actual library metadata selected by the native Cargo invocation.
+check_native() {
+  local package=$1
+  shift
+  local metadata stem filename
+  metadata=$(jq -ers --arg manifest "$(pwd -P)/$package/Cargo.toml" '
+    [.[] | select(.reason == "compiler-artifact" and .manifest_path == $manifest
+                  and .target.kind == ["lib"]) | .filenames[] | select(endswith(".rmeta"))]
+    | if length == 1 then .[0] else error("expected one native library") end
+  ' "$scratch/native.jsonl")
+  filename=${metadata##*/}
+  stem=${filename#lib}
+  chrono-host-bootstrap check-compiler-sources native "${metadata%/*}/${stem%.rmeta}" "$@"
 }
 
-proof_bindings=(--crate-name chrono_identifiers --export "$scratch/chrono_identifiers.vir")
-prove libchrono_identifiers crates/runner/src/verified_identifiers.rs
-proof_bindings=(--extern "chrono_identifiers=$scratch/libchrono_identifiers.rlib"
-                --import "chrono_identifiers=$scratch/chrono_identifiers.vir")
-prove verify.runner-paths crates/runner/src/verified_paths.rs
-prove verify.runner-status crates/runner/src/verified_status.rs
-prove verify.runner-limits crates/runner/src/verified_limits.rs
-prove verify.verus-result crates/runner/src/verified_verifier.rs
-prove verify.retention-release crates/runner/src/retained_artifacts/verified_release.rs
-prove verify.runner-git-binding crates/runner/src/verified_git_binding.rs
-prove verify.runner-cli crates/runner/src/verified_cli.rs
-prove verify.runner-paths-tests crates/runner-tests/tests/verified_paths.rs
-prove verify.runner-fixture-tests crates/runner-tests/tests/verified_fixture.rs
-prove verify.runner-status-tests crates/runner-tests/tests/verified_status.rs
-prove verify.runner-limits-tests crates/runner-tests/tests/verified_limits.rs
-prove verify.verus-result-tests crates/runner-tests/tests/verified_verifier.rs
-prove verify.retention-release-tests crates/runner-tests/tests/verified_release.rs
-prove verify.runner-git-binding-tests crates/runner-tests/tests/verified_git_binding.rs
-prove verify.runner-cli-tests crates/runner-tests/tests/verified_cli.rs
-prove verify.identifiers-tests crates/runner-tests/tests/verified_identifiers.rs
+# Cargo records absolute filenames for dependency packages and package-relative
+# filenames for its primary package.
+proofs="$(pwd -P)/crates/proofs"
+check_native crates/proofs/identifiers "$proofs/identifiers/src/lib.rs"
+check_native crates/proofs/verifier "$proofs/verifier/src/lib.rs" "$proofs/verifier/src/verified_sources.rs" \
+  "$proofs/verifier/src/verified_continuity.rs" "$proofs/verifier/src/verified_source_pipeline.rs"
+check_native crates/runner src/lib.rs src/source_endpoints.rs src/source_coverage.rs src/route_evidence.rs \
+  src/verified_cli.rs src/verified_git_binding.rs src/verified_limits.rs src/verified_paths.rs src/verified_status.rs \
+  src/facts.rs src/facts_binding.rs src/publication.rs src/retained_artifacts/verified_release.rs src/retained_artifacts/retention.rs
+
+verifier=$(command -v "${VERUS:-verus}")
+cargo_verus=$(dirname "$verifier")/cargo-verus
+workspace=crates/proofs/Cargo.toml
+chrono-host-bootstrap run-cargo-proofs "$scratch" runner-proofs "$cargo_verus" "$workspace" \
+  chrono-identifiers chrono-verifier chrono-runner-proof-expectations
+
+collect() {
+  local package=$1 manifest=$2
+  shift 2
+  printf '%s (%s)\n' "$package" "$1" >&2
+  chrono-host-bootstrap collect-cargo-proof "$scratch" runner-proofs "$cargo_verus" "$workspace" \
+    "$package" 0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$manifest" "$@"
+}
+
+collect_root() {
+  collect chrono-runner-proof-expectations crates/proofs/expectations/Cargo.toml "$@"
+}
+
+src=crates/runner/src
+tests=crates/runner-tests/tests
+verifier_src=crates/proofs/verifier/src
+collect chrono-identifiers crates/proofs/identifiers/Cargo.toml crates/proofs/identifiers/src/lib.rs
+collect chrono-verifier crates/proofs/verifier/Cargo.toml "$verifier_src/lib.rs" \
+  "$verifier_src/verified_sources.rs" "$verifier_src/verified_continuity.rs" "$verifier_src/verified_source_pipeline.rs"
+
+paths=("$src/verified_paths.rs")
+status=("$src/verified_status.rs" "$src/facts.rs" "$src/facts_binding.rs" "$src/verified_paths.rs"
+        "$src/verified_scope.rs" "$src/verified_export.rs" "$src/lib.rs")
+limits=("$src/verified_limits.rs" "$src/maintenance_signal.rs" "$src/artifact_disposal.rs")
+release=("$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs"
+         "$src/retained_artifacts/manifest.rs" "$src/retained_artifacts/partition.rs"
+         "$src/retained_artifacts/retention_command.rs" "$src/scoped_report.rs")
+git_binding=("$src/verified_git_binding.rs" "$src/verified_paths.rs")
+cli="$src/verified_cli.rs"
+
+collect_root "${paths[@]}"
+collect_root "${status[@]}"
+collect_root "${limits[@]}"
+collect_root "${release[@]}"
+collect_root "${git_binding[@]}"
+collect_root "$cli"
+
+collect_root "$tests/verified_paths.rs" "${paths[@]}"
+collect_root "$tests/verified_fixture.rs" "$tests/support/cli_child.rs" "$tests/support/isolated_capability.rs" \
+  crates/test-process/src/lib.rs "$tests/protocol_v1.rs" "$tests/retention.rs"
+collect_root "$tests/verified_status.rs" "${status[@]}"
+collect_root "$tests/verified_limits.rs" "${limits[@]}" "$tests/maintenance_signal.rs"
+collect_root "$tests/verified_verifier.rs" "$tests/support/verified_continuity.rs" "$tests/support/source_pipeline.rs"
+collect_root "$tests/verified_release.rs" "${release[@]}" "$tests/support/retention_frontier.rs"
+collect_root "$tests/verified_git_binding.rs" "${git_binding[@]}"
+collect_root "$tests/verified_cli.rs" "$cli"
+collect_root "$tests/verified_identifiers.rs"

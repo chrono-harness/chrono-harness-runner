@@ -248,6 +248,31 @@ fn public_compiler_query_preserves_owner_paths_and_rejects_missing_originals() {
 }
 
 #[test]
+fn proof_rows_in_the_compiler_protocol_require_the_matching_whole_crate() {
+    let report = json!({
+        "verus": {"version": "v", "commit": "c"},
+        "verification-results": {"success": true, "verified": 1, "errors": 0,
+            "encountered-error": false, "encountered-vir-error": false,
+            "is-verifying-entire-crate": true}
+    });
+    let mut partial = report.clone();
+    partial["verification-results"]["is-verifying-entire-crate"] = json!(false);
+    let mut different = report.clone();
+    different["verus"]["commit"] = json!("other");
+    let request = json!({"operation":"proof-rows","contract":{"version":"v","commit":"c"},
+        "rows":[report.to_string(), partial.to_string(), different.to_string(), "invalid"]});
+    let mut result = Vec::new();
+    chrono_harness::route_evidence::serve(
+        "compiler-output-v1",
+        request.to_string().as_bytes(),
+        &mut result,
+    )
+    .unwrap();
+    let rows: Value = serde_json::from_slice(&result).unwrap();
+    assert_eq!(rows, json!([true, false, false, null]));
+}
+
+#[test]
 fn compiler_originals_use_the_operation_directory_and_its_byte_limit() {
     use chrono_harness::route_evidence::serve;
     use serde_json::{Value, json};

@@ -1,8 +1,7 @@
 //! 原进程与完整 Verus 输出的独立成功、失败和边界预期。
 #![allow(unexpected_cfgs)]
 #[cfg(verus_keep_ghost)]
-#[path = "../../runner/src/verified_verifier.rs"]
-mod policy;
+extern crate chrono_verifier as policy;
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::verified_identifiers as identifiers;
 #[cfg(not(verus_keep_ghost))]
