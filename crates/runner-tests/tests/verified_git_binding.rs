@@ -20,6 +20,32 @@ fn expect_true(value: bool)
     requires value,
 { if !value { panic!(); } }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn request_header_selector_and_profile_precedence() {
+    proof { reveal_strlit("local"); reveal_strlit("ci"); reveal_strlit("other");
+        reveal_strlit("request"); reveal_strlit("wrong"); reveal_strlit("a"); reveal_strlit("b");
+        assert("local"@[0] != "other"@[0] && "ci"@[0] != "other"@[0]);
+        assert("request"@[0] != "wrong"@[0] && "a"@[0] != "b"@[0]);
+    }
+    expect_true(policy::request_header("request","local",true,"request"));
+    expect_true(policy::request_header("request","ci",true,"request"));
+    expect_true(!policy::request_header("request","other",true,"request"));
+    expect_true(!policy::request_header("wrong","local",true,"request"));
+    expect_true(!policy::request_header("request","local",false,"request"));
+    expect_true(matches!(policy::select_request_profile("a",Some("b"),true,false),Err(_)));
+    expect_true(matches!(policy::select_request_profile("a",Some("b"),true,true),Ok(_)));
+    expect_true(matches!(policy::select_request_profile("a",None,true,false),Ok(_)));
+    expect_true(policy::selected_request_identity("a","a","b","b"));
+    expect_true(!policy::selected_request_identity("a","b","b","b"));
+    expect_true(!policy::selected_request_identity("a","a","a","b"));
+    expect_selector_binding_result(policy::request_profiles("a","a",None,None),Ok(()));
+    expect_selector_binding_result(policy::request_profiles("a","a",Some("b"),Some("b")),Ok(()));
+    expect_selector_binding_result(policy::request_profiles("a","b",None,Some("b")),
+        Err("check input profile disagrees with binding"));
+    expect_selector_binding_result(policy::request_profiles("a","a",None,Some("b")),
+        Err("initial profile disagrees with binding"));
+}
+
 fn expect_selector_binding_result(actual: Result<(), &str>, expected: Result<(), &str>)
     requires actual == expected,
 {

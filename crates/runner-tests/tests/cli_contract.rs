@@ -1395,6 +1395,103 @@ fn retained_cli_config() -> Value {
 }
 
 #[test]
+fn prepared_request_preserves_first_policy_failure_and_both_profiles() {
+    use chrono_harness::prepared::{InputRequest, ProfileBinding, REQUEST, Selection};
+    let host = tempfile::tempdir().unwrap();
+    let root = host.path();
+    fs::create_dir(root.join(".chrono-harness")).unwrap();
+    let entry = ".chrono-harness/config.json";
+    let regular = ".chrono-harness/check.json";
+    let initial = ".chrono-harness/initial.json";
+    let mut config = retained_cli_config();
+    config["canonical_check"]["profile"] = json!(regular);
+    let write = |path: &str, data: &Value| {
+        let bytes = serde_json::to_vec(data).unwrap();
+        fs::write(root.join(path), &bytes).unwrap();
+        chrono_harness::sha256(&bytes)
+    };
+    let digest = write(entry, &config);
+    let mut request = InputRequest {
+        schema: REQUEST.into(),
+        source: "local".into(),
+        host_root: root.into(),
+        host_config: entry.into(),
+        host_config_sha256: digest.clone(),
+        effective_config: entry.into(),
+        effective_config_sha256: digest,
+        profile: regular.into(),
+        profile_sha256: write(regular, &json!({})),
+        initial_profile: None,
+        selection: Selection::All,
+        native_artifacts: None,
+        prepared: None,
+    };
+    request.validate().unwrap();
+    let mut bad = request.clone();
+    bad.host_config_sha256 = String::new();
+    bad.profile = "../outside".into();
+    bad.source = "remote".into();
+    assert_eq!(
+        bad.validate().unwrap_err(),
+        "invalid check input request/source/root"
+    );
+    bad.source = "local".into();
+    bad.host_root = "relative".into();
+    assert_eq!(
+        bad.validate().unwrap_err(),
+        "invalid check input request/source/root"
+    );
+    bad.host_root = root.into();
+    assert_eq!(
+        bad.validate().unwrap_err(),
+        "invalid relative path: \"../outside\""
+    );
+    bad.profile = ".chrono-harness/state/file".into();
+    assert_eq!(
+        bad.validate().unwrap_err(),
+        "check input policy must be beneath .chrono-harness"
+    );
+    bad.profile = regular.into();
+    assert_eq!(
+        bad.validate().unwrap_err(),
+        format!("check input policy drift: {entry}")
+    );
+    bad = request.clone();
+    bad.profile_sha256 = String::new();
+    assert_eq!(
+        bad.validate().unwrap_err(),
+        format!("check input policy drift: {regular}")
+    );
+    bad = request.clone();
+    bad.profile = entry.into();
+    bad.profile_sha256 = request.host_config_sha256.clone();
+    assert_eq!(
+        bad.validate().unwrap_err(),
+        "check input profile disagrees with binding"
+    );
+    config["canonical_check"]["initial_profile"] = json!(initial);
+    let digest = write(entry, &config);
+    request.host_config_sha256 = digest.clone();
+    request.effective_config_sha256 = digest;
+    assert_eq!(
+        request.validate().unwrap_err(),
+        "initial profile disagrees with binding"
+    );
+    let initial_data = json!({"schema":"chrono-initial-check/v1","host_config":entry,"judges":[{"id":"registration","executable":".chrono-harness/bin/test-registration","version":"1","sha256":"a".repeat(64),"argv":[],"selector":"every-initial","after":[],"modes":["inventory"]}],"timeout_seconds":1,"stdout_limit_bytes":1024});
+    request.initial_profile = Some(ProfileBinding {
+        path: initial.into(),
+        sha256: write(initial, &initial_data),
+    });
+    request.validate().unwrap();
+    assert_eq!(request.profile_for(true).unwrap(), initial);
+    request.initial_profile.as_mut().unwrap().sha256.clear();
+    assert_eq!(
+        request.validate().unwrap_err(),
+        "initial profile identity drift"
+    );
+}
+
+#[test]
 fn short_scopes_read_units_from_the_selected_platform_policy() {
     let dir = tempfile::tempdir().unwrap();
     let policy_dir = dir.path().join(".chrono-harness");
