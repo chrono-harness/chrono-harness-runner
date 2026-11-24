@@ -693,7 +693,28 @@ fn leaf_entry_retires_wide_parent(hops: usize, sealed: bool) {
             } else {
                 parent_id.clone()
             };
-            let round = inventory(h.path()).maintain_originals(&[entry]).unwrap();
+            // Once the report bytes are gone, its selected edge must make
+            // bounded progress even when address lookup used the time slice.
+            let late = !h.path().join(&parent_path).exists()
+                && !before["output"]["references"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty();
+            let round = if late {
+                inventory(h.path()).maintain_late_original_at(&entry, u64::MAX)
+            } else {
+                inventory(h.path()).maintain_originals(&[entry])
+            }
+            .unwrap();
+            if late {
+                let after = record();
+                assert!(
+                    after["output"].is_null()
+                        || after["output"]["references"].as_array().unwrap().len()
+                            < before["output"]["references"].as_array().unwrap().len(),
+                    "{round}"
+                );
+            }
             assert!(
                 round["accounting_errors"].as_array().unwrap().is_empty(),
                 "{round}"
