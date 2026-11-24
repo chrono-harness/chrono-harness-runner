@@ -43,6 +43,10 @@ enum Operation {
         path: String,
         outcome: Value,
     },
+    OpenRemoval {
+        paths: Vec<String>,
+    },
+    CheckRemoval,
     ScopedDescriptors {
         offset: usize,
     },
@@ -198,6 +202,7 @@ enum Operation {
 
 struct Session<'a> {
     publications: publication::Publications,
+    removal: Option<retention::RemovalGuard>,
     root: &'a Path,
     inventory: Option<Inventory>,
     stages: BTreeMap<PathBuf, Stage>,
@@ -262,6 +267,20 @@ impl Session<'_> {
                     .remove(&path)
                     .ok_or("unknown original directory")?
                     .seal(outcome)?;
+                Ok(Value::Null)
+            }
+            Operation::OpenRemoval { paths } => {
+                if self.removal.is_some() {
+                    return Err("removal scope is already open".into());
+                }
+                self.removal = retention::external_removal_guards(root, &paths)?;
+                Ok(json!(self.removal.is_some()))
+            }
+            Operation::CheckRemoval => {
+                self.removal
+                    .as_ref()
+                    .ok_or("no removal scope is open")?
+                    .stable()?;
                 Ok(Value::Null)
             }
             Operation::ScopedDescriptors { offset } => descriptors::send(offset).map(|n| json!(n)),
@@ -621,6 +640,7 @@ pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Re
     let _scope = retention::read_scope(root)?;
     let mut session = Session {
         publications: Default::default(),
+        removal: None,
         root,
         inventory: Inventory::adopted(root)?,
         stages: BTreeMap::new(),

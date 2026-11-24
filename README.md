@@ -8,6 +8,8 @@
 
 bootstrap 通过 `retained-artifacts-v1` 中的 `publication` 操作创建或接管宿主登记的目录，保留读取租约、诊断和报告引用，并在完成后封存。关闭未完成的发布会释放使用权，原始状态继续交给保管者处理。需要把新取得的租约交给原生子进程时，调用方将匿名 Unix socket 用作会话 stdin，stdout 仍返回逐行 JSON。`scoped-descriptors` 从给定 `offset` 返回最多 32 个描述符。计数大于零时，同一个 socket 传递一个字节 `01` 和相应的 `SCM_RIGHTS`。计数达到 32 时，调用方继续读下一批。
 
+工作树清理器使用 `retained-artifacts-v1` 的 `open-removal` 登记一组宿主相对路径。返回 true 时，保管进程持有这组路径的删除租约，直到输入关闭。调用方在实际删除前用 `check-removal` 再次核对租约。若要将保护传给子进程，调用方通过同一 Unix 会话的 `scoped-descriptors` 接收并传递原文件描述符。
+
 `chrono-harness inherited-descriptors-v1` 校验并报告当前是否继承了所有权描述符。`chrono-harness exec-with-descriptors-v1 PROGRAM [ARGS...]` 将租约交给实际程序，在同一 PID 上执行它，沿用调用方提供的当前目录、环境和标准流。
 
 `chrono-harness judge-command-v1 NAME VERSION PROGRAM OPERATION ERROR_CODE --protocol chrono-judge/v1` 将同一个已封存请求交给单独安装的判官。runner 负责解析请求、校验封存、解析宿主配置、限制进程以及写出原生响应。PROGRAM 的 stdin 含 `request` 和从该宿主选出的 `protocol`，stdout 返回 `status`、`findings` 和 `outputs`。调用方声明接纳或传输失败时对外使用的错误码。`prepare-command-v1 PROGRAM OPERATION` 使用同一套请求和进程限制，接收绑定 request_id 的 judge-pipeline 输入生产者响应，包括业务失败时已记录的 outputs。
