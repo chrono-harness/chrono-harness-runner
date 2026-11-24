@@ -246,3 +246,44 @@ fn evidence_frames_keep_original_decoding_and_transport_limits() {
     assert!(replies[2].is_err());
     assert!(chrono_harness::judge_evidence::serve(b"{}".as_slice(), Vec::new()).is_err());
 }
+
+#[test]
+fn registration_queries_bind_fixed_documents_and_keep_collection_and_environment_errors() {
+    use serde_json::{Value, json};
+    let entry = ".chrono-harness/config.json";
+    let mut input = Vec::new();
+    let definition =
+        json!({"schema_version":4, "environment":{"credential_environment":["CI_TOKEN"],"inherit":["CI_TOKEN"]}});
+    for query in [
+        json!({"operation":"registry-identity","entry":entry,"documents":{(entry):{"schema_version":1}}}),
+        json!({"operation":"registry-identity","entry":entry,"documents":{}}),
+        json!({"operation":"report-paths","profile":{"execution_units":{"units":{},"report_path":".chrono-harness/state/context.json"}}}),
+        json!({"operation":"validate-git-declaration","config":{"schema_version":3}}),
+        json!({"operation":"validate-preparation-declaration","config":{"schema_version":4}}),
+        json!({"operation":"credential-environment","config":definition}),
+    ] {
+        serde_json::to_writer(&mut input, &query).unwrap();
+        input.push(b'\n');
+    }
+    let mut output = Vec::new();
+    chrono_harness::judge_evidence::serve(input.as_slice(), &mut output).unwrap();
+    let rows: Vec<Result<Value, String>> = serde_json::Deserializer::from_slice(&output)
+        .into_iter()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), 6);
+    assert_eq!(
+        rows[0],
+        Ok(json!({"entry_path":entry,"effective_path":entry,"selection":null}))
+    );
+    assert!(
+        rows[1]
+            .as_ref()
+            .unwrap_err()
+            .contains("missing configuration entry")
+    );
+    assert!(rows[2].is_err());
+    assert!(rows[3].is_err());
+    assert!(rows[4].is_err());
+    assert_eq!(rows[5], Ok(json!(["CI_TOKEN"])));
+}
