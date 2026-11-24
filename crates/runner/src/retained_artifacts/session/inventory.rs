@@ -44,6 +44,12 @@ pub(super) enum Fact {
     Consume {
         id: String,
     },
+    References {
+        role: String,
+        paths: Vec<String>,
+        #[serde(default)]
+        prune: bool,
+    },
     ReleaseRole {
         role: String,
     },
@@ -125,6 +131,14 @@ impl Session<'_> {
             )?)),
             Fact::Consume { id } => {
                 self.consumers.push(inv.consume(&id)?);
+                Ok(Value::Null)
+            }
+            Fact::References { role, paths, prune } => {
+                if prune {
+                    inv.prune_reference_paths(&role, &paths)?;
+                } else {
+                    inv.reference_paths(&role, &paths)?;
+                }
                 Ok(Value::Null)
             }
             Fact::ReleaseRole { role } => {

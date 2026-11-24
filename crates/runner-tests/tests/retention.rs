@@ -10210,6 +10210,95 @@ fn failed_final_original_rolls_after_diagnostics_and_a_real_exact_consumer() {
 }
 
 #[test]
+fn publication_stream_admits_exact_raw_bytes_and_drains_rejected_frames() {
+    use std::io::{BufRead, Cursor};
+    let host = host(512, 16);
+    let root = host.path();
+    let raw = b"original with newlines\n\0and binary\xff";
+    let path = ".chrono-harness/state/fixtures/stream";
+    let mut input = Vec::new();
+    for (producer, name, digest) in [
+        ("fixture", path, chrono_harness::sha256(raw)),
+        ("fixture", path, chrono_harness::sha256(raw)),
+        (
+            "unknown",
+            ".chrono-harness/state/fixtures/missing",
+            chrono_harness::sha256(raw),
+        ),
+        (
+            "fixture",
+            ".chrono-harness/state/fixtures/incorrect",
+            "0".repeat(64),
+        ),
+    ] {
+        serde_json::to_writer(
+            &mut input,
+            &json!({"operation":"publish-stream","producer":producer,
+            "path":name,"length":raw.len(),"sha256":digest,"outcome":{"owner":"fixture"}}),
+        )
+        .unwrap();
+        input.push(b'\n');
+        input.extend_from_slice(raw);
+    }
+    let mut output = Vec::new();
+    chrono_harness::retained_artifacts::session::serve(root, Cursor::new(input), &mut output)
+        .unwrap();
+    let mut frames = Cursor::new(output)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap());
+    for expected in [Some(true), Some(true), Some(false), None] {
+        assert_eq!(frames.next(), Some(json!({"receive":raw.len()})));
+        let end: Result<bool, String> = serde_json::from_value(frames.next().unwrap()).unwrap();
+        match expected {
+            Some(expected) => assert_eq!(end.unwrap(), expected),
+            None => assert!(end.unwrap_err().contains("changed")),
+        }
+    }
+    assert!(frames.next().is_none());
+    assert_eq!(fs::read(root.join(path)).unwrap(), raw);
+    assert!(!root.join(".chrono-harness/state/fixtures/missing").exists());
+}
+
+#[test]
+fn maintenance_session_emits_each_observation_before_the_summary() {
+    use std::io::{BufRead, Cursor};
+    let host = host(512, 16);
+    let root = host.path();
+    let path = tree(root, "streamed-maintenance");
+    let publication = inventory(root)
+        .begin("fixture", &path, json!({"started":true}))
+        .unwrap();
+    let id = publication.id().to_owned();
+    publication.complete(json!({"passed":true})).unwrap();
+    let request = b"{\"operation\":\"observe-maintenance\"}\n";
+    let mut response = Vec::new();
+    chrono_harness::retained_artifacts::session::serve(
+        root,
+        Cursor::new(&request[..]),
+        &mut response,
+    )
+    .unwrap();
+    let mut frames = Cursor::new(response)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+        .collect::<Vec<_>>();
+    let summary: Result<Value, String> = serde_json::from_value(frames.pop().unwrap()).unwrap();
+    assert_eq!(
+        summary.unwrap()["schema"],
+        "chrono-output-retention-sweep/v1"
+    );
+    assert!(
+        frames.iter().all(
+            |frame| frame.as_object().unwrap().len() == 1 && frame.get("observation").is_some()
+        )
+    );
+    assert!(frames.iter().any(|frame| {
+        let row = &frame["observation"];
+        row["kind"] == "declaration" && row["namespace"] == "objects" && row["address"] == id
+    }));
+}
+
+#[test]
 fn removal_session_refuses_overlaps_and_holds_each_selected_path_until_eof() {
     const NAME: &str = "removal_session_refuses_overlaps_and_holds_each_selected_path_until_eof";
     if !isolated_capability_test(NAME) {

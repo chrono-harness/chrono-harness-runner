@@ -9,6 +9,12 @@ use std::{
 #[derive(Deserialize)]
 #[serde(tag = "mode", rename_all = "kebab-case", deny_unknown_fields)]
 enum Query {
+    LocalPreparation {
+        request: Box<crate::prepared::InputRequest>,
+    },
+    Participation {
+        config: Value,
+    },
     Template {
         root: PathBuf,
         entry: Value,
@@ -23,6 +29,20 @@ enum Query {
 pub(super) fn serve(input: impl Read, mut output: impl Write) -> Result<(), String> {
     let query: Query = serde_json::from_reader(input).map_err(|e| e.to_string())?;
     match query {
+        Query::LocalPreparation { request } => {
+            if request.source != "local"
+                || request.native_artifacts.is_some()
+                || request.prepared.is_some()
+            {
+                return Err("expected an unprepared local input request".into());
+            }
+            request.validate()?;
+        }
+        Query::Participation { config } => {
+            let declaration = crate::prepared::declaration(&config)?;
+            return serde_json::to_writer(&mut output, &declaration.participation)
+                .map_err(|error| error.to_string());
+        }
         Query::Template {
             root,
             entry,

@@ -4669,6 +4669,36 @@ fn read_guard_for(
     Ok(Some(lease))
 }
 
+/// The transport supplies exactly this many bytes; the existing reservation owns all writes.
+#[cfg(not(verus_keep_ghost))]
+pub(super) fn publish_streamed_original(
+    root: &Path,
+    producer: &str,
+    path: &str,
+    digest: &str,
+    length: u64,
+    outcome: Value,
+    source: &mut impl Read,
+) -> Result<bool, String> {
+    publish_owned_with(
+        root,
+        producer,
+        path,
+        length,
+        digest,
+        outcome,
+        |file| {
+            let (actual, received) = crate::copy_hashed(source, file)?;
+            if actual != digest || received != length {
+                return Err("original input changed during bounded publication".into());
+            }
+            Ok(())
+        },
+        None,
+        false,
+    )
+}
+
 /// Publish a newly addressed original under its opted-in natural producer.
 /// Existing unenrolled originals are verified and reused but require explicit legacy migration.
 #[cfg(not(verus_keep_ghost))]
