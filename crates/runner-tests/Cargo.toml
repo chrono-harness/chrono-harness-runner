@@ -10,19 +10,19 @@ name = "runtime_logging"
 path = "tests/runtime_logging.rs"
 
 [dependencies]
-chrono-test-process = { path = "../test-process" }
-verus_builtin_macros = "=0.0.0-2026-04-20-1748"
-serde = { version = "1", features = ["derive"] }
-sha1 = "0.10"
-serde_json = "1"
-libc = "0.2"
-sha2 = "0.10"
-chrono-harness = { path = "../runner", features = ["retention-test"] }
+chrono-test-process.workspace = true
+verus_builtin_macros.workspace = true
+serde.workspace = true
+sha1.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+sha2.workspace = true
+chrono-harness = { workspace = true, features = ["retention-test"] }
 
 [dev-dependencies]
-tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing.workspace = true
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json"] }
-tempfile = "3"
+tempfile.workspace = true
 
 [[bin]]
 name = "chrono-harness-test-cli"
@@ -50,13 +50,6 @@ path = "tests/git_inputs.rs"
 name = "verified_git_binding"
 path = "tests/verified_git_binding.rs"
 
-# Compile the real runner with its registered development optimization.
-# Finite retention rounds exercise snapshot work; debug assertions remain enabled.
-[profile.dev]
-opt-level = 1
-
-[profile.dev.package.sha2]
-opt-level = 3
 
 [[test]]
 name = "process_fds"

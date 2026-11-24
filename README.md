@@ -29,13 +29,13 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 
 ## 使用
 
-在仓库根运行 `cargo build --locked --manifest-path crates/runner/Cargo.toml`，再运行 `crates/runner/target/debug/chrono-harness --help`。日志和报告的位置由调用宿主选择。
+在仓库根运行 `cargo build --locked --package chrono-harness`，再运行 `target/debug/chrono-harness --help`。日志和报告的位置由调用宿主选择。
 
 ## 验证
 
 在仓库根运行 `mise exec -- ./check.sh` 执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。编译器在新的临时 target 内按 Cargo 包依赖产生和读取证明元数据，检查结束后回收。
 
-[证明工作区](crates/proofs/Cargo.toml) 登记 `chrono-identifiers`、`chrono-verifier` 及其余各根对应的 Cargo 库目标。生产 runner、Cargo 的原生测试及 Verus 均使用这两个包的同一份源码。runner 保留从固定 Git 端点取数的适配器；验证器包负责根据已经观察到的数据作判断。
+[本仓 Cargo 工作区](Cargo.toml) 使用一份根 Cargo.lock 管理 runner、测试、进程替身及三个证明包。证明包登记 `chrono-identifiers`、`chrono-verifier` 及其余各根对应的 Cargo 库目标。生产 runner、Cargo 的原生测试及 Verus 均使用这两个包的同一份源码。runner 保留从固定 Git 端点取数的适配器；验证器包负责根据已经观察到的数据作判断。
 
 | 证明根 | 真实使用方与边界 |
 | --- | --- |
@@ -61,7 +61,7 @@ chrono-harness check --config .chrono-harness/check.json --base "$base_oid" --ca
 
 The local checkout must match the candidate. The report and operation streams are written to `.chrono-harness/state/`.
 
-预览版从已合入 dev 的提交打标签，正式版从 main 发布。每个版本在本仓构建 Linux x86_64 和 macOS arm64 的单个 `chrono-harness` 二进制，并附 SHA256SUMS。下载所需标签的二进制和校验文件，验算目标平台的 SHA-256 后将它安装为 `chrono-harness`。升级或回退时按同样方式替换该程序。当前源码构建仍使用 Cargo.lock 中固定的 diagnostics 修订。
+预览版从已合入 dev 的提交打标签，正式版从 main 发布。每个版本在本仓构建 Linux x86_64 和 macOS arm64 的单个 `chrono-harness` 二进制，并附 SHA256SUMS。下载所需标签的二进制和校验文件，验算目标平台的 SHA-256 后将它安装为 `chrono-harness`。升级或回退时按同样方式替换该程序。宿主启用运行日志时，runner 通过已安装的 chrono-diagnostics 命令写入日志。
 
 已安装的外部判官可将协议处理交给 `chrono-harness judge-pipeline NAME VERSION PRODUCER OPERATION EVALUATOR OPERATION --protocol chrono-judge/v1`。runner 在已登记的限额与环境下，向输入生产者发送封存请求。生产者返回请求 ID、观察到的输出以及准备好的 JSON 或原错误。求值程序只读取该 JSON，返回状态、findings 与 outputs。两个程序均通过标准输入输出通信，响应共享请求身份，重复输出键会报错。
 

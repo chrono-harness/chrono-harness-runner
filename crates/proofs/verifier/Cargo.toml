@@ -12,7 +12,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_keep_ghost)', 'cfg(v
 
 [dependencies]
 chrono-identifiers.workspace = true
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde.workspace = true
+serde_json.workspace = true
 verus_builtin_macros.workspace = true
 vstd.workspace = true

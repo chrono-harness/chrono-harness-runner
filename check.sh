@@ -6,22 +6,17 @@ scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
 export TMPDIR="$scratch"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
-cargo fmt --check --manifest-path crates/test-process/Cargo.toml
-# This support crate also has its own independently consumed lockfile.
-cargo tree --locked --manifest-path crates/test-process/Cargo.toml --depth 0 >/dev/null
-cargo fmt --check --all --manifest-path crates/proofs/Cargo.toml
-cargo fmt --check --manifest-path crates/runner/Cargo.toml
-cargo fmt --check --manifest-path crates/runner-tests/Cargo.toml
-cargo build --locked --message-format=json-render-diagnostics --manifest-path crates/runner/Cargo.toml > "$scratch/native.jsonl"
+cargo fmt --check --all
+cargo build --locked --message-format=json-render-diagnostics --package chrono-harness > "$scratch/native.jsonl"
 CHRONO_TEST_GIT=$(command -v chrono-test-git) || { echo "chrono-test-git is required by runner tests" >&2; exit 1; }
 CHRONO_TEST_GIT_PROFILE_BIN=$(command -v chrono-test-git-profile) || { echo "chrono-test-git-profile is required by runner tests" >&2; exit 1; }
 export CHRONO_TEST_GIT CHRONO_TEST_GIT_PROFILE_BIN
-cargo build --locked --manifest-path crates/runner-tests/Cargo.toml --bin chrono-test-diagnostics
+cargo build --locked --package chrono-harness-tests --bin chrono-test-diagnostics
 mkdir "$scratch/mock-bin"
 ln -s "$CHRONO_TEST_GIT" "$scratch/mock-bin/git"
 ln -s "$CARGO_TARGET_DIR/debug/chrono-test-diagnostics" "$scratch/mock-bin/chrono-diagnostics"
 export PATH="$scratch/mock-bin:$PATH"
-cargo test --locked --manifest-path crates/runner-tests/Cargo.toml -- --test-threads=2
+cargo test --locked --package chrono-harness-tests -- --test-threads=2
 
 # Use the actual library metadata selected by the native Cargo invocation.
 check_native() {
@@ -38,19 +33,19 @@ check_native() {
   chrono-host-bootstrap check-compiler-sources native "${metadata%/*}/${stem%.rmeta}" "$@"
 }
 
-# Cargo records absolute filenames for dependency packages and package-relative
-# filenames for its primary package.
-proofs="$(pwd -P)/crates/proofs"
-check_native crates/proofs/identifiers "$proofs/identifiers/src/lib.rs"
-check_native crates/proofs/verifier "$proofs/verifier/src/lib.rs" "$proofs/verifier/src/verified_sources.rs" \
-  "$proofs/verifier/src/verified_continuity.rs" "$proofs/verifier/src/verified_source_pipeline.rs"
-check_native crates/runner src/lib.rs src/source_endpoints.rs src/source_coverage.rs src/route_evidence.rs \
-  src/verified_cli.rs src/verified_git_binding.rs src/verified_limits.rs src/verified_paths.rs src/verified_status.rs \
-  src/facts.rs src/facts_binding.rs src/publication.rs src/retained_artifacts/verified_release.rs src/retained_artifacts/retention.rs
+# rustc records each workspace member's sources relative to the workspace root.
+check_native crates/proofs/identifiers crates/proofs/identifiers/src/lib.rs
+verifier_src=crates/proofs/verifier/src
+check_native crates/proofs/verifier "$verifier_src/lib.rs" "$verifier_src/verified_sources.rs" \
+  "$verifier_src/verified_continuity.rs" "$verifier_src/verified_source_pipeline.rs"
+src=crates/runner/src
+check_native crates/runner "$src/lib.rs" "$src/source_endpoints.rs" "$src/source_coverage.rs" "$src/route_evidence.rs" \
+  "$src/verified_cli.rs" "$src/verified_git_binding.rs" "$src/verified_limits.rs" "$src/verified_paths.rs" "$src/verified_status.rs" \
+  "$src/facts.rs" "$src/facts_binding.rs" "$src/publication.rs" "$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs"
 
 verifier=$(command -v "${VERUS:-verus}")
 cargo_verus=$(dirname "$verifier")/cargo-verus
-workspace=crates/proofs/Cargo.toml
+workspace=Cargo.toml
 chrono-host-bootstrap run-cargo-proofs "$scratch" runner-proofs "$cargo_verus" "$workspace" \
   chrono-identifiers chrono-verifier chrono-runner-proof-expectations
 
@@ -66,9 +61,7 @@ collect_root() {
   collect chrono-runner-proof-expectations crates/proofs/expectations/Cargo.toml "$@"
 }
 
-src=crates/runner/src
 tests=crates/runner-tests/tests
-verifier_src=crates/proofs/verifier/src
 collect chrono-identifiers crates/proofs/identifiers/Cargo.toml crates/proofs/identifiers/src/lib.rs
 collect chrono-verifier crates/proofs/verifier/Cargo.toml "$verifier_src/lib.rs" \
   "$verifier_src/verified_sources.rs" "$verifier_src/verified_continuity.rs" "$verifier_src/verified_source_pipeline.rs"
