@@ -1021,6 +1021,31 @@ pub fn prepare_request(
     scope: Option<crate::units::Scope>,
     preparation: Option<Value>,
 ) -> Result<(Request, Vec<Binding>, facts::Reader, Value), String> {
+    prepare_request_with_snapshot(
+        root,
+        config_path,
+        base,
+        candidate,
+        context,
+        entry,
+        scope,
+        preparation,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_request_with_snapshot(
+    root: &Path,
+    config_path: &str,
+    base: &str,
+    candidate: &str,
+    context: &Path,
+    entry: Value,
+    scope: Option<crate::units::Scope>,
+    preparation: Option<Value>,
+    mut collection_temp: Option<&mut Option<tempfile::TempDir>>,
+) -> Result<(Request, Vec<Binding>, facts::Reader, Value), String> {
     let profile = crate::load_selected_config(root, config_path)?;
     if let Some(crate::units::Scope::Collect { manifest }) = &scope {
         let block =
@@ -1118,16 +1143,38 @@ pub fn prepare_request(
         reader.checkout_excluding(root, candidate, &facts::artifact_directories(cfg)?)?;
     let state = no_symlink_parents(root, ".chrono-harness/state")?;
     fs::create_dir_all(&state).map_err(|e| e.to_string())?;
-    let snapshot = crate::retained_artifacts::retention::unique_path(&state, "base-", "")?;
-    let snapshot_publication = crate::retained_artifacts::retention::create_adopted_for_consumer(
-        root,
-        "full-original",
-        &snapshot,
-        true,
-        value!({"kind":"base-snapshot","base":base,"outcome":"not-established"}),
-        None,
-        "publication-recheck",
-    )?;
+    let inventory = crate::retained_artifacts::retention::Inventory::adopted(root)?;
+    let snapshot = if let (Some(temporary), None) = (&mut collection_temp, &inventory) {
+        let dir = tempfile::Builder::new()
+            .prefix("base-collection-")
+            .tempdir_in(&state)
+            .map_err(|error| error.to_string())?;
+        let path = dir.path().join("tree");
+        **temporary = Some(dir);
+        path
+    } else {
+        crate::retained_artifacts::retention::unique_path(&state, "base-", "")?
+    };
+    let initial = value!({"kind":"base-snapshot","base":base,"outcome":"not-established"});
+    let snapshot_publication = if collection_temp.is_some() {
+        crate::retained_artifacts::retention::create_adopted(
+            root,
+            "full-original",
+            &snapshot,
+            true,
+            initial,
+        )?
+    } else {
+        crate::retained_artifacts::retention::create_adopted_for_consumer(
+            root,
+            "full-original",
+            &snapshot,
+            true,
+            initial,
+            None,
+            "publication-recheck",
+        )?
+    };
     reader.export_limited(
         root,
         base,
@@ -1141,7 +1188,7 @@ pub fn prepare_request(
     if let Some(publication) = snapshot_publication {
         publication.complete(value!({"kind":"base-snapshot","base":base,"identity":"fixed-source-data","completion":"not-established"}))?;
     }
-    if let Some(inventory) = crate::retained_artifacts::retention::Inventory::adopted(root)? {
+    if let (Some(inventory), None) = (inventory, collection_temp) {
         if let Some(path) = snapshot.strip_prefix(root).ok().and_then(|p| p.to_str()) {
             inventory.reference_paths(
                 &format!("full-recovery:{}", sha256(config_path.as_bytes())),
