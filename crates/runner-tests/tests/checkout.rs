@@ -252,8 +252,10 @@ fn registration_queries_bind_fixed_documents_and_keep_collection_and_environment
     use serde_json::{Value, json};
     let entry = ".chrono-harness/config.json";
     let mut input = Vec::new();
-    let definition =
-        json!({"schema_version":4, "environment":{"credential_environment":["CI_TOKEN"],"inherit":["CI_TOKEN"]}});
+    let definition = json!({
+        "schema_version": 4,
+        "environment": {"credential_environment": ["CI_TOKEN"], "inherit": ["CI_TOKEN"]}
+    });
     for query in [
         json!({"operation":"registry-identity","entry":entry,"documents":{(entry):{"schema_version":1}}}),
         json!({"operation":"registry-identity","entry":entry,"documents":{}}),
