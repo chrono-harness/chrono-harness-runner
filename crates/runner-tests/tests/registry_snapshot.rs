@@ -293,6 +293,10 @@ fn registration_inventory_uses_the_observed_candidate_and_optional_baseline() {
             json!({"op":"candidate-inventory"}),
             json!({"op":"verify-tree","endpoint":"base"}),
             json!({"op":"observation"}),
+            json!({"op":"tree-entries","endpoint":"candidate"}),
+            json!({"op":"tree-entries","endpoint":"base"}),
+            json!({"op":"blob-batch","endpoint":"candidate","paths":[path,path]}),
+            json!({"op":"registry-at","endpoint":"candidate","config":CONFIG}),
         ] {
             serde_json::to_writer(&mut frames, &query).unwrap();
             frames.push(b'\n');
@@ -320,6 +324,21 @@ fn registration_inventory_uses_the_observed_candidate_and_optional_baseline() {
     assert_eq!(delta.as_array().unwrap().len(), 1);
     assert_eq!(delta[0]["kind"], "A");
     assert_eq!(delta[0]["path"], path);
+    let entries = pair[5].as_ref().unwrap();
+    assert_eq!(entries[path]["mode"], "100644");
+    assert_eq!(entries[path]["kind"], "blob");
+    assert_eq!(entries[path]["oid"].as_str().unwrap().len(), 40);
+    assert!(pair[6].as_ref().unwrap().get(path).is_none());
+    assert_eq!(pair[7], Ok(json!([b"added\n", b"added\n"])));
+    let registered = pair[8].as_ref().unwrap();
+    assert_eq!(registered["effective_path"], CONFIG);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            registered["originals"][CONFIG].as_str().unwrap()
+        )
+        .unwrap(),
+        registered["values"][CONFIG]
+    );
     let refused = run(None, json!({"git_facts":{"schema":"wrong"}}));
     assert_eq!(refused.len(), 1);
     assert!(refused[0].as_ref().unwrap_err().contains("binding"));

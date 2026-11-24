@@ -13,6 +13,19 @@ use std::{
 #[serde(tag = "mode", rename_all = "kebab-case", deny_unknown_fields)]
 enum Open {
     History,
+    Scoped {
+        config: Option<String>,
+        base: Option<String>,
+        candidate: String,
+    },
+    PreparedCollection {
+        config: String,
+        base: String,
+        candidate: String,
+        context: PathBuf,
+        scope: crate::units::Scope,
+        judge: String,
+    },
     Config {
         config: String,
         #[serde(default)]
@@ -55,6 +68,17 @@ enum Operation {
     Delta,
     CheckoutRoot,
     CandidateInventory,
+    TreeEntries {
+        endpoint: Endpoint,
+    },
+    RegistryAt {
+        endpoint: Endpoint,
+        config: String,
+    },
+    BlobBatch {
+        endpoint: Endpoint,
+        paths: Vec<String>,
+    },
     RegistrySnapshot {
         endpoint: Endpoint,
     },
@@ -111,9 +135,15 @@ struct Session {
     base: Option<String>,
     candidate: String,
     reader: facts::Reader,
+    collection: Option<(
+        crate::retained_artifacts::retention::ReadScope,
+        Option<tempfile::TempDir>,
+    )>,
 }
 impl Session {
-    fn open(cwd: &Path, open: Open) -> Result<Self, String> {
+    fn open(cwd: &Path, open: Open) -> Result<(Self, Value), String> {
+        let mut header = json!({});
+        let mut collection = None;
         let (root, config, base, candidate, reader) = match open {
             Open::History => (
                 cwd.to_owned(),
@@ -137,6 +167,63 @@ impl Session {
                 } else {
                     facts::Reader::for_config(cwd, &config)?
                 };
+                (cwd.to_owned(), config, Some(base), candidate, reader)
+            }
+            Open::Scoped {
+                config,
+                base,
+                candidate,
+            } => {
+                if let Some(base) = &base {
+                    facts::full_oid(base)?;
+                }
+                facts::full_oid(&candidate)?;
+                let reader = match &config {
+                    Some(path) => facts::Reader::for_config_observed(cwd, path).map_err(|e| {
+                        json!({"message":e.message,"git_facts":e.observation}).to_string()
+                    })?,
+                    None => facts::Reader::legacy(),
+                };
+                (
+                    cwd.to_owned(),
+                    config.unwrap_or_default(),
+                    base,
+                    candidate,
+                    reader,
+                )
+            }
+            Open::PreparedCollection {
+                config,
+                base,
+                candidate,
+                context,
+                scope,
+                judge,
+            } => {
+                if !matches!(scope, crate::units::Scope::Collect { .. }) {
+                    return Err("collection scope required".into());
+                }
+                facts::full_oid(&base)?;
+                facts::full_oid(&candidate)?;
+                crate::units::id(&judge)?;
+                let lease = crate::retained_artifacts::retention::read_scope(cwd)?;
+                let mut temporary = None;
+                let (mut request, _, reader, profile) = crate::full::prepare_request_with_snapshot(
+                    cwd,
+                    &config,
+                    &base,
+                    &candidate,
+                    &context,
+                    Value::Null,
+                    Some(scope),
+                    None,
+                    Some(&mut temporary),
+                )?;
+                collection = Some((lease, temporary));
+                request.judge_id = judge;
+                request.seal()?;
+                header["request"] = json!(request);
+                header["config"] = profile;
                 (cwd.to_owned(), config, Some(base), candidate, reader)
             }
             Open::Observed {
@@ -164,13 +251,18 @@ impl Session {
                 )
             }
         };
-        Ok(Self {
-            root,
-            config,
-            base,
-            candidate,
-            reader,
-        })
+        header["bound"] = json!(reader.is_bound());
+        Ok((
+            Self {
+                root,
+                config,
+                base,
+                candidate,
+                reader,
+                collection,
+            },
+            header,
+        ))
     }
     fn commit(&self, endpoint: Endpoint) -> Result<&str, String> {
         match endpoint {
@@ -197,9 +289,11 @@ impl Session {
                 return Err("E_SNAPSHOT_IDENTITY: config differs from the fixed commit".into());
             }
         }
-        let snap = self
-            .reader
-            .registry_snapshot(&self.root, commit, &self.config)?;
+        self.registry_at(commit, &self.config)
+    }
+    fn registry_at(&self, commit: &str, config: &str) -> Result<Value, String> {
+        crate::relative_path(config)?;
+        let snap = self.reader.registry_snapshot(&self.root, commit, config)?;
         let originals: BTreeMap<_, _> = snap
             .bytes
             .into_iter()
@@ -211,7 +305,7 @@ impl Session {
         )
     }
     fn execute(&self, op: Operation) -> Result<Value, String> {
-        if self.config.is_empty()
+        if self.candidate.is_empty()
             && !matches!(
                 op,
                 Operation::VerifyCommit { .. }
@@ -224,6 +318,32 @@ impl Session {
             return Err("E_PROTOCOL: no configured history endpoints".into());
         }
         match op {
+            Operation::TreeEntries { endpoint } => {
+                let tree = self.reader.tree(&self.root, self.commit(endpoint)?)?;
+                let entries: BTreeMap<_, _> = tree
+                    .into_iter()
+                    .map(|(path, entry)| {
+                        (
+                            path.text,
+                            json!({"mode":entry.mode,"kind":entry.kind,"oid":entry.oid}),
+                        )
+                    })
+                    .collect();
+                Ok(json!(entries))
+            }
+            Operation::RegistryAt { endpoint, config } => {
+                self.registry_at(self.commit(endpoint)?, &config)
+            }
+            Operation::BlobBatch { endpoint, paths } => {
+                for path in &paths {
+                    crate::relative_path(path)?;
+                }
+                Ok(json!(self.reader.blobs(
+                    &self.root,
+                    self.commit(endpoint)?,
+                    &paths
+                )?))
+            }
             Operation::RegistrySnapshot { endpoint } => self.snapshot(endpoint, false),
             Operation::CheckedOutSnapshot { endpoint } => self.snapshot(endpoint, true),
             Operation::CheckoutExcluding { artifacts } => {
@@ -390,14 +510,17 @@ fn reply(output: &mut impl Write, result: Result<Value, String>) -> Result<(), S
 }
 pub fn serve(cwd: &Path, mut input: impl BufRead, mut out: impl Write) -> Result<(), String> {
     let first = frame(&mut input)?.ok_or("E_PROTOCOL: missing Git facts session header")?;
-    let session = match crate::decode(&first).and_then(|open| Session::open(cwd, open)) {
+    let (session, header) = match crate::decode(&first).and_then(|open| Session::open(cwd, open)) {
         Ok(session) => session,
         Err(error) => return reply(&mut out, Err(error)),
     };
-    reply(&mut out, Ok(json!({"bound":session.reader.is_bound()})))?;
+    reply(&mut out, Ok(header))?;
     while let Some(line) = frame(&mut input)? {
         let result = crate::decode(&line).and_then(|op| session.execute(op));
         reply(&mut out, result)?;
+    }
+    if let Some((_lease, Some(temporary))) = session.collection {
+        temporary.close().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
