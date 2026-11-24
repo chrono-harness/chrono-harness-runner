@@ -2912,8 +2912,9 @@ pub fn cli_main() -> std::process::ExitCode {
             })
         }));
     }
-    let observed = mode.as_deref() == Some(std::ffi::OsStr::new("observed-command-v1"));
-    if observed || mode.as_deref() == Some(std::ffi::OsStr::new("run-command-v1")) {
+    if let Some(operation @ ("run-command-v1" | "observed-command-v1" | "record-command-v1")) =
+        mode.as_deref().and_then(std::ffi::OsStr::to_str)
+    {
         return std::process::ExitCode::from(logged_text_main("chrono-harness", |args| {
             if args.len() != 1 {
                 eprintln!("E_USAGE: the command is supplied on stdin");
@@ -2921,12 +2922,10 @@ pub fn cli_main() -> std::process::ExitCode {
             }
             let result = std::env::current_dir()
                 .map_err(|error| error.to_string())
-                .and_then(|root| {
-                    if observed {
-                        observed_command::command(&root)
-                    } else {
-                        command_stream::command(&root)
-                    }
+                .and_then(|root| match operation {
+                    "record-command-v1" => command_stream::record(&root),
+                    "observed-command-v1" => observed_command::command(&root),
+                    _ => command_stream::command(&root),
                 });
             match result {
                 Ok(()) => 0,

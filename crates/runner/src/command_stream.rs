@@ -37,11 +37,7 @@ pub(crate) fn command(root: &Path) -> Result<(), String> {
     )
 }
 
-pub fn serve(
-    mut input: impl BufRead,
-    mut output: impl Write,
-    invoke: impl FnOnce(&CommandSpec, &[u8], Option<&str>) -> Result<Streams, String>,
-) -> Result<(), String> {
+fn request(mut input: impl BufRead) -> Result<(CommandSpec, Vec<u8>, Option<String>), String> {
     let mut header = String::new();
     (&mut input)
         .take(1024 * 1024 + 1)
@@ -66,6 +62,37 @@ pub fn serve(
     if bytes.len() > 64 * 1024 * 1024 {
         return Err("E_PROCESS: command input exceeds 64 MiB".into());
     }
+    Ok((spec, bytes, identity))
+}
+
+pub fn serve_record(
+    input: impl BufRead,
+    mut output: impl Write,
+    invoke: impl FnOnce(&CommandSpec, &[u8], &str) -> Result<crate::ProcessResult, String>,
+) -> Result<(), String> {
+    let (spec, bytes, identity) = request(input)?;
+    let digest = identity
+        .as_deref()
+        .ok_or("E_PROCESS: record-command-v1 requires expected_sha256")?;
+    let original = invoke(&spec, &bytes, digest)?;
+    serde_json::to_writer(&mut output, &original).map_err(|e| e.to_string())?;
+    output.flush().map_err(|e| e.to_string())
+}
+
+pub(crate) fn record(root: &Path) -> Result<(), String> {
+    serve_record(
+        std::io::stdin().lock(),
+        std::io::stdout().lock(),
+        |spec, bytes, digest| run_process_observed(root, spec, bytes, digest),
+    )
+}
+
+pub fn serve(
+    input: impl BufRead,
+    mut output: impl Write,
+    invoke: impl FnOnce(&CommandSpec, &[u8], Option<&str>) -> Result<Streams, String>,
+) -> Result<(), String> {
+    let (spec, bytes, identity) = request(input)?;
     let (exit_code, stdout, stderr) = invoke(&spec, &bytes, identity.as_deref())?;
     let lengths = Lengths {
         exit_code,
