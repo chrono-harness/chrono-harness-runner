@@ -23,6 +23,8 @@ test = false
 bench = false
 
 [dependencies]
+serde_yaml_ng = "=0.10.0"
+litrs = "=1.0.1"
 rustix = {version = "1", features = ["net"]}
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-tunnel = { version = "=0.1.0", default-features = false, features = ["sender"] }
