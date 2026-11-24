@@ -533,6 +533,43 @@ pub open spec fn target_prefix(output: Seq<u8>) -> Seq<u8> {
     output + seq![46u8, 100u8, 58u8, 32u8]
 }
 
+pub open spec fn first_header_separator(input: Seq<u8>, at: int) -> Option<int>
+    recommends 0 <= at <= input.len(),
+    decreases input.len() - at,
+{
+    if at < 0 || at >= input.len() || input[at] == 10 { None }
+    else if prefix_at(input, at, seq![46u8, 100u8, 58u8, 32u8]) { Some(at) }
+    else { first_header_separator(input, at + 1) }
+}
+
+pub open spec fn header_word(input: Seq<u8>) -> Option<Seq<u8>> {
+    match first_header_separator(input, 0) {
+        Some(end) if end > 0 => Some(input.take(end)),
+        _ => None,
+    }
+}
+
+/// rustc writes its target spelling literally. Escaping applies to source words after the separator.
+pub fn compiler_header_stem(input: &[u8]) -> (stem: Option<Vec<u8>>)
+    ensures (match stem { None => None, Some(word) => Some(word@) }) == header_word(input@),
+{
+    let mut end = 0usize;
+    while end < input.len()
+        invariant end <= input.len(), first_header_separator(input@, 0) == first_header_separator(input@, end as int),
+        decreases input.len() - end,
+    {
+        if input[end] == 10 { return None; }
+        if matches_at(input, end, &[46u8, 100u8, 58u8, 32u8]) {
+            if end == 0 { return None; }
+            let prefix = copy_range(input, 0, end);
+            assert(prefix@ =~= input@.take(end as int));
+            return Some(prefix);
+        }
+        end += 1;
+    }
+    None
+}
+
 pub open spec fn compiler_paths(input: Seq<u8>, output: Seq<u8>) -> Option<Seq<Seq<u8>>> {
     let prefix = target_prefix(output);
     if !prefix_at(input, 0, prefix) { None }

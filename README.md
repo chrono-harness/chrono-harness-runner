@@ -6,7 +6,7 @@
 
 登记判官在历史格式迁移时调用 `chrono-harness record-command-v1`。命令使用与 `run-command-v1` 相同的有界请求头和原始 stdin，必须提供 `expected_sha256`。stdout 返回执行引擎生成的完整 JSON 进程记录，包括实际启动信息、子进程回收结果、原始输出及退出状态。消费者从记录读取子进程的失败。获取记录前发生的错误写到 stderr，CLI 退出 2。
 
-独立 bootstrap 通过 `compiler-output-v1` 提交编译器合同、原始 Cargo-Verus 输出行、dep-info 和逐文件绑定。操作为 `validate-contract`、`proof-rows`、`dependency-paths`、`dependency-matches`。对生命周期报告中的 `managed_process`，`judge-evidence-v1` 的 `expand-process` 校验压缩流和原进程格式，返回 stdout、stderr 原始字节、失败原因和退出码。
+独立 bootstrap 通过 `compiler-output-v1` 提交编译器合同、原始 Cargo-Verus 输出行、dep-info 和逐文件绑定。操作为 `validate-contract`、`proof-rows`、`dependency-paths`、`dependency-header`、`dependency-matches`。对生命周期报告中的 `managed_process`，`judge-evidence-v1` 的 `expand-process` 校验压缩流和原进程格式，返回 stdout、stderr 原始字节、失败原因和退出码。
 
 bootstrap 通过 `retained-artifacts-v1` 中的 `publication` 操作创建或接管宿主登记的目录，保留读取租约、诊断和报告引用，并在完成后封存。关闭未完成的发布会释放使用权，原始状态继续交给保管者处理。需要把新取得的租约交给原生子进程时，调用方将匿名 Unix socket 用作会话 stdin，stdout 仍返回逐行 JSON。`scoped-descriptors` 从给定 `offset` 返回最多 32 个描述符。计数大于零时，同一个 socket 传递一个字节 `01` 和相应的 `SCM_RIGHTS`。计数达到 32 时，调用方继续读下一批。
 
@@ -105,3 +105,5 @@ CI 判官通过同一 `git-facts-v1` 进程读取两个固定提交的原件。�
 工作树参与本地完整检查时，`check-invocation-v1` 接受 `{"mode":"local-preparation","request":...}`，按 runner 的当前合同核对输入、选定 profile 和原件绑定并返回 `null`。`{"mode":"participation","config":...}` 返回配置中登记的工作树参与动作或 `null`。两者均为可选的 runner 检查集成。
 
 CI 的编译器输出由固定候选的 `git-facts-v1` 会话核验。候选 `tree-entries` 传入 `retain_output_modes=true` 为本次核验保留原文件模式，`prepare-output-binding` 登记本次计划的方法和 FILEMAP，`bind-operation-output` 逐操作核对原参数、进程终态和适用的编译报告、库及候选源码。被阻断的操作和通过的普通操作都返回 JSON null，原错误通过同一会话返回。
+
+`compiler-output-v1` 的 `dependency-header` 从原生 dep-info 的首条规则读取含字面空格的目标主名，解码来源序列及其中的转义空格。返回 `[目标字节, 来源字节数组]`，不合格时为 `null`。与 Cargo 当前选择的库关联时，由读取文件的宿主核实所声明目标与当前选中 dep-info 的身份。
