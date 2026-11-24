@@ -289,3 +289,54 @@ fn registration_queries_bind_fixed_documents_and_keep_collection_and_environment
     assert!(rows[4].is_err());
     assert_eq!(rows[5], Ok(json!(["CI_TOKEN"])));
 }
+
+#[test]
+fn scoped_git_endpoints_validate_collection_inputs_before_running_git() {
+    use serde_json::{Value, json};
+    fn exchange(requests: &[Value]) -> Vec<Result<Value, String>> {
+        let mut frames = Vec::new();
+        for request in requests {
+            serde_json::to_writer(&mut frames, request).unwrap();
+            frames.push(b'\n');
+        }
+        let mut output = Vec::new();
+        chrono_harness::git_facts_session::serve(
+            std::path::Path::new("."),
+            frames.as_slice(),
+            &mut output,
+        )
+        .unwrap();
+        serde_json::Deserializer::from_slice(&output)
+            .into_iter()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+    let candidate = "a".repeat(40);
+    let results = exchange(&[
+        json!({"mode":"scoped","config":null,"base":null,"candidate":candidate}),
+        json!({"op":"tree-entries","endpoint":"base"}),
+        json!({"op":"registry-at","endpoint":"candidate","config":"../outside"}),
+        json!({"op":"blob-batch","endpoint":"candidate","paths":["../outside"]}),
+        json!({"op":"blob-batch","endpoint":"base","paths":[]}),
+        json!({"op":"observation"}),
+    ]);
+    assert_eq!(results[0], Ok(json!({"bound":false})));
+    assert!(
+        results[1]
+            .as_ref()
+            .unwrap_err()
+            .contains("no base endpoint")
+    );
+    assert!(results[2].is_err() && results[3].is_err());
+    assert!(
+        results[4]
+            .as_ref()
+            .unwrap_err()
+            .contains("no base endpoint")
+    );
+    assert_eq!(results[5], Ok(Value::Null));
+    let invalid = exchange(&[
+        json!({"mode":"prepared-collection","config":"c","base":candidate,"candidate":candidate,"context":"c","scope":{"kind":"unit","unit":"test"},"judge":"ci"}),
+    ]);
+    assert!(invalid[0].is_err());
+}

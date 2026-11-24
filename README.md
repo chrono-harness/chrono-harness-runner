@@ -8,6 +8,10 @@
 
 bootstrap 通过 `retained-artifacts-v1` 中的 `publication` 操作创建或接管宿主登记的目录，保留读取租约、诊断和报告引用，并在完成后封存。关闭未完成的发布会释放使用权，原始状态继续交给保管者处理。需要把新取得的租约交给原生子进程时，调用方将匿名 Unix socket 用作会话 stdin，stdout 仍返回逐行 JSON。`scoped-descriptors` 从给定 `offset` 返回最多 32 个描述符。计数大于零时，同一个 socket 传递一个字节 `01` 和相应的 `SCM_RIGHTS`。计数达到 32 时，调用方继续读下一批。
 
+工作树启用原件保管时，在同一 `retained-artifacts-v1` 会话中登记文件、目录及读取它们的操作。普通 JSON 请求每行返回一个 `Result`。显式发出 `explicit-read-scopes` 后，调用方为每次操作打开并关闭自己的读取范围。固定报告的 `reference-held` 返回独立的租约句柄，在指针落地后释放。
+
+`observe-maintenance` 先逐行发出 `{"observation": ...}`，最后返回本轮汇总或错误。维护进程可以边读边写 inventory。对于任意长度的原件，`publish-stream` 请求给出 producer、path、length、sha256 和 outcome。收到 `{"receive": length}` 后发送恰好 length 字节，再读取最终结果。提前拒绝、复用已有原件及内容校验失败都有明确返回值。
+
 工作树清理器使用 `retained-artifacts-v1` 的 `open-removal` 登记一组宿主相对路径。返回 true 时，保管进程持有这组路径的删除租约，直到输入关闭。调用方在实际删除前用 `check-removal` 再次核对租约。若要将保护传给子进程，调用方通过同一 Unix 会话的 `scoped-descriptors` 接收并传递原文件描述符。
 
 `chrono-harness inherited-descriptors-v1` 校验并报告当前是否继承了所有权描述符。`chrono-harness exec-with-descriptors-v1 PROGRAM [ARGS...]` 将租约交给实际程序，在同一 PID 上执行它，沿用调用方提供的当前目录、环境和标准流。
@@ -84,4 +88,9 @@ CI 提供者用 `git-facts-v1` 的 `config` 模式打开登记的 Git 配置。�
 
 runner 的生产和专属测试项目可分别用各自的 Cargo manifest 和 lock 构建。使用宿主日志时，在 PATH 中安装本仓清单固定的 chrono-diagnostics。它通过 cli-events-v1 写入宿主选择的滚动文件，接收真实进程的 PID、span、退出状态和诊断。原生输出发布失败时，runner 把同一个 Rust I/O 错误留给调用方，并将错误记录送到 diagnostics 的显式 stderr 输出接口。
 
+CI 判官通过同一 `git-facts-v1` 进程读取两个固定提交的原件。开场 `{"mode":"scoped","config":null,"base":null,"candidate":"完整 OID"}` 使用普通 Git。登记了 Git 观察时提供 `config`，打开失败会返回原观察。需要为收集准备请求时，使用 `prepared-collection`，提供 `config`、`base`、`candidate`、`context`、`scope` 和目标 `judge`。回复同时包含封存的 `request`、选定的 `config` 和读取绑定 `bound`。后续 `tree-entries` 返回指定端点每个路径的 mode、kind、OID，`registry-at` 按给定登记路径返回原文和有效配置，`blob-batch` 按输入路径顺序返回原始字节。所有这些读取都记入该进程的 `observation`。
+
+收集会话持有准备出来的基线快照，直至宿主关闭 stdin。启用保管政策时，最后一个读取租约结束后由已登记的维护程序按期回收。普通宿主的临时目录在会话退出时回收。
 登记判官通过 `compiler-output-v1` 的 `source-declarations` 操作提交带有验证声明的文件、已登记操作及引用路径（`files`、`operations`、`reference_paths`）。runner 校验每项声明及证明根所用操作，并按输入顺序返回每条引用路径的规范性布尔值。无效声明返回原文件名和错误。
+
+工作树参与本地完整检查时，`check-invocation-v1` 接受 `{"mode":"local-preparation","request":...}`，按 runner 的当前合同核对输入、选定 profile 和原件绑定并返回 `null`。`{"mode":"participation","config":...}` 返回配置中登记的工作树参与动作或 `null`。两者均为可选的 runner 检查集成。
