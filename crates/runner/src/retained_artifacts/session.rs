@@ -178,9 +178,34 @@ enum Operation {
         artifacts: Value,
         transport: Option<ArtifactTransport>,
     },
+    BoundedFileSha256 {
+        path: String,
+        limit: u64,
+    },
     ReadBoundedText {
         path: String,
         limit: u64,
+    },
+    RetainOriginalText {
+        directory: String,
+        prefix: String,
+        text: String,
+    },
+    IdentifyOriginal {
+        path: String,
+    },
+    VerifyOriginal {
+        original: Original,
+    },
+    ScopedCheckProfile {
+        path: String,
+    },
+    ValidatePreparationRequest {
+        request: Box<crate::prepared::InputRequest>,
+    },
+    ValidatePreparationResult {
+        request: Box<crate::prepared::InputRequest>,
+        result: Box<crate::prepared::PreparedCheck>,
     },
     ReadOriginal {
         original: Original,
@@ -552,6 +577,14 @@ impl Session<'_> {
                     .map(Value::String)
                     .map_err(|err| err.to_string())
             }
+            Operation::BoundedFileSha256 { path, limit } => {
+                if limit > 64 * 1024 * 1024 {
+                    return Err("collection file limit exceeds 64 MiB".into());
+                }
+                Ok(json!(crate::sha256(&crate::units::read_bounded(
+                    root, &path, limit
+                )?)))
+            }
             Operation::ReadBoundedText { path, limit } => {
                 // Use the same upper bound as other JSON collection originals, including on inline reads.
                 if limit > 64 * 1024 * 1024 {
@@ -561,6 +594,40 @@ impl Session<'_> {
                 String::from_utf8(bytes)
                     .map(Value::String)
                     .map_err(|err| err.to_string())
+            }
+            Operation::RetainOriginalText {
+                directory,
+                prefix,
+                text,
+            } => Ok(json!(crate::prepared::retain_original(
+                root,
+                &directory,
+                &prefix,
+                text.as_bytes()
+            )?)),
+            Operation::IdentifyOriginal { path } => {
+                Ok(json!(crate::prepared::original(root, &path)?))
+            }
+            Operation::VerifyOriginal { original } => {
+                crate::prepared::read_original(root, &original, None)?;
+                Ok(Value::Null)
+            }
+            Operation::ScopedCheckProfile { path } => {
+                let config = crate::load_config(&no_symlink_parents(root, &path)?)?;
+                let retained_reference = crate::units::reference_publication(&config)?;
+                Ok(
+                    json!({"schema":config.schema,"judge":config.judge,"units":config.policy["units"],
+                    "report_path":config.report_path,"retained_reference":retained_reference}),
+                )
+            }
+            Operation::ValidatePreparationRequest { request } => {
+                validate_request(root, &request)?;
+                Ok(json!(crate::prepared::retention_directory(&request)))
+            }
+            Operation::ValidatePreparationResult { request, result } => {
+                validate_request(root, &request)?;
+                crate::prepared::validate_result(&request, &result)?;
+                Ok(Value::Null)
             }
             Operation::ReadOriginal {
                 original,
@@ -619,6 +686,18 @@ impl Session<'_> {
         }
     }
 }
+fn validate_request(root: &Path, request: &crate::prepared::InputRequest) -> Result<(), String> {
+    if request
+        .host_root
+        .canonicalize()
+        .map_err(|e| e.to_string())?
+        != root.canonicalize().map_err(|e| e.to_string())?
+    {
+        return Err("preparation request does not address the session checkout".into());
+    }
+    request.validate()
+}
+
 struct Bounded<'a> {
     file: &'a mut fs::File,
     remaining: u64,

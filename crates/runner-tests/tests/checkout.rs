@@ -224,5 +224,25 @@ fn evidence_frames_keep_original_decoding_and_transport_limits() {
     assert!(replies[0].is_err());
     assert_eq!(replies[1], Ok(serde_json::json!(26)));
     assert!(replies[2].is_err());
+    let mut output = Vec::new();
+    let query = concat!(
+        "{\"operation\":\"validate-schedule\",\"bindings\":[]}\n",
+        "{\"operation\":\"full-execution-units\",\"profile\":{}}\n",
+        "{\"operation\":\"full-execution-units\",\"profile\":{\"schema_version\":4,\"execution_units\":{}}}\n"
+    );
+    chrono_harness::judge_evidence::serve(query.as_bytes(), &mut output).unwrap();
+    let replies: Vec<Result<serde_json::Value, String>> = std::str::from_utf8(&output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(
+        replies[0]
+            .as_ref()
+            .unwrap_err()
+            .contains("no configured judges")
+    );
+    assert_eq!(replies[1], Ok(serde_json::Value::Null));
+    assert!(replies[2].is_err());
     assert!(chrono_harness::judge_evidence::serve(b"{}".as_slice(), Vec::new()).is_err());
 }

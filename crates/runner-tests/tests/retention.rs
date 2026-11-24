@@ -11056,6 +11056,38 @@ fn producer_session_keeps_host_ownership_and_cleans_unmanaged_interrupted_stages
     assert_eq!(inspected[5], Ok(json!("ok")));
     assert!(inspected[6].is_err());
     assert!(inspected[7].is_err());
+    let text = "{\"name\":\"原件\"}\n";
+    let digest = chrono_harness::sha256(text.as_bytes());
+    let name = format!("{directory}/event-{digest}.json");
+    let receipt = json!({"path":name,"sha256":digest});
+    let keep = json!({"operation":"retain-original-text","directory":format!("{directory}/"),"prefix":"event","text":text});
+    let verify = json!({"operation":"verify-original","original":receipt});
+    let replies = request(&[
+        keep.clone(),
+        keep.clone(),
+        json!({"operation":"identify-original","path":name}),
+        verify.clone(),
+        json!({"operation":"validate-preparation-request","request":{}}),
+        json!({"operation":"validate-preparation-result","request":{},"result":{}}),
+    ]);
+    assert!(
+        replies[..3]
+            .iter()
+            .all(|result| result == &Ok(receipt.clone()))
+    );
+    assert_eq!(replies[3], Ok(Value::Null));
+    assert!(replies[4..].iter().all(Result::is_err));
+    let target = root.join(&name);
+    assert_eq!(std::fs::read(&target).unwrap(), text.as_bytes());
+    std::fs::write(&target, [0xff]).unwrap();
+    assert!(request(&[keep, verify]).iter().all(Result::is_err));
+    let hashes = request(&[
+        json!({"operation":"bounded-file-sha256","path":name,"limit":1}),
+        json!({"operation":"bounded-file-sha256","path":name,"limit":0}),
+    ]);
+    assert_eq!(hashes[0], Ok(json!(chrono_harness::sha256(&[0xff]))));
+    assert!(hashes[1].is_err());
+    assert_eq!(std::fs::read(target).unwrap(), [0xff]);
     let owned = format!("{directory}/execution");
     let open = json!({"operation":"begin-directory","producer":"check-original","path":owned,"reference":"consumer","intent":{"plan":"test"}});
     let write = |name: &str| json!({"operation":"write-directory","path":owned,"name":name,"value":{"status":"started"}});
