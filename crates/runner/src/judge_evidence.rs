@@ -60,6 +60,23 @@ enum Operation {
     FullExecutionUnits {
         profile: Value,
     },
+    RegistryIdentity {
+        entry: String,
+        documents: BTreeMap<String, Value>,
+    },
+    ReportPaths {
+        profile: Value,
+        evidence: Option<String>,
+    },
+    ValidateGitDeclaration {
+        config: Value,
+    },
+    ValidatePreparationDeclaration {
+        config: Value,
+    },
+    CredentialEnvironment {
+        config: Value,
+    },
     ValidateSchedule {
         bindings: Vec<crate::wire::Binding>,
     },
@@ -160,6 +177,24 @@ impl Operation {
             }
             Operation::FullExecutionUnits { profile } => {
                 Ok(json!(crate::units::full_execution_units(&profile)?))
+            }
+            Operation::RegistryIdentity { entry, documents } => {
+                Ok(json!(crate::facts::registry_identity(&documents, &entry)?))
+            }
+            Operation::ReportPaths { profile, evidence } => {
+                crate::units::report_paths(&profile, evidence.as_deref())?;
+                Ok(Value::Null)
+            }
+            Operation::ValidateGitDeclaration { config } => {
+                crate::facts::git_declaration(&config)?;
+                Ok(Value::Null)
+            }
+            Operation::ValidatePreparationDeclaration { config } => {
+                crate::prepared::declaration(&config)?;
+                Ok(Value::Null)
+            }
+            Operation::CredentialEnvironment { config } => {
+                Ok(json!(crate::prepared::credential_environment(&config)?))
             }
             Operation::ValidateSchedule { bindings } => {
                 crate::full::schedule(&bindings)?;
