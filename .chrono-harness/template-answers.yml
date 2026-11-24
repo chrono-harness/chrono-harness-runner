@@ -1,9 +1,10 @@
-_commit: v0.1.0-alpha.37
+_commit: v0.1.5
 _src_path: gh:chrono-harness/chrono-harness-copier
 dev_branch: dev
 features:
 - cache
 - ci
+- diagnostics
 - distribution
 - harness
 - host-bootstrap
@@ -23,7 +24,10 @@ features:
 - worktree
 - verus
 generate_check: false
+manage_roadmap: true
 project_guide: ''
+publisher_workflow: Release chrono-harness
+release_plan: {}
 repository: chrono-harness/chrono-harness-runner
 required_check: check
 
