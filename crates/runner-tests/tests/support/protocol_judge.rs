@@ -114,7 +114,7 @@ fn main() {
             if request["judge_id"] == "bad" {
                 response["status"] = "error".into();
                 response["findings"] = json!([{"code":"E_FIXTURE", "level":"error",
-                    "message":"known error", "delta_refs":["/fixture"], "causes":[]}]);
+                    "message":"known error", "delta_refs":["/request"], "causes":[]}]);
                 exit = 2;
             }
         }
