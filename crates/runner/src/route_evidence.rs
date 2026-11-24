@@ -33,6 +33,9 @@ enum Compiler {
         contract: verifier::OutputContract,
         rows: Vec<String>,
     },
+    DependencyHeader {
+        dependency: Vec<u8>,
+    },
     DependencyPaths {
         dependency: Vec<u8>,
         stem: Vec<u8>,
@@ -131,6 +134,18 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                         })
                         .collect();
                     serde_json::to_writer(output, &normalized).map_err(|e| e.to_string())
+                }
+                Compiler::DependencyHeader { dependency } => {
+                    let header =
+                        verifier::sources::compiler_header_stem(&dependency).and_then(|stem| {
+                            let encoded = verifier::sources::encode_path(&stem);
+                            let paths = verifier::sources::compiler_dependency_paths(
+                                &dependency,
+                                &encoded,
+                            )?;
+                            Some((stem, paths))
+                        });
+                    serde_json::to_writer(output, &header).map_err(|e| e.to_string())
                 }
                 Compiler::DependencyPaths { dependency, stem } => {
                     let target = verifier::sources::encode_path(&stem);
