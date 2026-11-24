@@ -4064,3 +4064,49 @@ fn initial_and_full_judges_run_a_digest_pinned_installed_executable() {
     assert!(audit(&records).is_err());
     retained(&records).unwrap();
 }
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn request_pointers_resolve_in_the_actual_protocol_request() {
+    let cases = [
+        ("/request", true, true),
+        ("/request/candidate/tree", true, true),
+        ("/request/base/commit", true, false),
+        ("/request/context", true, false),
+        ("/request/profile_path", false, true),
+        ("/request/observations/问题~1~0/0", true, true),
+        ("/request/observations/问题~1~0/1", false, false),
+        ("/request/unknown", false, false),
+    ];
+    for (reference, expect_full, expect_initial) in cases {
+        let findings = value!([{
+            "code":"W_INPUT","level":"warning","message":"input observation",
+            "delta_refs":[reference],"causes":[]
+        }]);
+        let case = value!({"fields":{"status":"warn","findings":findings}});
+        let (root, mut initial, binding) = initial_fixture(case);
+        let mut ordinary = fixture_request(root.path());
+        ordinary.observations = value!({"问题/~":[null]});
+        initial.observations = ordinary.observations.clone();
+        initial.seal().unwrap();
+        let observed = chrono_harness::initial::invoke(
+            &initial,
+            &binding,
+            &Default::default(),
+            FIXTURE_TIMEOUT_SECONDS,
+            8192,
+        )
+        .map(|_| ())
+        .map_err(|error| error.message);
+        let mut response = ordinary.response(wire::Status::Warn);
+        response.findings = serde_json::from_value(findings).unwrap();
+        let normal = wire::validate_response(&ordinary, &response, 0);
+        for (result, expected) in [(normal, expect_full), (observed, expect_initial)] {
+            if expected {
+                result.unwrap();
+            } else {
+                let failure = result.unwrap_err();
+                assert!(failure.contains(reference), "{failure}");
+            }
+        }
+    }
+}
