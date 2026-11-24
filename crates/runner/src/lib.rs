@@ -23,13 +23,13 @@ pub fn admit_relative_path(value: &str) -> (out: Result<(), &str>)
 }
 
 #[cfg(not(verus_keep_ghost))]
-pub use chrono_diagnostics::runtime::cli as logged_main;
+mod diagnostic_session;
 #[cfg(not(verus_keep_ghost))]
-pub use chrono_diagnostics::runtime::cli_at as logged_main_at;
+pub mod process_error;
 #[cfg(not(verus_keep_ghost))]
-pub use chrono_diagnostics::runtime::diagnostic as log_cli_error;
+mod trace_source;
 #[cfg(not(verus_keep_ghost))]
-pub use chrono_diagnostics::runtime::maintain as maintain_runtime_logs;
+pub use diagnostic_session::{log_cli_error, logged_main, logged_main_at, maintain_runtime_logs};
 #[cfg(not(verus_keep_ghost))]
 pub mod artifact_disposal;
 #[cfg(not(verus_keep_ghost))]
@@ -123,7 +123,7 @@ pub use verified_status::{CheckResult, Status};
 #[cfg(not(verus_keep_ghost))]
 pub mod wire;
 #[cfg(not(verus_keep_ghost))]
-use chrono_diagnostics::error::{ErrorRecord, Failure, NativeIoError};
+use crate::process_error::{ErrorRecord, Failure, NativeIoError};
 #[cfg(unix)]
 #[cfg(not(verus_keep_ghost))]
 pub use publication::NativeOutput;
@@ -159,40 +159,19 @@ pub const PROTOCOL: &str = "chrono-ci-judge/v1";
 /// 字符串入口共用无损 OS 参数边界；原生路径入口沿用 logged_main。
 #[cfg(not(verus_keep_ghost))]
 pub fn logged_text_main(producer: &str, work: impl FnOnce(&[String]) -> u8) -> u8 {
-    logged_main(producer, || {
-        let native: Vec<_> = std::env::args_os().collect();
-        let decoded: Vec<_> = native.iter().map(|argument| argument.to_str()).collect();
-        let arguments = match verified_cli::decoded_arguments(&decoded) {
-            Ok(arguments) => arguments,
-            Err(position) => {
-                let error = Failure::new("E_USAGE", "arguments must be valid UTF-8.")
-                    .at("argv_index", position.argv_index as u64)
-                    .at("argument_index", serde_json::json!(position.argument_index))
-                    .at(
-                        "argument_bytes",
-                        serde_json::json!(native[position.argv_index].as_encoded_bytes()),
-                    );
-                let logger = chrono_diagnostics::logging::Logger::stderr(producer);
-                let _ = chrono_diagnostics::logging::failure(
-                    "cli.invalid_argument",
-                    &error.to_string(),
-                    &error.record(),
-                );
-                let _ = logger.run(|| {
-                    chrono_diagnostics::logging::failure(
-                        "cli.invalid_argument",
-                        &error.to_string(),
-                        &error.record(),
-                    )
-                });
-                let _ = logger.finish();
-                // 诊断发布失败也不能把已经拒绝的命令变成成功。
-                return 2;
-            }
-        };
-        let arguments: Vec<_> = arguments.into_iter().skip(1).map(str::to_owned).collect();
-        work(&arguments)
-    })
+    let native: Vec<_> = std::env::args_os().collect();
+    let decoded: Vec<_> = native.iter().map(|argument| argument.to_str()).collect();
+    match verified_cli::decoded_arguments(&decoded) {
+        Ok(arguments) => {
+            let arguments: Vec<_> = arguments.into_iter().skip(1).map(str::to_owned).collect();
+            logged_main(producer, || work(&arguments))
+        }
+        Err(position) => diagnostic_session::invalid_argument(
+            producer,
+            position.argv_index,
+            native[position.argv_index].as_encoded_bytes(),
+        ),
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -362,8 +341,8 @@ impl std::error::Error for SharedProcessFailure {
     }
 }
 #[cfg(not(verus_keep_ghost))]
-impl chrono_diagnostics::error::RecordedError for SharedProcessFailure {
-    fn error_node(&self) -> chrono_diagnostics::error::ErrorNode {
+impl crate::process_error::RecordedError for SharedProcessFailure {
+    fn error_node(&self) -> crate::process_error::ErrorNode {
         self.0.error.record().error
     }
 }
@@ -394,8 +373,8 @@ impl std::error::Error for ProcessFailure {
     }
 }
 #[cfg(not(verus_keep_ghost))]
-impl chrono_diagnostics::error::RecordedError for ProcessFailure {
-    fn error_node(&self) -> chrono_diagnostics::error::ErrorNode {
+impl crate::process_error::RecordedError for ProcessFailure {
+    fn error_node(&self) -> crate::process_error::ErrorNode {
         self.error.record().error
     }
 }

@@ -12,6 +12,10 @@ cargo fmt --check --manifest-path crates/runner-tests/Cargo.toml
 cargo build --locked --manifest-path crates/runner/Cargo.toml
 CHRONO_TEST_GIT=$(command -v chrono-test-git) || { echo "chrono-test-git is required by runner tests" >&2; exit 1; }
 export CHRONO_TEST_GIT
+cargo build --locked --manifest-path crates/runner-tests/Cargo.toml --bin chrono-test-diagnostics
+mkdir "$scratch/mock-bin"
+ln -s "$CARGO_TARGET_DIR/debug/chrono-test-diagnostics" "$scratch/mock-bin/chrono-diagnostics"
+export PATH="$scratch/mock-bin:$PATH"
 cargo test --locked --manifest-path crates/runner-tests/Cargo.toml -- --test-threads=2
 
 proof_bindings=()

@@ -1,9 +1,9 @@
 //! Shared chrono-judge/v1 wire types and transport. No host admissibility policy.
+use crate::process_error::{ErrorRecord, Failure, ReceivedError};
 use crate::{
     CommandSpec, ProcessResult, decode, no_symlink_parents, no_symlink_parents_detailed,
     run_process_observed_detailed, sha256,
 };
-use chrono_diagnostics::error::{ErrorRecord, Failure, ReceivedError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, fs, path::PathBuf};

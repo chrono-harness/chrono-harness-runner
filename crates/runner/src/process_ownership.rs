@@ -644,9 +644,9 @@ impl Launch {
                 serde_json::json!({"stage":stage,"reason":reason,"errno":errno})
             }
             Err(error) => serde_json::json!({
-                "unavailable": chrono_diagnostics::error::Failure::wrap(
+                "unavailable": crate::process_error::Failure::wrap(
                     "E_PROCESS_OWNERSHIP_DIAGNOSTIC_READ", "pre-exec diagnostic unavailable",
-                    chrono_diagnostics::error::NativeIoError::new(error),
+                    crate::process_error::NativeIoError::new(error),
                 ).record()
             }),
         };
