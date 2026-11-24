@@ -539,7 +539,7 @@ fn four_statuses_exact_exits_and_identity() {
             value!([])
         } else {
             value!([{"code":"FIXTURE", "level":if ["fail","error"].contains(&status) {"error"} else {"warning"},
-                "message":"actual fixture result", "delta_refs":["/fixture"], "causes":[]}])
+                "message":"actual fixture result", "delta_refs":["/request"], "causes":[]}])
         };
         let mut case = value!({"fields":{"status":status,"findings":findings},"exit":exit});
         assert_eq!(invoke(case.clone()).unwrap().status.exit_code(), exit);
@@ -4076,6 +4076,14 @@ fn request_pointers_resolve_in_the_actual_protocol_request() {
         ("/request/observations/问题~1~0/0", true, true),
         ("/request/observations/问题~1~0/1", false, false),
         ("/request/unknown", false, false),
+        ("/candidate/tree", true, true),
+        ("/candidate/typo", false, false),
+        ("/delta", true, false),
+        ("/base/commit", true, false),
+        ("/checkout/index_flags/0", false, false),
+        ("/observations/问题~1~0/0", true, true),
+        ("/unregistered", false, false),
+        ("/requestish", false, false),
     ];
     for (reference, expect_full, expect_initial) in cases {
         let findings = value!([{

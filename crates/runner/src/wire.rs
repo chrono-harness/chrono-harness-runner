@@ -673,20 +673,27 @@ pub(crate) fn validate_response_at(
     .1
 }
 fn validate_request_pointers(request: &impl Serialize, r: &Response) -> Result<(), String> {
-    // Only qualified references need a JSON view. A bare /request names the
-    // request itself, and the common successful response has no findings.
+    // Build the JSON view only when a finding names an actual protocol field.
     let document = std::cell::LazyCell::new(|| serde_json::to_value(request));
     for reference in r.findings.iter().flat_map(|finding| &finding.delta_refs) {
-        if let Some(pointer) = reference
-            .strip_prefix("/request")
-            .filter(|p| p.starts_with('/'))
-        {
-            let value = document
-                .as_ref()
-                .map_err(|error| format!("E_PROTOCOL: request JSON: {error}"))?;
-            if value.pointer(pointer).is_none() {
-                return Err(format!("E_PROTOCOL: missing finding reference {reference}"));
-            }
+        let Some(tokens) = reference.strip_prefix('/') else {
+            continue; // The verified field check already matched the exact DELTA path.
+        };
+        let (root, tail) = tokens.split_once('/').unwrap_or((tokens, ""));
+        let pointer = match root {
+            "request" if reference == "/request" => continue,
+            "request" => &reference["/request".len()..],
+            // These names belong to the registered documents or FILEMAP's derived impact.
+            "registries" | "config" | "judges" | "filemap" | "projects" | "workflow"
+            | "records" => continue,
+            "impact" if tail.starts_with("workflow/requirements/") => continue,
+            _ => reference.as_str(),
+        };
+        let value = document
+            .as_ref()
+            .map_err(|error| format!("E_PROTOCOL: request JSON: {error}"))?;
+        if value.pointer(pointer).is_none() {
+            return Err(format!("E_PROTOCOL: missing finding reference {reference}"));
         }
     }
     Ok(())

@@ -109,7 +109,7 @@ fn run(mode: &str, bytes: &[u8]) -> Result<u8, String> {
             .ok_or("mock finding codes missing")?
         {
             response.findings.push(serde_json::from_value(json!({
-                "code":code,"level":"error","message":"fixture verdict","causes":[],"delta_refs":["/fixture"]
+                "code":code,"level":"error","message":"fixture verdict","causes":[],"delta_refs":["/request"]
             })).map_err(|e| e.to_string())?);
         }
         io::stdout()
@@ -211,7 +211,7 @@ fn run(mode: &str, bytes: &[u8]) -> Result<u8, String> {
             json!({"path":path,"sha256":sha256(&child.stdout),"kind":"fixture-tool-version"});
         let version = String::from_utf8(child.stdout).map_err(|e| e.to_string())?;
         response.status = wire::Status::Warn;
-        response.findings = serde_json::from_value(json!([{"code":"W_FIXTURE_COST","level":"warning","message":"fixture costs unmeasured","delta_refs":["/costs"],"causes":[]}])).unwrap();
+        response.findings = serde_json::from_value(json!([{"code":"W_FIXTURE_COST","level":"warning","message":"fixture costs unmeasured","delta_refs":["/impact"],"causes":[]}])).unwrap();
         response.evidence = serde_json::from_value(json!([evidence.clone()])).unwrap();
         json!({
             "tools":[{"path":tool,"version":version.trim(),"evidence":[evidence.clone()]}],
