@@ -633,65 +633,28 @@ pub fn validate_invocation_observation(
 /// Typed consumers can apply this at dynamic fields without a second whole-document tree.
 #[cfg(not(verus_keep_ghost))]
 pub fn strict_json_value<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Value, D::Error> {
-    struct Strict;
-    impl<'de> serde::de::Visitor<'de> for Strict {
-        type Value = Value;
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("JSON without duplicate members")
-        }
-        fn visit_bool<E: serde::de::Error>(self, v: bool) -> Result<Value, E> {
-            Ok(v.into())
-        }
-        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Value, E> {
-            Ok(v.into())
-        }
-        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Value, E> {
-            Ok(v.into())
-        }
-        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Value, E> {
-            serde_json::Number::from_f64(v)
-                .map(Value::Number)
-                .ok_or_else(|| E::custom("nonfinite number"))
-        }
-        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Value, E> {
-            Ok(v.into())
-        }
-        fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Value, E> {
-            Ok(v.into())
-        }
-        fn visit_unit<E: serde::de::Error>(self) -> Result<Value, E> {
-            Ok(Value::Null)
-        }
-        fn visit_none<E: serde::de::Error>(self) -> Result<Value, E> {
-            Ok(Value::Null)
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut a: A) -> Result<Value, A::Error> {
-            let mut out = vec![];
-            while let Some(v) = a.next_element::<StrictValue>()? {
-                out.push(v.0)
+    use serde::de::Error;
+
+    let document = serde_yaml_ng::Value::deserialize(d).map_err(|error| {
+        let message = error.to_string();
+        if let Some(tail) = message.strip_prefix("duplicate entry with key ") {
+            // serde_json adds a location when a JSON source is available.
+            let end = if tail.ends_with('"') {
+                tail.len()
+            } else {
+                tail.rfind(" at line ").unwrap_or(tail.len())
+            };
+            if let Ok(key) = litrs::StringLit::parse(&tail[..end]) {
+                return D::Error::custom(format!(
+                    "duplicate JSON member {}{}",
+                    key.value(),
+                    &tail[end..]
+                ));
             }
-            Ok(out.into())
         }
-        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut a: A) -> Result<Value, A::Error> {
-            let mut out = serde_json::Map::new();
-            while let Some(k) = a.next_key::<String>()? {
-                if out.contains_key(&k) {
-                    return Err(serde::de::Error::custom(format!(
-                        "duplicate JSON member {k}"
-                    )));
-                }
-                out.insert(k, a.next_value::<StrictValue>()?.0);
-            }
-            Ok(Value::Object(out))
-        }
-    }
-    struct StrictValue(Value);
-    impl<'de> Deserialize<'de> for StrictValue {
-        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-            d.deserialize_any(Strict).map(StrictValue)
-        }
-    }
-    d.deserialize_any(Strict)
+        error
+    })?;
+    serde_json::to_value(document).map_err(D::Error::custom)
 }
 #[cfg(not(verus_keep_ghost))]
 pub fn json(bytes: &[u8]) -> Result<Value, String> {
