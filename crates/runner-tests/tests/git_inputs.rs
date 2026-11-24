@@ -169,6 +169,67 @@ fn observed_host() -> Host {
 }
 
 #[test]
+fn event_session_runs_the_selected_git_with_exact_revision_and_fetch_arguments() {
+    let host = observed_host();
+    host.save();
+    let commit = "a".repeat(40);
+    let mut frames = Vec::new();
+    for request in [
+        json!({"mode":"config","config":".chrono-harness/config.json","base":commit,"candidate":commit,"observe_failure":true}),
+        json!({"op":"head"}),
+        json!({"op":"check-reference","reference":"refs/heads/dev"}),
+        json!({"op":"remote-reference","reference":"refs/heads/dev"}),
+        json!({"op":"fetch-commit","commit":commit,"shallow":true}),
+        json!({"op":"fetch-commit","commit":commit,"shallow":false}),
+        json!({"op":"show-text","commit":commit,"path":"config.json"}),
+        json!({"op":"resolve-commit","commit":commit}),
+        json!({"op":"fetch-commit","commit":"HEAD","shallow":false}),
+        json!({"op":"show-text","commit":commit,"path":"../outside"}),
+        json!({"op":"observation"}),
+    ] {
+        serde_json::to_writer(&mut frames, &request).unwrap();
+        frames.push(b'\n');
+    }
+    let mut output = Vec::new();
+    chrono_harness::git_facts_session::serve(&host.root, frames.as_slice(), &mut output).unwrap();
+    let answers = std::str::from_utf8(&output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Result<Value, String>>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(answers[0], Ok(json!({"bound":true})));
+    assert_eq!(answers[1], Ok(json!("git mock observed\n")));
+    assert_eq!(answers[2], Ok(Value::Null));
+    for read in &answers[3..8] {
+        assert_eq!(*read, Ok(json!("git mock observed\n")));
+    }
+    assert!(answers[8].is_err() && answers[9].is_err());
+    let trace = fs::read_to_string(host.root.join("trace")).unwrap();
+    let calls: Vec<_> = trace.lines().collect();
+    let expected = vec![
+        "--version".to_owned(),
+        "rev-parse HEAD".into(),
+        "check-ref-format refs/heads/dev".into(),
+        "ls-remote --refs origin refs/heads/dev".into(),
+        format!("fetch --no-tags --depth=2 --filter=blob:none origin {commit}"),
+        format!("fetch --no-tags origin {commit}"),
+        format!("show {commit}:config.json"),
+        format!("rev-parse {commit}^{{commit}}"),
+    ];
+    assert_eq!(calls.len(), expected.len());
+    for (call, args) in calls.iter().zip(&expected) {
+        assert!(call.ends_with(args), "{call} vs {args}");
+    }
+    assert_eq!(
+        answers[10].as_ref().unwrap()["processes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        expected.len()
+    );
+}
+
+#[test]
 fn scoped_facts_observe_git_without_a_host_allowlist_and_recheck_its_bytes() {
     let h = observed_host();
     let reader = h.open().unwrap();
