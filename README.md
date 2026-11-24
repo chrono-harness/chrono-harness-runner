@@ -68,6 +68,9 @@ The local checkout must match the candidate. The report and operation streams ar
 
 项目收集器通过 `judge-evidence-v1` 的 `unit-tests`、`collection-paths`、`artifact-directories` 和 `retained-entry` 核对已登记的测试、收集路径与封存的启动命令。`selected-host-config-v1` 从标准输入读取宿主配置的相对路径，输出当前平台选中的配置。
 
+scoped CI 在 `judge-evidence-v1` 中使用 `scoped-report-path` 和 `scoped-reference-publication` 查询当前 profile 的发布合同，使用 `checkout-index-issue` 核对固定工作树的 index 标志。`check-invocation-v1` 的 `scoped-request` 模式接收完整 scoped request、其登记配置和 `admit_entry`。本地执行和离线收集由同一入口核对适用的原调用参数和准备阶段身份。
+
+
 执行者用 `retained-artifacts-v1` 的 `directory-evidence` 读取操作的 stdout、stderr 原件大小与保管记录，用 `process-completion` 判断子进程是否已结束。`compact-process` 保留原字段及压缩流。`check-artifact-path` 检查登记的相对地址。规范编译命令成功返回并写入结果后，`dispose-compiler-originals` 核对同次执行的库和依赖文件的长度及 SHA-256，依照宿主保管政策释放它们。
 
 CI 提供者用 `git-facts-v1` 的 `config` 模式打开登记的 Git 配置。它可以验证配置与提交的一致性（`verify-config`），读取 HEAD、父提交、原始文件及差异路径，按完整提交 ID 从 origin 获取已登记历史。所有原执行记录通过同一会话的 `observation` 返回。设置 `observe_failure:true` 时，打开失败也返回原始 Git 观察。

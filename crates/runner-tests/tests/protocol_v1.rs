@@ -287,6 +287,44 @@ fn initial_fixture(
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn scoped_ci_queries_use_the_registered_report_and_publication_policy() {
+    let mut config = value!({"schema":"chrono-ci-check/v3","judge":{"program":"judge","timeout_seconds":1,"output_limit_bytes":10},"policy":{"units":{"a":{"tests":["t"],"report_path":".chrono-harness/state/a.json"}},"report_publication":"retained-reference/v2"},"report_path":".chrono-harness/state/report.json"});
+    let unit = value!({"kind":"unit","unit":"a"});
+    let mut ops = vec![
+        value!({"operation":"scoped-report-path","config":config,"scope":unit}),
+        value!({"operation":"scoped-reference-publication","config":config}),
+        value!({"operation":"scoped-report-path","config":config,"scope":{"kind":"collect","manifest":".chrono-harness/state/a.json"}}),
+        value!({"operation":"checkout-index-issue","flags":[]}),
+    ];
+    config["schema"] = value!("chrono-ci-check/v2");
+    ops.push(value!({"operation":"scoped-reference-publication","config":config}));
+    let mut input = vec![];
+    for op in ops {
+        serde_json::to_writer(&mut input, &op).unwrap();
+        input.push(b'\n');
+    }
+    let mut output = vec![];
+    chrono_harness::judge_evidence::serve(input.as_slice(), &mut output).unwrap();
+    let result: Vec<Result<serde_json::Value, String>> =
+        serde_json::Deserializer::from_slice(&output)
+            .into_iter()
+            .collect::<Result<_, _>>()
+            .unwrap();
+    assert_eq!(result[0], Ok(value!(".chrono-harness/state/a.json")));
+    assert_eq!(result[1], Ok(value!(true)));
+    assert_eq!(
+        result[2],
+        Err("collection manifest overlaps publication path".into())
+    );
+    assert_eq!(result[3], Ok(value!(null)));
+    assert_eq!(
+        result[4],
+        Err("report_publication requires scoped v3 retained-reference/v2".into())
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn independent_initial_judge_checks_the_sealed_request_and_profile() {
     let (_dir, mut request, binding) = initial_fixture(value!({}));
     let mut profile = value!({

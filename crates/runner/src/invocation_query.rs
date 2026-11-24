@@ -9,6 +9,11 @@ use std::{
 #[derive(Deserialize)]
 #[serde(tag = "mode", rename_all = "kebab-case", deny_unknown_fields)]
 enum Query {
+    ScopedRequest {
+        request: Box<crate::Request>,
+        config: Value,
+        admit_entry: bool,
+    },
     LocalPreparation {
         request: Box<crate::prepared::InputRequest>,
     },
@@ -29,6 +34,51 @@ enum Query {
 pub(super) fn serve(input: impl Read, mut output: impl Write) -> Result<(), String> {
     let query: Query = serde_json::from_reader(input).map_err(|e| e.to_string())?;
     match query {
+        Query::ScopedRequest {
+            request,
+            config,
+            admit_entry,
+        } => {
+            let short = config["schema_version"] == 4;
+            let initial = request.base.is_none();
+            if initial && !short {
+                return Err("initial scoped invocation requires short configuration".into());
+            }
+            let mut argv: Vec<String> = if initial {
+                crate::prepared::declaration(&config)?.argv
+            } else {
+                serde_json::from_value(config["canonical_check"]["argv"].clone())
+                    .map_err(|e| e.to_string())?
+            };
+            if let Some(scope) = &request.scope {
+                argv.extend(scope.contract_argv(&config));
+            }
+            if admit_entry {
+                let endpoints = match &request.base {
+                    Some(base) => json!({"base":base,"candidate":request.candidate}),
+                    None => json!({}),
+                };
+                crate::resolve_invocation(
+                    &request.host_root,
+                    &request.observations["entry"],
+                    &argv,
+                    &endpoints,
+                )?;
+                if short {
+                    crate::prepared::validate_binding(
+                        &request.host_root,
+                        &config,
+                        &request.config_path,
+                        request.base.as_deref(),
+                        &request.candidate,
+                        request.initial,
+                        &request.scope,
+                        None,
+                        &request.observations["preparation"],
+                    )?;
+                }
+            }
+        }
         Query::LocalPreparation { request } => {
             if request.source != "local"
                 || request.native_artifacts.is_some()
