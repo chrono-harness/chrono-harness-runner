@@ -197,6 +197,113 @@ fn scoped_stream_storage_preserves_raw_process_identity_and_detects_bad_original
 }
 
 #[test]
+fn collection_reader_admits_original_lengths_before_consuming_binary_frames() {
+    use chrono_harness::{prepared, retained_artifacts::session, scoped_report};
+    let dir = tempfile::tempdir().unwrap();
+    let process = run_process(
+        dir.path(),
+        &CommandSpec {
+            program: CHILD.into(),
+            args: vec!["pipe".into()],
+            env: Default::default(),
+            timeout_seconds: 15,
+            output_limit_bytes: 4096,
+        },
+        b"\xff\n\0",
+    )
+    .unwrap();
+    let record =
+        scoped_report::retain_process(dir.path(), ".chrono-harness/state/preparation/", &process)
+            .unwrap();
+    let stdout = &process.stdout_bytes;
+    let stderr = &process.stderr_bytes;
+    let restore =
+        |limit: usize| json!({"operation":"restore-scoped-process","process":record,"limit":limit});
+    fn line(input: &mut Vec<u8>, value: &Value) {
+        serde_json::to_writer(&mut *input, value).unwrap();
+        input.push(b'\n');
+    }
+    let protocol = |input: Vec<u8>| {
+        let mut output = Vec::new();
+        session::serve(dir.path(), input.as_slice(), &mut output).unwrap();
+        String::from_utf8(output)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let mut input = Vec::new();
+    line(&mut input, &restore(stdout.len() + stderr.len()));
+    for bytes in [stdout, stderr] {
+        line(&mut input, &json!({"Ok":bytes.len()}));
+        input.extend(bytes);
+    }
+    assert_eq!(
+        protocol(input),
+        vec![
+            json!({"read_original":record["stdout_original"]}),
+            json!({"send_original":true}),
+            json!({"read_original":record["stderr_original"]}),
+            json!({"send_original":true}),
+            json!({"Ok":process}),
+        ]
+    );
+
+    let mut input = Vec::new();
+    line(&mut input, &restore(stdout.len() + stderr.len() - 1));
+    line(&mut input, &json!({"Ok":stdout.len()}));
+    input.extend(stdout);
+    line(&mut input, &json!({"Ok":stderr.len()}));
+    line(&mut input, &restore(100));
+    line(&mut input, &json!({"Err":"reader lost its original"}));
+    line(
+        &mut input,
+        &json!({"operation":"validate-portable-binding","binding":{},"transport":null}),
+    );
+    line(
+        &mut input,
+        &json!({"operation":"scoped-descriptors","offset":0}),
+    );
+    let replies = protocol(input);
+    assert_eq!(
+        replies[3],
+        json!({"Err":"original exceeds collection bound"})
+    );
+    assert_eq!(replies[5], json!({"Err":"reader lost its original"}));
+    assert!(
+        replies[6]["Err"]
+            .as_str()
+            .is_some_and(|error| !error.contains("unknown variant"))
+    );
+    assert_eq!(replies[7], json!({"Ok":0}));
+
+    let mut truncated = Vec::new();
+    line(&mut truncated, &restore(100));
+    line(&mut truncated, &json!({"Ok":stdout.len()}));
+    truncated.extend(&stdout[1..]);
+    assert_eq!(
+        protocol(truncated)[2],
+        json!({"Err":"truncated collection original"})
+    );
+    let mut damaged = Vec::new();
+    line(&mut damaged, &restore(100));
+    line(&mut damaged, &json!({"Ok":stdout.len()}));
+    damaged.extend(vec![b'x'; stdout.len()]);
+    assert!(
+        protocol(damaged)[2]["Err"]
+            .as_str()
+            .unwrap()
+            .contains("stdout original digest mismatch")
+    );
+    let original: prepared::Original =
+        serde_json::from_value(record["stdout_original"].clone()).unwrap();
+    assert_eq!(
+        &prepared::read_original(dir.path(), &original, None).unwrap(),
+        stdout
+    );
+}
+
+#[test]
 #[cfg(unix)]
 fn invalid_utf8_cli_argument_emits_structured_domain_error_on_stderr() {
     use std::os::unix::ffi::OsStringExt;
