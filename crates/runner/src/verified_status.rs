@@ -4922,6 +4922,40 @@ pub fn valid_finding_fields(finding: &Finding) -> (valid: bool)
 pub open spec fn record_reference(reference: Seq<char>) -> bool {
     let bytes = vstd::utf8::encode_utf8(reference);
     bytes.len() > 0 && bytes[0] == 47
+        && forall|i: int| 0 <= i < bytes.len() && #[trigger] bytes[i] == 126
+            ==> i + 1 < bytes.len() && (bytes[i + 1] == 48 || bytes[i + 1] == 49)
+}
+
+fn valid_record_reference(reference: &str) -> (valid: bool)
+    ensures valid == record_reference(reference@),
+{
+    let bytes = reference.as_bytes();
+    if bytes.is_empty() || bytes[0] != 47 { return false; }
+    let mut i = 0;
+    while i < bytes.len()
+        invariant
+            bytes@ == vstd::utf8::encode_utf8(reference@),
+            bytes.len() > 0 && bytes[0] == 47,
+            i <= bytes.len(),
+            forall|j: int| 0 <= j < i && #[trigger] bytes@[j] == 126
+                ==> j + 1 < bytes.len() && (bytes@[j + 1] == 48 || bytes@[j + 1] == 49),
+        decreases bytes.len() - i,
+    {
+        if bytes[i] == 126
+            && (i + 1 == bytes.len() || (bytes[i + 1] != 48 && bytes[i + 1] != 49)) {
+            proof {
+                let encoded = vstd::utf8::encode_utf8(reference@);
+                assert(bytes@ == encoded);
+                assert(encoded[i as int] == 126);
+                if record_reference(reference@) {
+                    assert(i + 1 < encoded.len() && (encoded[i + 1] == 48 || encoded[i + 1] == 49));
+                }
+            }
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 pub open spec fn delta_reference(reference: Seq<char>, entries: &[Delta]) -> bool {
@@ -4940,8 +4974,7 @@ pub open spec fn reference_allowed(reference: Seq<char>, delta: Option<&[Delta]>
 pub fn valid_finding_reference(reference: &str, delta: Option<&[Delta]>) -> (valid: bool)
     ensures valid == reference_allowed(reference@, delta),
 {
-    let bytes = reference.as_bytes();
-    if bytes.len() > 0 && bytes[0] == 47 { return true; }
+    if valid_record_reference(reference) { return true; }
     match delta {
         None => false,
         Some(entries) => {
