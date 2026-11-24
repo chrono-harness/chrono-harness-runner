@@ -1327,6 +1327,7 @@ fn run_retained_cli_child(root: &Path, source: &str) -> Value {
             "inert authentication fixture λ",
         )
         .env_remove("CHRONO_TEST_AUTHENTICATION_ABSENT")
+        .env("CHRONO_TEST_PREPARATION_JOB", "job-example")
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
@@ -1369,6 +1370,7 @@ fn retained_cli_config() -> Value {
             "argv": ["chrono-harness", "check"],
             "profile": ".chrono-harness/ci/check.json",
             "inputs": {
+                "inherit_environment": ["CHRONO_TEST_PREPARATION_JOB"],
                 "local": {
                     "operation": "prepare.local",
                     "tool": "producer",
@@ -1524,6 +1526,10 @@ fn retained_reference_cli_registers_process_evidence_before_judge_spawn() {
         ("PATH".to_owned(), std::env::var("PATH").unwrap()),
         ("CHRONO_CHECK_SOURCE".to_owned(), "local".to_owned()),
         (
+            "CHRONO_TEST_PREPARATION_JOB".to_owned(),
+            "job-example".to_owned(),
+        ),
+        (
             "CHRONO_TEST_AUTHENTICATION".to_owned(),
             "inert authentication fixture λ".to_owned(),
         ),
@@ -1541,6 +1547,10 @@ fn retained_reference_cli_registers_process_evidence_before_judge_spawn() {
         if receipt["environment_representation"] == "sha256" {
             acquisitions += 1;
             for process in [&receipt["process"], &receipt["tool"]["version"]] {
+                assert_eq!(
+                    process["environment"]["CHRONO_TEST_PREPARATION_JOB"],
+                    chrono_harness::sha256(b"job-example")
+                );
                 assert_eq!(
                     process["environment"]["CHRONO_TEST_AUTHENTICATION"],
                     chrono_harness::sha256(b"inert authentication fixture \xce\xbb")

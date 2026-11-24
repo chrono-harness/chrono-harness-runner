@@ -8,6 +8,10 @@ fn main() {
         "inert authentication fixture λ"
     );
     assert!(std::env::var_os("CHRONO_TEST_AUTHENTICATION_ABSENT").is_none());
+    assert_eq!(
+        std::env::var("CHRONO_TEST_PREPARATION_JOB").unwrap(),
+        "job-example"
+    );
     if std::env::args().nth(1).as_deref() == Some("version") {
         println!("prepared-producer 0.1.0");
         return;
