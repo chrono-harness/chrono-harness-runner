@@ -9,8 +9,13 @@ pub(super) enum Action {
     Create {
         parent: String,
         prefix: String,
+        consumer_prefix: Option<String>,
         producer: String,
         outcome: Value,
+    },
+    CreateMember {
+        path: String,
+        name: String,
     },
     Enroll {
         path: String,
@@ -57,6 +62,8 @@ pub(super) enum Action {
     Complete {
         path: String,
         outcome: Value,
+        #[serde(default)]
+        seal: bool,
     },
     Close {
         path: String,
@@ -92,6 +99,7 @@ impl Publications {
             Action::Create {
                 parent,
                 prefix,
+                consumer_prefix,
                 producer,
                 outcome,
             } => {
@@ -101,12 +109,23 @@ impl Publications {
                 let directory = no_symlink_parents(root, &parent)?;
                 let path = retention::unique_path(&directory, &prefix, "")?;
                 let key = relative(&path)?;
-                let p = retention::create_adopted(root, &producer, &path, true, outcome)?;
+                let p = match consumer_prefix {
+                    Some(consumer) => retention::create_adopted_for_consumer(
+                        root, &producer, &path, true, outcome, None, &consumer,
+                    )?,
+                    None => retention::create_adopted(root, &producer, &path, true, outcome)?,
+                };
                 let adopted = p.is_some();
                 if let Some(p) = p {
                     self.open.insert(key.clone(), p);
                 }
                 Ok(json!({"path":key,"adopted":adopted}))
+            }
+            Action::CreateMember { path, name } => {
+                crate::relative_path(&name)?;
+                let destination = no_symlink_parents(root, &format!("{path}/{name}"))?;
+                self.active(&path)?.create_directory(&destination)?;
+                Ok(Value::Null)
             }
             Action::Enroll {
                 path,
@@ -186,11 +205,17 @@ impl Publications {
                 self.slots.remove(&slot);
                 Ok(Value::Null)
             }
-            Action::Complete { path, outcome } => {
-                self.open
-                    .remove(&path)
-                    .ok_or("no active publication")?
-                    .complete(outcome)?;
+            Action::Complete {
+                path,
+                outcome,
+                seal,
+            } => {
+                let publication = self.open.remove(&path).ok_or("no active publication")?;
+                if seal {
+                    publication.complete_sealed(outcome)?;
+                } else {
+                    publication.complete(outcome)?;
+                }
                 Ok(Value::Null)
             }
             Action::Close { path } => {
