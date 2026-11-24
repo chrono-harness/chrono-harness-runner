@@ -332,3 +332,38 @@ fn observed_command_forwards_binary_streams_and_original_terminal_evidence() {
     });
     assert!(result.unwrap_err().contains("timeout exceeds"));
 }
+
+#[test]
+fn declaration_query_checks_roots_and_preserves_reference_path_order() {
+    use chrono_harness::route_evidence::serve;
+    use serde_json::{Value, json};
+
+    let file = json!({"path":"pkg/a.rs","verification":{"role":"program","roots":[{"path":"root.rs","operation":"verify"}]}});
+    let query = |file: Value, operations: Value| {
+        let input = json!({"operation":"source-declarations","files":[file],"operations":operations,
+            "reference_paths":["pkg/a.rs","./a.rs","two//parts","real"]});
+        let mut output = Vec::new();
+        serve(
+            "compiler-output-v1",
+            input.to_string().as_bytes(),
+            &mut output,
+        )?;
+        serde_json::from_slice::<Vec<bool>>(&output).map_err(|e| e.to_string())
+    };
+    assert_eq!(
+        query(file.clone(), json!(["verify"])).unwrap(),
+        vec![true, false, false, true]
+    );
+    assert!(
+        query(file.clone(), json!([]))
+            .unwrap_err()
+            .contains("pkg/a.rs: E_VERUS_COVERAGE: proof root operation is not registered")
+    );
+    let mut invalid = file;
+    invalid["verification"]["roots"][0]["path"] = json!("./root.rs");
+    assert!(
+        query(invalid, json!(["verify"]))
+            .unwrap_err()
+            .contains("pkg/a.rs: E_VERUS_COVERAGE: invalid file proof declaration")
+    );
+}
