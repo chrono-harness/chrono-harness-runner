@@ -81,3 +81,5 @@ CI 提供者用 `git-facts-v1` 的 `config` 模式打开登记的 Git 配置。�
 `compiler-output-v1` 的 `canonical` 操作返回参数是否对应登记的编译器输出；`observe` 在原工作目录读取声明的依赖文件并核对库的实际 SHA-256 与长度，在进程失败时保留原始判断结果。
 
 runner 的生产和专属测试项目可分别用各自的 Cargo manifest 和 lock 构建。使用宿主日志时，在 PATH 中安装本仓清单固定的 chrono-diagnostics。它通过 cli-events-v1 写入宿主选择的滚动文件，接收真实进程的 PID、span、退出状态和诊断。原生输出发布失败时，runner 把同一个 Rust I/O 错误留给调用方，并将错误记录送到 diagnostics 的显式 stderr 输出接口。
+
+登记判官通过 `compiler-output-v1` 的 `source-declarations` 操作提交带有验证声明的文件、已登记操作及引用路径（`files`、`operations`、`reference_paths`）。runner 校验每项声明及证明根所用操作，并按输入顺序返回每条引用路径的规范性布尔值。无效声明返回原文件名和错误。
