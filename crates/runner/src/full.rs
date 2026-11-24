@@ -321,6 +321,8 @@ pub fn retained_judges(
                 binding.id
             ));
         }
+        wire::validate_recorded_findings(&request, &response)
+            .map_err(|e| format!("E_RETAINED_JUDGES: {}: {e}", binding.id))?;
         // The original first stdin declares the current codec; absent markers
         // retain historical full-inline/scoped-v1 construction semantics.
         history.push(predecessor_observation(&record, template)?);
@@ -819,6 +821,8 @@ pub fn validate_execution(
                         &response.findings,
                     )
                     .map_err(|e| format!("E_SELF_DIAGNOSTIC: record {id}: {e}"))?;
+                    wire::validate_recorded_findings(&request, &response)
+                        .map_err(|e| format!("E_SELF_DIAGNOSTIC: record {id}: {e}"))?;
                     if process.failure.is_some()
                         || json(&process.stdout_bytes).map_err(|e| {
                             format!("E_SELF_DIAGNOSTIC: record {id} original response: {e}")
