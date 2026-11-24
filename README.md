@@ -75,7 +75,9 @@ scoped CI 在 `judge-evidence-v1` 中使用 `scoped-report-path` 和 `scoped-ref
 
 CI 提供者用 `git-facts-v1` 的 `config` 模式打开登记的 Git 配置。它可以验证配置与提交的一致性（`verify-config`），读取 HEAD、父提交、原始文件及差异路径，按完整提交 ID 从 origin 获取已登记历史。所有原执行记录通过同一会话的 `observation` 返回。设置 `observe_failure:true` 时，打开失败也返回原始 Git 观察。
 
-登记判官通过 `judge-evidence-v1` 的 `registry-identity` 解析固定登记文档的配置身份，通过 `report-paths` 检查报告路径与证据路径冲突。`validate-git-declaration`、`validate-preparation-declaration` 和 `credential-environment` 接受原配置文档并执行 runner 的对应规则。
+独立安装的判官在宿主 `.chrono-harness/bin/<程序名>` 登记入口。末端链接可指向工作树外同名普通文件。initial 和 full 先按登记 SHA-256 调用 `--version`，逐字节核对 `<程序名> <登记版本>\n`，再按同一摘要启动判官。报告中的 `process.judge_version_process` 保存版本进程原件，归档读取只需原请求、登记和报告。宿主内普通文件沿用直接调用。
+
+登记判官可以在候选根目录向 `judge-evidence-v1` 提交 `{"operation":"bound-judge-path","binding":...}`。成功返回已核登记 SHA-256 的可执行文件绝对路径，调用方据此核对自己的执行身份。登记判官通过 `judge-evidence-v1` 的 `registry-identity` 解析固定登记文档的配置身份，通过 `report-paths` 检查报告路径与证据路径冲突。`validate-git-declaration`、`validate-preparation-declaration` 和 `credential-environment` 接受原配置文档并执行 runner 的对应规则。
 
 公开的 Git 会话也接受 `verify-commit` 和 `ancestors`（参数 `commit` 为完整 OID）、`check-branch-name`（参数 `branch`）及 `shallow-boundaries`。已封存请求内的读取使用同一个宿主绑定的 Git 进程记录。只检查调用方给出的分支上下文时，可以用 `{"mode":"history"}` 打开无配置的历史读取会话。历史调度可用同一会话的 `blob-bytes` 读取完整提交 ID 与仓内相对路径指定的 Git 原字节。
 

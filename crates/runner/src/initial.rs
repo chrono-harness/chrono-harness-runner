@@ -1,7 +1,6 @@
 //! Explicit single-endpoint inventory transport. It never constructs a DELTA base.
 use crate::{
-    CommandSpec, ProcessResult, decode, facts, full, no_symlink_parents, run_process_observed,
-    sha256,
+    ProcessResult, decode, facts, full, no_symlink_parents, sha256,
     wire::{self, Binding, Checkout, Endpoint, Executable, Response, Status, TransportFailure},
 };
 use serde::{Deserialize, Serialize};
@@ -114,30 +113,26 @@ pub fn invoke(
     {
         return Err("E_PROTOCOL: initial binding identity/base placeholder".into());
     }
-    let hash = b
-        .sha256
-        .as_deref()
-        .filter(|v| wire::is_digest(v))
-        .ok_or("E_PROTOCOL: missing executable digest")?;
-    let path = no_symlink_parents(&req.candidate.root, &b.executable)?;
-    let spec = CommandSpec {
-        program: path.to_str().ok_or("executable UTF-8")?.into(),
-        args: b
-            .argv
-            .iter()
-            .map(|a| {
-                if a == "{candidate}" {
-                    req.candidate.commit.clone()
-                } else {
-                    a.clone()
-                }
-            })
-            .collect(),
-        env: env.clone(),
-        timeout_seconds: timeout,
-        output_limit_bytes: limit,
-    };
-    let p = run_process_observed(&req.candidate.root, &spec, &wire::canonical(req)?, hash)?;
+    let args = b
+        .argv
+        .iter()
+        .map(|arg| {
+            if arg == "{candidate}" {
+                req.candidate.commit.clone()
+            } else {
+                arg.clone()
+            }
+        })
+        .collect();
+    let p = wire::run_judge(
+        &req.candidate.root,
+        b,
+        env,
+        timeout,
+        limit,
+        args,
+        &wire::canonical(req)?,
+    )?;
     if let Some(message) = p.failure.clone() {
         return Err(TransportFailure::with_process(message, p));
     }

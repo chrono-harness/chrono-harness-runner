@@ -51,6 +51,15 @@ pub use path_admission_owner::admit_relative_path;
 
 verus! {
 
+/// A completed installed judge version probe must report the exact registered bytes.
+pub fn judge_version_matches(
+    exit: i32, failed: bool, complete: bool, joined: bool, stdout: &[u8], expected: &[u8],
+) -> (accepted: bool)
+    ensures accepted == (exit == 0 && !failed && complete && joined && stdout@ == expected@),
+{
+    exit == 0 && !failed && complete && joined && identifiers::equal_bytes(stdout, expected)
+}
+
 /// Only the synchronous owner releases a local directory operation on return.
 pub fn release_local_directory(local: bool, owner_pid: u32, current_pid: u32) -> (out: bool)
     ensures out == (local && owner_pid == current_pid),

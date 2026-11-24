@@ -52,7 +52,10 @@ fn child() {
     let (delay, overflow) = release.trim().split_once(',').unwrap();
     thread::sleep(Duration::from_secs_f64(delay.parse().unwrap()));
     if overflow == "yes" {
-        std::io::stdout().write_all(&[b'x'; 8192]).unwrap();
+        // The reader is stopped. POSIX guarantees a pipe can hold this atomic write.
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(&[b'x'; 512]).unwrap();
+        stdout.flush().unwrap();
     }
     unsafe {
         drop(File::from_raw_fd(1));

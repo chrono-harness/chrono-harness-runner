@@ -70,6 +70,9 @@ enum Operation {
     FullExecutionUnits {
         profile: Value,
     },
+    BoundJudgePath {
+        binding: crate::wire::Binding,
+    },
     RegistryIdentity {
         entry: String,
         documents: BTreeMap<String, Value>,
@@ -196,6 +199,14 @@ impl Operation {
             }
             Operation::FullExecutionUnits { profile } => {
                 Ok(json!(crate::units::full_execution_units(&profile)?))
+            }
+            Operation::BoundJudgePath { binding } => {
+                let root = std::env::current_dir().map_err(|error| error.to_string())?;
+                let (path, _) = crate::wire::judge_executable(&root, &binding)
+                    .map_err(|error| error.to_string())?;
+                crate::executable_digest(&path, Some(binding.required_digest()?))
+                    .map_err(|error| error.to_string())?;
+                Ok(json!(path.to_str().ok_or("non UTF-8 executable")?))
             }
             Operation::RegistryIdentity { entry, documents } => {
                 Ok(json!(crate::facts::registry_identity(&documents, &entry)?))

@@ -477,6 +477,149 @@ pub struct Binding {
     pub modes: Vec<String>,
 }
 
+/// Installed judges are digest-pinned by the calling transport. Only the final
+/// entry under the host's binary directory may link to an external image.
+pub(crate) fn judge_executable(
+    root: &std::path::Path,
+    binding: &Binding,
+) -> Result<(PathBuf, bool), crate::ProcessFailure> {
+    let declared = std::path::Path::new(&binding.executable);
+    crate::relative_path(&binding.executable)?;
+    let directory = std::path::Path::new(".chrono-harness/bin");
+    if declared.parent() != Some(directory) {
+        return no_symlink_parents_detailed(root, &binding.executable).map(|p| (p, false));
+    }
+    let parent = no_symlink_parents_detailed(root, ".chrono-harness/bin")?;
+    let name = declared.file_name().ok_or("judge executable filename")?;
+    let path = parent.join(name);
+    let read_error = |e: std::io::Error| {
+        crate::ProcessFailure::native("E_PROCESS_EXECUTABLE_READ", e.to_string(), e)
+    };
+    if !fs::symlink_metadata(&path)
+        .map_err(read_error)?
+        .is_symlink()
+    {
+        return Ok((path, false));
+    }
+    let target = fs::canonicalize(&path).map_err(read_error)?;
+    let checkout = fs::canonicalize(root).map_err(read_error)?;
+    let regular = fs::metadata(&target).map_err(read_error)?.is_file();
+    if !crate::verified_paths::installed_judge_target(
+        regular,
+        target.starts_with(&checkout),
+        target.file_name() == Some(name),
+    ) {
+        return Err("invalid installed judge executable target".into());
+    }
+    Ok((target, true))
+}
+
+impl Binding {
+    pub(crate) fn required_digest(&self) -> Result<&str, &'static str> {
+        self.sha256
+            .as_deref()
+            .filter(|value| is_digest(value))
+            .ok_or("E_PROTOCOL: missing executable digest")
+    }
+
+    fn version_output_matches(&self, name: &str, process: &ProcessResult) -> bool {
+        let expected = format!("{name} {}\n", self.version);
+        crate::verified_status::judge_version_matches(
+            process.exit_code,
+            process.failure.is_some(),
+            process.stdout_complete,
+            process.owned_work_joined,
+            &process.stdout_bytes,
+            expected.as_bytes(),
+        )
+    }
+
+    /// Validate the linked installation from its original version subprocess.
+    /// Retained records can be read after the originating checkout has been removed.
+    pub(crate) fn receipt_image<'a>(
+        &self,
+        root: &std::path::Path,
+        process: &'a ProcessResult,
+    ) -> Result<&'a std::path::Path, String> {
+        crate::relative_path(&self.executable)?;
+        let path = std::path::Path::new(&self.executable);
+        let image = &process.executable;
+        if let Some(version) = &process.judge_version_process {
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or("judge executable filename")?;
+            crate::observation::process_success(version)?;
+            if path.parent() != Some(std::path::Path::new(".chrono-harness/bin"))
+                || image.starts_with(root)
+                || !image.is_absolute()
+                || image.file_name() != path.file_name()
+                || version.executable != *image
+                || self.sha256.as_deref() != Some(version.sha256.as_str())
+                || version.argv != [image.to_string_lossy().as_ref(), "--version"]
+                || version.environment != process.environment
+                || version.cwd != process.cwd
+                || version.stdin_sha256 != sha256(b"")
+                || version.judge_version_process.is_some()
+                || !self.version_output_matches(name, version)
+            {
+                return Err("installed judge version receipt differs from binding".into());
+            }
+        } else if *image != root.join(path) {
+            return Err("judge executable receipt differs from binding".into());
+        }
+        Ok(image)
+    }
+}
+
+pub(crate) fn run_judge(
+    root: &std::path::Path,
+    binding: &Binding,
+    env: &BTreeMap<String, String>,
+    timeout: u64,
+    limit: usize,
+    args: Vec<String>,
+    stdin: &[u8],
+) -> Result<ProcessResult, TransportFailure> {
+    let hash = binding.required_digest()?;
+    let (target, installed) = judge_executable(root, binding)?;
+    let mut spec = CommandSpec {
+        program: target.to_str().ok_or("non UTF-8 executable")?.into(),
+        args,
+        env: env.clone(),
+        timeout_seconds: timeout,
+        output_limit_bytes: limit,
+    };
+    let version = if installed {
+        let args = std::mem::replace(&mut spec.args, vec!["--version".into()]);
+        let receipt = run_process_observed_detailed(root, &spec, &[], hash)?;
+        spec.args = args;
+        let name = target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or("judge executable filename")?;
+        if !binding.version_output_matches(name, &receipt) {
+            let failure = TransportFailure::from_process_error(
+                "installed judge version mismatch".into(),
+                &receipt,
+            );
+            return Err(failure.with_version_receipt(&receipt));
+        }
+        Some(Box::new(receipt))
+    } else {
+        None
+    };
+    let mut process = run_process_observed_detailed(root, &spec, stdin, hash).map_err(|error| {
+        let failure = TransportFailure::from(error);
+        match &version {
+            Some(receipt) => failure.with_version_receipt(receipt),
+            None => failure,
+        }
+    })?;
+    process.judge_version_process = version;
+    Ok(process)
+}
+
 pub fn validate_response(req: &Request, r: &Response, exit: i32) -> Result<(), String> {
     validate_response_at(
         &req.candidate.root,
@@ -574,7 +717,7 @@ pub enum TransportDiagnosticSchema {
     V1,
 }
 impl TransportFailure {
-    pub(crate) fn with_process(message: String, process: ProcessResult) -> Self {
+    fn from_process_error(message: String, process: &ProcessResult) -> Self {
         let mut failure = Self::from(message);
         if let Some(source) = &process.failure_cause {
             failure.error = Failure::wrap(
@@ -589,9 +732,18 @@ impl TransportFailure {
                 ReceivedError::from(record),
             );
         }
+        failure
+    }
+    pub(crate) fn with_process(message: String, process: ProcessResult) -> Self {
+        let mut failure = Self::from_process_error(message, &process);
         failure.process = Some(process);
         failure
     }
+    fn with_version_receipt(mut self, receipt: &ProcessResult) -> Self {
+        self.error = self.error.at("version_process", serde_json::json!(receipt));
+        self
+    }
+
     fn context(mut self, req: &Request) -> Self {
         self.error = self
             .error
@@ -659,28 +811,16 @@ fn invoke_bytes(
     if b.id != req.judge_id {
         return Err("E_PROTOCOL: binding identity".into());
     }
-    let hash = b
-        .sha256
-        .as_deref()
-        .filter(|v| is_digest(v))
-        .ok_or("E_PROTOCOL: missing executable digest")?;
-    let path = no_symlink_parents_detailed(&req.candidate.root, &b.executable)?;
-    let spec = CommandSpec {
-        program: path.to_str().ok_or("non UTF-8 executable")?.into(),
-        args: b
-            .argv
-            .iter()
-            .map(|arg| match arg.as_str() {
-                "{base}" => req.base.commit.clone(),
-                "{candidate}" => req.candidate.commit.clone(),
-                _ => arg.clone(),
-            })
-            .collect(),
-        env: env.clone(),
-        timeout_seconds: timeout,
-        output_limit_bytes: limit,
-    };
-    let p = run_process_observed_detailed(&req.candidate.root, &spec, stdin, hash)?;
+    let args = b
+        .argv
+        .iter()
+        .map(|arg| match arg.as_str() {
+            "{base}" => req.base.commit.clone(),
+            "{candidate}" => req.candidate.commit.clone(),
+            _ => arg.clone(),
+        })
+        .collect();
+    let p = run_judge(&req.candidate.root, b, env, timeout, limit, args, stdin)?;
     if let Some(message) = p.failure.clone() {
         return Err(TransportFailure::with_process(message, p));
     }

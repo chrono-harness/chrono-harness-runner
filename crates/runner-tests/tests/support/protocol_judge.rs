@@ -18,6 +18,10 @@ fn field<'a>(value: &'a Value, name: &str) -> &'a Value {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("judge fixture");
+        return;
+    }
     let case: Value = serde_json::from_slice(&std::fs::read("judge-case.json").unwrap()).unwrap();
     let kind = case["kind"].as_str().unwrap_or("response");
     if kind == "bound" {

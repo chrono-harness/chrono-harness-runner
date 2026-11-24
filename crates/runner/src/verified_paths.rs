@@ -9,6 +9,13 @@ use vstd::string::StringSliceAdditionalSpecFns;
 
 verus! {
 
+pub fn installed_judge_target(regular: bool, inside_checkout: bool, same_name: bool) -> (accepted: bool)
+    ensures accepted == (regular && !inside_checkout && same_name),
+{
+    regular && !inside_checkout && same_name
+}
+
+
 /// 只接受带末尾斜杠、分量非空且不含单独 . 或 .. 的声明，不归一化输入。
 pub open spec fn artifact_component_ok(path: Seq<u8>, i: int) -> bool {
     (i == 0 || path[i - 1] == 47) ==> path[i] != 47
