@@ -4110,3 +4110,46 @@ fn request_pointers_resolve_in_the_actual_protocol_request() {
         }
     }
 }
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn offline_consumers_resolve_findings_against_the_recorded_request() {
+    let case = value!({"fields":{"status":"warn","findings":[{
+        "code":"W_INPUT","level":"warning","message":"input observation",
+        "delta_refs":["/request/context"],"causes":[]
+    }]}});
+    let (_root, mut ordinary, binding) = fixture(case);
+    ordinary.observations = value!({"environment":{"effective":{}}});
+    let template = chrono_harness::full::judge_request(&ordinary, &binding, &[]).unwrap();
+    let bindings = std::slice::from_ref(&binding);
+    let (status, records) = chrono_harness::full::execute(
+        &template,
+        bindings,
+        &Default::default(),
+        FIXTURE_TIMEOUT_SECONDS,
+        8192,
+    )
+    .unwrap();
+    for (reference, expected) in [
+        ("/request/context", true),
+        ("/request/absent", false),
+        ("/~2", false),
+        ("not-in-delta", false),
+    ] {
+        let mut rows = records.clone();
+        let row = &mut rows[0];
+        row["response"]["findings"][0]["delta_refs"][0] = value!(reference);
+        let raw = serde_json::to_vec(&row["response"]).unwrap();
+        let mut process = chrono_harness::full::expand_process(&row["process"]).unwrap();
+        process["stdout"] = value!(String::from_utf8(raw.clone()).unwrap());
+        process["stdout_sha256"] = value!(sha256(&raw));
+        process["stdout_bytes"] = value!(raw);
+        row["process"] = process;
+        let audit = chrono_harness::full::validate_execution(&template, bindings, &status, &rows);
+        let collection =
+            chrono_harness::full::retained_judges(&template, bindings, &rows).map(|_| ());
+        for result in [audit, collection] {
+            assert_eq!(result.is_ok(), expected, "{reference}: {result:?}");
+        }
+    }
+}

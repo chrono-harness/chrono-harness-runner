@@ -655,22 +655,7 @@ pub(crate) fn validate_response_at(
         &r.findings,
         delta,
     )?;
-    // Only qualified references need a JSON view. A bare /request names the
-    // request itself, and the common successful response has no findings.
-    let document = std::cell::LazyCell::new(|| serde_json::to_value(request));
-    for reference in r.findings.iter().flat_map(|finding| &finding.delta_refs) {
-        if let Some(pointer) = reference
-            .strip_prefix("/request")
-            .filter(|p| p.starts_with('/'))
-        {
-            let value = document
-                .as_ref()
-                .map_err(|error| format!("E_PROTOCOL: request JSON: {error}"))?;
-            if value.pointer(pointer).is_none() {
-                return Err(format!("E_PROTOCOL: missing finding reference {reference}"));
-            }
-        }
-    }
+    validate_request_pointers(request, r)?;
     crate::verified_status::validate_response_evidence(
         Ok(()),
         (),
@@ -687,6 +672,38 @@ pub(crate) fn validate_response_at(
     )
     .1
 }
+fn validate_request_pointers(request: &impl Serialize, r: &Response) -> Result<(), String> {
+    // Only qualified references need a JSON view. A bare /request names the
+    // request itself, and the common successful response has no findings.
+    let document = std::cell::LazyCell::new(|| serde_json::to_value(request));
+    for reference in r.findings.iter().flat_map(|finding| &finding.delta_refs) {
+        if let Some(pointer) = reference
+            .strip_prefix("/request")
+            .filter(|p| p.starts_with('/'))
+        {
+            let value = document
+                .as_ref()
+                .map_err(|error| format!("E_PROTOCOL: request JSON: {error}"))?;
+            if value.pointer(pointer).is_none() {
+                return Err(format!("E_PROTOCOL: missing finding reference {reference}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Offline collection uses only the bound stdin and response. Evidence files
+/// can already have been removed from the original checkout.
+pub(crate) fn validate_recorded_findings(
+    request: &Request,
+    response: &Response,
+) -> Result<(), String> {
+    if !crate::verified_status::valid_response_findings(&response.findings, Some(&request.delta)) {
+        return Err("invalid finding".into());
+    }
+    validate_request_pointers(request, response)
+}
+
 #[derive(Debug)]
 pub struct TransportFailure {
     pub message: String,
