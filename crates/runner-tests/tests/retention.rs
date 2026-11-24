@@ -11271,6 +11271,42 @@ fn rooted_session_binds_independent_processes_and_releases_the_exact_original() 
             serde_json::from_str(&reply).unwrap()
         };
         let fact = |fact: Value| json!({"operation":"inventory","fact":fact});
+        let collection = |action: Value| json!({"operation":"publication","action":action});
+        std::fs::create_dir_all(root.join(".chrono-harness/state/fixtures")).unwrap();
+        let invalid = query(collection(
+            json!({"kind":"create","parent":".chrono-harness/state/fixtures","prefix":"inv-","producer":"fixture","consumer_prefix":"","outcome":null}),
+        ));
+        assert!(invalid.is_err());
+        let created=query(collection(json!({"kind":"create","parent":".chrono-harness/state/fixtures","prefix":"inv-","producer":"fixture","consumer_prefix":"publication-recheck","outcome":null}))).unwrap();
+        assert_eq!(created["adopted"], true);
+        let directory = created["path"].as_str().unwrap();
+        assert!(
+            query(collection(
+                json!({"kind":"create-member","path":directory,"name":"../outside"})
+            ))
+            .is_err()
+        );
+        query(collection(
+            json!({"kind":"create-member","path":directory,"name":"first"}),
+        ))
+        .unwrap();
+        let target = query(collection(
+            json!({"kind":"reserve-write","path":directory,"name":"first/data","length":1}),
+        ))
+        .unwrap();
+        std::fs::write(target.as_str().unwrap(), [0xff]).unwrap();
+        query(collection(
+            json!({"kind":"complete","seal":true,"path":directory,"outcome":{"status":"finished"}}),
+        ))
+        .unwrap();
+        let member = format!("{directory}/first/data");
+        assert_eq!(query(fact(json!({"action":"member","producer":"fixture","path":directory,"member":member,"sha256":chrono_harness::sha256(&[0xff]),"length":1}))).unwrap(), true);
+        assert!(
+            query(collection(
+                json!({"kind":"create-member","path":directory,"name":"late"})
+            ))
+            .is_err()
+        );
         let begun = query(json!({"operation":"begin-directory","producer":"fixture","path":path,"reference":"reader","intent":{"dispatch":true},"rooted":true})).unwrap();
         let id = begun["id"].as_str().unwrap();
         assert_eq!(

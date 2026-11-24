@@ -22,6 +22,7 @@ bootstrap 通过 `retained-artifacts-v1` 中的 `publication` 操作创建或接
 
 `chrono-harness retained-artifacts-v1` 为外部生产者在当前仓库保持一次读取作用域。每行一个 JSON 请求，回复一行 `Ok` 或 `Err`。涉及创建暂存、写原件、依赖登记、读取与消费者保管的操作使用宿主已有 retention 策略。读取能力持续到调用方关闭 stdin；durable consumer 由后续的实际使用方通过原有 retention 命令释放。
 CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请求并取得保留目录，使用 `retain-original-text` 按内容登记 UTF-8 原件。`identify-original` 和 `verify-original` 分别取得及核对路径与摘要。`validate-preparation-result` 核对返回结果、所用请求与实际原件。
+同一会话可以在创建 publication 时传入 `consumer_prefix`，将待复核的消费者与目录一起登记。`create-member` 在该目录的配额内建子目录；`complete` 的 `seal: true` 核对及封存最后的成员身份。
 
 
 ## 使用
@@ -69,7 +70,7 @@ The local checkout must match the candidate. The report and operation streams ar
 
 CI 提供者用 `git-facts-v1` 的 `config` 模式打开登记的 Git 配置。它可以验证配置与提交的一致性（`verify-config`），读取 HEAD、父提交、原始文件及差异路径，按完整提交 ID 从 origin 获取已登记历史。所有原执行记录通过同一会话的 `observation` 返回。设置 `observe_failure:true` 时，打开失败也返回原始 Git 观察。
 
-公开的 Git 会话也接受 `verify-commit` 和 `ancestors`（参数 `commit` 为完整 OID）、`check-branch-name`（参数 `branch`）及 `shallow-boundaries`。已封存请求内的读取使用同一个宿主绑定的 Git 进程记录。只检查调用方给出的分支上下文时，可以用 `{"mode":"history"}` 打开无配置的历史读取会话。
+公开的 Git 会话也接受 `verify-commit` 和 `ancestors`（参数 `commit` 为完整 OID）、`check-branch-name`（参数 `branch`）及 `shallow-boundaries`。已封存请求内的读取使用同一个宿主绑定的 Git 进程记录。只检查调用方给出的分支上下文时，可以用 `{"mode":"history"}` 打开无配置的历史读取会话。历史调度可用同一会话的 `blob-bytes` 读取完整提交 ID 与仓内相对路径指定的 Git 原字节。
 
 `chrono-harness judge-evidence-v1` 读取逐行 JSON 并逐行回复 `{"Ok":值}` 或 `{"Err":"错误"}`。workflow 通过 `expand-record`、`check-process`、`report-transport-bytes` 和 `retained-judges` 重放 runner 报告。`retained-judges` 校验封存的原请求、登记顺序、每个实际进程的原始流与响应，返回所选判官的输入请求和汇总状态。协议还提供严格 JSON 解码（`decode-json`）、原请求校验（`validate-request`）和按选择计算执行单元（`required-units`）。`retained-artifacts-v1` 的 `checked-path` 核对已登记相对路径的符号链接，读取租约仍由同一保管会话持有至 EOF。
 
@@ -84,3 +85,5 @@ CI 提供者用 `git-facts-v1` 的 `config` 模式打开登记的 Git 配置。�
 `compiler-output-v1` 的 `canonical` 操作返回参数是否对应登记的编译器输出；`observe` 在原工作目录读取声明的依赖文件并核对库的实际 SHA-256 与长度，在进程失败时保留原始判断结果。
 
 runner 的生产和专属测试项目可分别用各自的 Cargo manifest 和 lock 构建。使用宿主日志时，在 PATH 中安装本仓清单固定的 chrono-diagnostics。它通过 cli-events-v1 写入宿主选择的滚动文件，接收真实进程的 PID、span、退出状态和诊断。原生输出发布失败时，runner 把同一个 Rust I/O 错误留给调用方，并将错误记录送到 diagnostics 的显式 stderr 输出接口。
+
+登记判官通过 `compiler-output-v1` 的 `source-declarations` 操作提交带有验证声明的文件、已登记操作及引用路径（`files`、`operations`、`reference_paths`）。runner 校验每项声明及证明根所用操作，并按输入顺序返回每条引用路径的规范性布尔值。无效声明返回原文件名和错误。
