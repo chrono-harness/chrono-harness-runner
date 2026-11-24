@@ -7,6 +7,8 @@ trap 'rm -rf -- "$scratch"' EXIT
 export TMPDIR="$scratch"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 cargo fmt --check --manifest-path crates/test-process/Cargo.toml
+# This support crate also has its own independently consumed lockfile.
+cargo tree --locked --manifest-path crates/test-process/Cargo.toml --depth 0 >/dev/null
 cargo fmt --check --manifest-path crates/runner/Cargo.toml
 cargo fmt --check --manifest-path crates/runner-tests/Cargo.toml
 cargo build --locked --manifest-path crates/runner/Cargo.toml
