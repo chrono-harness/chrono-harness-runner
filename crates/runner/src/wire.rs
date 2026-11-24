@@ -629,6 +629,7 @@ pub fn validate_response(req: &Request, r: &Response, exit: i32) -> Result<(), S
         r,
         exit,
         Some(&req.delta),
+        req,
     )
 }
 /// Shared response contract; the request protocol owns admissible finding references.
@@ -640,8 +641,9 @@ pub(crate) fn validate_response_at(
     r: &Response,
     exit: i32,
     delta: Option<&[Delta]>,
+    request: &impl Serialize,
 ) -> Result<(), String> {
-    let header = crate::verified_status::validate_response_fields(
+    crate::verified_status::validate_response_fields(
         &r.protocol,
         &r.request_id,
         &r.judge_id,
@@ -652,9 +654,25 @@ pub(crate) fn validate_response_at(
         judge_id,
         &r.findings,
         delta,
-    );
+    )?;
+    // Only qualified references need a JSON view. A bare /request names the
+    // request itself, and the common successful response has no findings.
+    let document = std::cell::LazyCell::new(|| serde_json::to_value(request));
+    for reference in r.findings.iter().flat_map(|finding| &finding.delta_refs) {
+        if let Some(pointer) = reference
+            .strip_prefix("/request")
+            .filter(|p| p.starts_with('/'))
+        {
+            let value = document
+                .as_ref()
+                .map_err(|error| format!("E_PROTOCOL: request JSON: {error}"))?;
+            if value.pointer(pointer).is_none() {
+                return Err(format!("E_PROTOCOL: missing finding reference {reference}"));
+            }
+        }
+    }
     crate::verified_status::validate_response_evidence(
-        header,
+        Ok(()),
         (),
         &r.evidence,
         |(), path| ((), no_symlink_parents(root, path)),

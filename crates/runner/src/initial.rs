@@ -145,6 +145,7 @@ pub fn invoke(
             &r,
             p.exit_code,
             None,
+            req,
         )?;
         Ok(r)
     });
