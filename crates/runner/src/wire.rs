@@ -677,32 +677,14 @@ fn validate_request_pointers(request: &impl Serialize, r: &Response) -> Result<(
     let document = std::cell::LazyCell::new(|| serde_json::to_value(request));
     let mut registry = None;
     for reference in r.findings.iter().flat_map(|finding| &finding.delta_refs) {
-        let Some(tokens) = reference.strip_prefix('/') else {
-            continue; // The verified field check already matched the exact DELTA path.
-        };
-        let root = tokens.split('/').next().unwrap_or_default();
-        let pointer = match root {
-            "request" if reference == "/request" => continue,
-            "request" => &reference["/request".len()..],
-            _ if crate::finding_registry::owns(root) => {
-                let value = document
-                    .as_ref()
-                    .map_err(|e| format!("E_PROTOCOL: request JSON: {e}"))?;
-                registry
-                    .get_or_insert_with(|| crate::finding_registry::Resolver::new(value))
-                    .check(reference)
-                    .map_err(|e| {
-                        format!("E_PROTOCOL: invalid finding reference {reference}: {e}")
-                    })?;
-                continue;
-            }
-            _ => reference.as_str(),
-        };
-        let value = document
-            .as_ref()
-            .map_err(|error| format!("E_PROTOCOL: request JSON: {error}"))?;
-        if value.pointer(pointer).is_none() {
-            return Err(format!("E_PROTOCOL: missing finding reference {reference}"));
+        if reference.starts_with('/') {
+            let value = document
+                .as_ref()
+                .map_err(|e| format!("E_PROTOCOL: request JSON: {e}"))?;
+            registry
+                .get_or_insert_with(|| crate::finding_registry::Resolver::new(value))
+                .check(reference)
+                .map_err(|e| format!("E_PROTOCOL: invalid finding reference {reference}: {e}"))?;
         }
     }
     Ok(())

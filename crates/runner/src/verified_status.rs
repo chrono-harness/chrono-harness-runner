@@ -4928,6 +4928,77 @@ pub fn valid_finding_fields(finding: &Finding) -> (valid: bool)
 }
 
 #[verifier::inline]
+/// Owner of one syntactically admitted JSON reference. The Git reader and the
+/// JSON pointer implementation supply the underlying document observations.
+pub enum FindingOwner<'a> {
+    Request(&'a str),
+    RegistryIdentity,
+    Document { endpoint: &'a str, role: &'a str, pointer: &'a str },
+    Unknown,
+}
+
+pub open spec fn finding_role_name(s: Seq<char>) -> bool {
+    s == "config"@ || s == "filemap"@ || s == "projects"@ || s == "judges"@ || s == "workflow"@
+}
+fn is_finding_role(s: &str) -> (out: bool)
+    ensures out == finding_role_name(s@),
+{
+    identifiers::equal_text(s,"config") || identifiers::equal_text(s,"filemap")
+        || identifiers::equal_text(s,"projects") || identifiers::equal_text(s,"judges")
+        || identifiers::equal_text(s,"workflow")
+}
+
+pub open spec fn finding_owner_spec<'a>(
+    reference: &'a str, root: (&'a str, &'a str), child: (&'a str, &'a str),
+    record: (&'a str, &'a str), initial: bool, direct_member: bool,
+) -> FindingOwner<'a> {
+    if root.0@ == "request"@ { FindingOwner::Request(root.1) }
+    else if finding_role_name(root.0@) {
+        FindingOwner::Document { endpoint: "candidate", role: root.0, pointer: root.1 }
+    } else if root.0@ != "registries"@ {
+        if direct_member { FindingOwner::Request(reference) } else { FindingOwner::Unknown }
+    } else if root.1@ == ""@ { FindingOwner::RegistryIdentity }
+    else if finding_role_name(child.0@) {
+        FindingOwner::Document { endpoint: "candidate", role: child.0, pointer: child.1 }
+    } else if child.1@ == ""@ {
+        if direct_member && (child.0@ == "base"@ || child.0@ == "candidate"@ || child.0@ == "digest"@) {
+            FindingOwner::Request(reference)
+        } else { FindingOwner::Unknown }
+    } else if finding_role_name(record.0@) && (child.0@ == "candidate"@ || (!initial && child.0@ == "base"@)) {
+        FindingOwner::Document { endpoint: child.0, role: record.0, pointer: record.1 }
+    } else { FindingOwner::Unknown }
+}
+
+pub fn finding_owner<'a>(
+    reference: &'a str, root: (&'a str, &'a str), child: (&'a str, &'a str),
+    record: (&'a str, &'a str), initial: bool, direct_member: bool,
+) -> (out: FindingOwner<'a>)
+    ensures out == finding_owner_spec(reference,root,child,record,initial,direct_member),
+{
+    use FindingOwner::*;
+    if identifiers::equal_text(root.0, "request") { return Request(root.1); }
+    if is_finding_role(root.0) {
+        return Document { endpoint: "candidate", role: root.0, pointer: root.1 };
+    }
+    if !identifiers::equal_text(root.0,"registries") {
+        return if direct_member { Request(reference) } else { Unknown };
+    }
+    if identifiers::equal_text(root.1,"") { return RegistryIdentity; }
+    if is_finding_role(child.0) {
+        return Document { endpoint: "candidate", role: child.0, pointer: child.1 };
+    }
+    let base = identifiers::equal_text(child.0,"base");
+    let candidate = identifiers::equal_text(child.0,"candidate");
+    if identifiers::equal_text(child.1,"") {
+        return if direct_member && (base || candidate || identifiers::equal_text(child.0,"digest")) {
+            Request(reference)
+        } else { Unknown };
+    }
+    if (candidate || (base && !initial)) && is_finding_role(record.0) {
+        Document { endpoint: child.0, role: record.0, pointer: record.1 }
+    } else { Unknown }
+}
+
 pub open spec fn record_reference(reference: Seq<char>) -> bool {
     let bytes = vstd::utf8::encode_utf8(reference);
     bytes.len() > 0 && bytes[0] == 47

@@ -3,15 +3,9 @@ use crate::{facts, full};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-const ROLES: [&str; 5] = ["config", "filemap", "projects", "judges", "workflow"];
-
 fn component(path: &str) -> (&str, &str) {
     path.split_once('/')
         .map_or((path, ""), |(head, _)| (head, &path[head.len()..]))
-}
-
-pub(crate) fn owns(root: &str) -> bool {
-    root == "registries" || ROLES.contains(&root)
 }
 
 pub(crate) struct Resolver<'a> {
@@ -32,47 +26,43 @@ impl<'a> Resolver<'a> {
     }
 
     pub(crate) fn check(&mut self, reference: &str) -> Result<(), String> {
-        let (mut role, mut pointer) = component(reference.strip_prefix('/').ok_or("record root")?);
-        let mut end = "candidate";
-        if role == "registries" {
-            if pointer.is_empty() {
-                // This is the protocol registry identity, also available before decoding its files.
-                return if self.request["registries"].is_object()
-                    || self.request["registry_digest"].is_string()
-                {
-                    Ok(())
-                } else {
-                    Err("registry identity unavailable".into())
-                };
-            }
-            (role, pointer) = component(&pointer[1..]);
-            if pointer.is_empty() && matches!(role, "base" | "candidate" | "digest") {
-                return self.request["registries"]
-                    .get(role)
-                    .map(|_| ())
-                    .ok_or_else(|| "registry identity field unavailable".into());
-            }
-            if matches!(role, "base" | "candidate") {
-                end = role;
-                (role, pointer) = component(
-                    pointer
-                        .strip_prefix('/')
-                        .ok_or("registry role is missing")?,
-                );
-            }
-        }
-        if !ROLES.contains(&role) {
-            return Err("unknown registry role".into());
-        }
+        use crate::verified_status::{FindingOwner, finding_owner};
+        let root = component(reference.strip_prefix('/').ok_or("record root")?);
+        let child = component(root.1.strip_prefix('/').unwrap_or(""));
+        let record = component(child.1.strip_prefix('/').unwrap_or(""));
+        let initial = self.request["protocol"] == crate::initial::PROTOCOL;
+        let direct_member = self.request.pointer(reference).is_some();
+        let (end, role, pointer) =
+            match finding_owner(reference, root, child, record, initial, direct_member) {
+                FindingOwner::Request(pointer) => {
+                    return self
+                        .request
+                        .pointer(pointer)
+                        .map(|_| ())
+                        .ok_or_else(|| "request field unavailable".into());
+                }
+                FindingOwner::RegistryIdentity => {
+                    return if self.request["registries"].is_object()
+                        || self.request["registry_digest"].is_string()
+                    {
+                        Ok(())
+                    } else {
+                        Err("registry identity unavailable".into())
+                    };
+                }
+                FindingOwner::Document {
+                    endpoint,
+                    role,
+                    pointer,
+                } => (endpoint, role, pointer),
+                FindingOwner::Unknown => return Err("finding reference has no owner".into()),
+            };
         let request = self.request;
         let oid = request[end]["commit"]
             .as_str()
             .ok_or("registry endpoint unavailable")?;
         let obs = &request["observations"];
-        let binding = if request["protocol"] == crate::initial::PROTOCOL {
-            if end != "candidate" {
-                return Err("inventory has no base registry".into());
-            }
+        let binding = if initial {
             &obs["registry_binding"]
         } else {
             &obs["registry_bindings"][end]
