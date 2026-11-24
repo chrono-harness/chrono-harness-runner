@@ -5,5 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
-chrono-harness = { path = "../runner" }
-tempfile = "3"
+chrono-harness.workspace = true
+tempfile.workspace = true

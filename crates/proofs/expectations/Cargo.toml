@@ -1,0 +1,89 @@
+[package]
+name = "chrono-runner-proof-expectations"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[package.metadata.verus]
+verify = true
+
+[dependencies]
+chrono-identifiers.workspace = true
+chrono-verifier.workspace = true
+verus_builtin_macros.workspace = true
+vstd.workspace = true
+
+[[example]]
+name = "identifiers_tests"
+path = "../../runner-tests/tests/verified_identifiers.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "verifier_tests"
+path = "../../runner-tests/tests/verified_verifier.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_paths"
+path = "../../runner/src/verified_paths.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_status"
+path = "../../runner/src/verified_status.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_limits"
+path = "../../runner/src/verified_limits.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "retention_release"
+path = "../../runner/src/retained_artifacts/verified_release.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_git_binding"
+path = "../../runner/src/verified_git_binding.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_cli"
+path = "../../runner/src/verified_cli.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_paths_tests"
+path = "../../runner-tests/tests/verified_paths.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_fixture_tests"
+path = "../../runner-tests/tests/verified_fixture.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_status_tests"
+path = "../../runner-tests/tests/verified_status.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_limits_tests"
+path = "../../runner-tests/tests/verified_limits.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "retention_release_tests"
+path = "../../runner-tests/tests/verified_release.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_git_binding_tests"
+path = "../../runner-tests/tests/verified_git_binding.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_cli_tests"
+path = "../../runner-tests/tests/verified_cli.rs"
+crate-type = ["lib"]

@@ -108,7 +108,7 @@ pub mod verified_cli;
 #[cfg(not(verus_keep_ghost))]
 pub mod verified_git_binding;
 #[cfg(not(verus_keep_ghost))]
-pub mod verified_identifiers;
+pub use chrono_identifiers as verified_identifiers;
 #[cfg(not(verus_keep_ghost))]
 pub mod verified_limits;
 #[cfg(not(verus_keep_ghost))]
@@ -119,7 +119,18 @@ pub mod verified_release;
 #[cfg(not(verus_keep_ghost))]
 pub mod verified_status;
 #[cfg(not(verus_keep_ghost))]
-pub mod verified_verifier;
+pub mod verified_verifier {
+    pub use chrono_verifier::*;
+    pub mod sources {
+        pub use chrono_verifier::sources::*;
+        pub mod continuity {
+            pub use crate::source_endpoints::{FixedRead, observe, observe_endpoint};
+            pub use chrono_verifier::sources::continuity::*;
+        }
+    }
+}
+#[cfg(not(verus_keep_ghost))]
+mod source_endpoints;
 #[cfg(not(verus_keep_ghost))]
 pub use verified_status::{CheckResult, Status};
 #[cfg(not(verus_keep_ghost))]

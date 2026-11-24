@@ -1,8 +1,7 @@
 //! 实际身份实现的边界证明。
 #![allow(unexpected_cfgs)]
 #[cfg(verus_keep_ghost)]
-#[path = "../../runner/src/verified_identifiers.rs"]
-mod policy;
+extern crate chrono_identifiers as policy;
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::verified_identifiers as policy;
 #[cfg(not(verus_keep_ghost))]

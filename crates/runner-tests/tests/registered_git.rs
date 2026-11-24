@@ -493,6 +493,7 @@ fn invalid_git_references_fail_before_version_or_objects() {
         "null",
         "missing-tool",
         "duplicate-tool",
+        "unknown-link-field",
         "absent-input",
         "different-location",
         "redirect",
@@ -507,6 +508,7 @@ fn invalid_git_references_fail_before_version_or_objects() {
                 let row = cfg["tools"][0].clone();
                 cfg["tools"].as_array_mut().unwrap().push(row);
             }
+            "unknown-link-field" => cfg["facts_git"]["extra"] = json!(true),
             "absent-input" => cfg["environment"]["inputs"][0]["presence"] = json!("absent"),
             "different-location" => cfg["environment"]["inputs"][0]["location"] = json!(other),
             _ => cfg["environment"]["values"]["GIT_INDEX_FILE"] = json!("/tmp/unrelated-index"),

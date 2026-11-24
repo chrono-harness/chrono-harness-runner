@@ -29,11 +29,27 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 
 ## 使用
 
-在仓库根运行 `cargo build --locked --manifest-path crates/runner/Cargo.toml`，再运行 `crates/runner/target/debug/chrono-harness --help`。日志和报告的位置由调用宿主选择。
+在仓库根运行 `cargo build --locked --package chrono-harness`，再运行 `target/debug/chrono-harness --help`。日志和报告的位置由调用宿主选择。
 
 ## 验证
 
-`VERUS=/path/to/verus ./check.sh` 执行格式检查、锁定构建、测试及 Verus 验证。Rust 使用 1.95.0；Verus 使用 0.2026.04.24.f8e1704。标识符的生产实现和边界用例由 runner 维护。Verus 从本仓的 `verified_identifiers.rs` 生成证明元数据，其他证明根按需导入。
+在仓库根运行 `mise exec -- ./check.sh` 执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。编译器在新的临时 target 内按 Cargo 包依赖产生和读取证明元数据，检查结束后回收。
+
+[本仓 Cargo 工作区](Cargo.toml) 使用一份根 Cargo.lock 管理 runner、测试、进程替身及三个证明包。证明包登记 `chrono-identifiers`、`chrono-verifier` 及其余各根对应的 Cargo 库目标。生产 runner、Cargo 的原生测试及 Verus 均使用这两个包的同一份源码。runner 保留从固定 Git 端点取数的适配器；验证器包负责根据已经观察到的数据作判断。
+
+| 证明根 | 真实使用方与边界 |
+| --- | --- |
+| `chrono_identifiers`、`identifiers_tests` | runner 解码提交 OID、请求头、状态路径及摘要；验证器以相同依赖判断文本与字节身份 |
+| `chrono_verifier`、`verifier_tests` | `compiler-output-v1` 接纳版本、commit、整根报告和编译原件；验证器测试还覆盖固定源连续性和候选判定 |
+| `runner_paths`、`runner_paths_tests` | 发布、保留和输出路径的准入，逐段处理路径、符号链接及发布错误 |
+| `runner_status`、`runner_status_tests` | 判官响应、固定 Git 事实与运行状态；状态解释使用实际读到的端点和结果 |
+| `runner_limits`、`runner_limits_tests` | 执行计划的正超时、输出量下界和上界 |
+| `retention_release`、`retention_release_tests` | 保管对象的选择、取得及释放，外部文件系统的观察与操作由适配层执行 |
+| `runner_git_binding`、`runner_git_binding_tests` | Git 工具及登记绑定，拒绝无效版本、选择器或输入边 |
+| `runner_cli`、`runner_cli_tests` | CLI 选择、参数解码、判官请求和输出；发布失败会保留产生它的写入或 flush 阶段 |
+| `runner_fixture_tests` | 原生测试的进程替身与输入预期，由测试框架使用 |
+
+每个整根的实际输入见 [Cargo 目标](crates/proofs/expectations/Cargo.toml) 和 [检查入口](check.sh)。原生测试核对换用系统接口后可观察的业务结果，Verus 的结论依赖所登记的工具、编译器和外部模型。
 
 运行库与测试从 [原实现的固定提交](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/runner) 分出。旧宿主的登记表检查由新的采用宿主负责。工作树、CI 生成器及安装器各自负责其命令替身的断言。
 
@@ -45,7 +61,7 @@ chrono-harness check --config .chrono-harness/check.json --base "$base_oid" --ca
 
 The local checkout must match the candidate. The report and operation streams are written to `.chrono-harness/state/`.
 
-预览版从已合入 dev 的提交打标签，正式版从 main 发布。每个版本在本仓构建 Linux x86_64 和 macOS arm64 的单个 `chrono-harness` 二进制，并附 SHA256SUMS。下载所需标签的二进制和校验文件，验算目标平台的 SHA-256 后将它安装为 `chrono-harness`。升级或回退时按同样方式替换该程序。当前源码构建仍使用 Cargo.lock 中固定的 diagnostics 修订。
+预览版从已合入 dev 的提交打标签，正式版从 main 发布。每个版本在本仓构建 Linux x86_64 和 macOS arm64 的单个 `chrono-harness` 二进制，并附 SHA256SUMS。下载所需标签的二进制和校验文件，验算目标平台的 SHA-256 后将它安装为 `chrono-harness`。升级或回退时按同样方式替换该程序。宿主启用运行日志时，runner 通过已安装的 chrono-diagnostics 命令写入日志。
 
 已安装的外部判官可将协议处理交给 `chrono-harness judge-pipeline NAME VERSION PRODUCER OPERATION EVALUATOR OPERATION --protocol chrono-judge/v1`。runner 在已登记的限额与环境下，向输入生产者发送封存请求。生产者返回请求 ID、观察到的输出以及准备好的 JSON 或原错误。求值程序只读取该 JSON，返回状态、findings 与 outputs。两个程序均通过标准输入输出通信，响应共享请求身份，重复输出键会报错。
 
@@ -97,7 +113,7 @@ CI 提供者用 `git-facts-v1` 的 `config` 模式打开登记的 Git 配置。�
 
 `compiler-output-v1` 的 `canonical` 操作返回参数是否对应登记的编译器输出；`observe` 在原工作目录读取声明的依赖文件并核对库的实际 SHA-256 与长度，在进程失败时保留原始判断结果。
 
-runner 的生产和专属测试项目可分别用各自的 Cargo manifest 和 lock 构建。使用宿主日志时，在 PATH 中安装本仓清单固定的 chrono-diagnostics。它通过 cli-events-v1 写入宿主选择的滚动文件，接收真实进程的 PID、span、退出状态和诊断。原生输出发布失败时，runner 把同一个 Rust I/O 错误留给调用方，并将错误记录送到 diagnostics 的显式 stderr 输出接口。
+runner 的生产和专属测试包各有 Cargo manifest，构建时读取仓库根目录的 Cargo.lock。使用宿主日志时，在 PATH 中安装本仓清单固定的 chrono-diagnostics。它通过 cli-events-v1 写入宿主选择的滚动文件，接收真实进程的 PID、span、退出状态和诊断。原生输出发布失败时，runner 把同一个 Rust I/O 错误留给调用方，并将错误记录送到 diagnostics 的显式 stderr 输出接口。
 
 CI 判官通过同一 `git-facts-v1` 进程读取两个固定提交的原件。开场 `{"mode":"scoped","config":null,"base":null,"candidate":"完整 OID"}` 使用普通 Git。登记了 Git 观察时提供 `config`，打开失败会返回原观察。需要为收集准备请求时，使用 `prepared-collection`，提供 `config`、`base`、`candidate`、`context`、`scope` 和目标 `judge`。回复同时包含封存的 `request`、选定的 `config` 和读取绑定 `bound`。后续 `tree-entries` 返回指定端点每个路径的 mode、kind、OID，`registry-at` 按给定登记路径返回原文和有效配置，`blob-batch` 按输入路径顺序返回原始字节。所有这些读取都记入该进程的 `observation`。
 

@@ -20,7 +20,7 @@ jobs:
         with:
           version: 2026.11.12
           cache: false
-          install_args: http:chrono-harness http:chrono-judge-ci http:verus http:chrono-test-git http:chrono-test-git-profile
+          install_args: http:chrono-harness http:chrono-host-bootstrap http:chrono-judge-ci http:verus http:chrono-test-git http:chrono-test-git-profile
       - name: Check this change with the released and candidate harness
         shell: bash
         env:
