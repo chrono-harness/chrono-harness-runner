@@ -137,6 +137,44 @@ fn command_stream_preserves_raw_outputs_and_checks_the_original_executable_when_
 }
 
 #[test]
+fn command_record_requires_identity_and_preserves_the_original_after_failure() {
+    use chrono_harness::command_stream::serve_record;
+    use serde_json::{Value, json};
+    let mut header =
+        json!({"program":"decoder","args":[],"env":{},"timeout_seconds":3,"output_limit_bytes":64});
+    let encode = |h: &Value| {
+        let mut request = serde_json::to_vec(h).unwrap();
+        request.extend_from_slice(b"\n\x00\xff");
+        request
+    };
+    let mut output = Vec::new();
+    assert!(
+        serve_record(&encode(&header)[..], &mut output, |_, _, _| panic!(
+            "unbound command ran"
+        ))
+        .unwrap_err()
+        .contains("expected_sha256")
+    );
+    assert!(output.is_empty());
+    let digest = "ab".repeat(32);
+    header["expected_sha256"] = json!(digest);
+    let original = json!({"argv":["decoder"], "cwd":"/work", "environment":{}, "environment_digest":"env",
+        "stdin_sha256":"in", "stdout_bytes":[255], "stderr_bytes":[0], "stdout_complete":false,
+        "stderr_complete":true, "stdout_sha256":"out", "stderr_sha256":"err", "failure":"timeout",
+        "exit_code":137, "owned_work_joined":true,"exit_signal":9,"stdout":"�","stderr":"\0",
+        "executable":"/bin/decoder","sha256":digest,"launcher_pid":45,"child_pid":46,
+        "launch_original":{"selected":"decoder"}});
+    serve_record(&encode(&header)[..], &mut output, |spec, input, bound| {
+        assert_eq!(spec.program, "decoder");
+        assert_eq!(input, [0, 255]);
+        assert_eq!(bound, digest);
+        serde_json::from_value(original.clone()).map_err(|e| e.to_string())
+    })
+    .unwrap();
+    assert_eq!(serde_json::from_slice::<Value>(&output).unwrap(), original);
+}
+
+#[test]
 fn public_compiler_query_preserves_owner_paths_and_rejects_missing_originals() {
     use chrono_harness::route_evidence::serve;
     use serde_json::{Value, json};
