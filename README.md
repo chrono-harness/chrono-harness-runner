@@ -92,3 +92,5 @@ CI 判官通过同一 `git-facts-v1` 进程读取两个固定提交的原件。�
 登记判官通过 `compiler-output-v1` 的 `source-declarations` 操作提交带有验证声明的文件、已登记操作及引用路径（`files`、`operations`、`reference_paths`）。runner 校验每项声明及证明根所用操作，并按输入顺序返回每条引用路径的规范性布尔值。无效声明返回原文件名和错误。
 
 工作树参与本地完整检查时，`check-invocation-v1` 接受 `{"mode":"local-preparation","request":...}`，按 runner 的当前合同核对输入、选定 profile 和原件绑定并返回 `null`。`{"mode":"participation","config":...}` 返回配置中登记的工作树参与动作或 `null`。两者均为可选的 runner 检查集成。
+
+CI 的编译器输出由固定候选的 `git-facts-v1` 会话核验。候选 `tree-entries` 传入 `retain_output_modes=true` 为本次核验保留原文件模式，`prepare-output-binding` 登记本次计划的方法和 FILEMAP，`bind-operation-output` 逐操作核对原参数、进程终态和适用的编译报告、库及候选源码。被阻断的操作和通过的普通操作都返回 JSON null，原错误通过同一会话返回。

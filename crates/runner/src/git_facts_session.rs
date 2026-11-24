@@ -1,4 +1,6 @@
 //! Invocation-scoped JSON lines connection to one policy-bound Git reader.
+#[path = "git_facts_output.rs"]
+mod output;
 use crate::{facts, wire};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -52,6 +54,15 @@ enum Endpoint {
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
+    PrepareOutputBinding {
+        methods: Vec<output::Method>,
+        registry: Value,
+    },
+    BindOperationOutput {
+        state: String,
+        operation: String,
+        original: Option<output::Original>,
+    },
     VerifyTree {
         endpoint: Endpoint,
     },
@@ -70,6 +81,8 @@ enum Operation {
     CandidateInventory,
     TreeEntries {
         endpoint: Endpoint,
+        #[serde(default)]
+        retain_output_modes: bool,
     },
     RegistryAt {
         endpoint: Endpoint,
@@ -135,6 +148,8 @@ struct Session {
     base: Option<String>,
     candidate: String,
     reader: facts::Reader,
+    candidate_modes: Option<BTreeMap<String, String>>,
+    output_binding: Option<output::Binding>,
     collection: Option<(
         crate::retained_artifacts::retention::ReadScope,
         Option<tempfile::TempDir>,
@@ -259,6 +274,8 @@ impl Session {
                 base,
                 candidate,
                 reader,
+                candidate_modes: None,
+                output_binding: None,
                 collection,
             },
             header,
@@ -304,7 +321,7 @@ impl Session {
             json!({"values":snap.values,"originals":originals,"effective_path":snap.effective_path,"selection":snap.selection}),
         )
     }
-    fn execute(&self, op: Operation) -> Result<Value, String> {
+    fn execute(&mut self, op: Operation) -> Result<Value, String> {
         if self.candidate.is_empty()
             && !matches!(
                 op,
@@ -319,8 +336,51 @@ impl Session {
             return Err("E_PROTOCOL: no configured history endpoints".into());
         }
         match op {
-            Operation::TreeEntries { endpoint } => {
+            Operation::PrepareOutputBinding { methods, registry } => {
+                self.output_binding = Some(output::Binding::new(methods, registry));
+                Ok(Value::Null)
+            }
+            Operation::BindOperationOutput {
+                state,
+                operation,
+                original,
+            } => {
+                let binding = self
+                    .output_binding
+                    .as_ref()
+                    .ok_or("E_PROTOCOL: no registered CI output binding")?;
+                let modes = self
+                    .candidate_modes
+                    .as_ref()
+                    .ok_or("E_PROTOCOL: output binding requires candidate tree-entries")?;
+                binding.check(
+                    &state,
+                    &operation,
+                    original,
+                    &output::Candidate {
+                        reader: &self.reader,
+                        root: &self.root,
+                        commit: &self.candidate,
+                        modes,
+                    },
+                )?;
+                Ok(Value::Null)
+            }
+            Operation::TreeEntries {
+                endpoint,
+                retain_output_modes,
+            } => {
+                if retain_output_modes && !matches!(endpoint, Endpoint::Candidate) {
+                    return Err("E_PROTOCOL: output binding requires the candidate endpoint".into());
+                }
                 let tree = self.reader.tree(&self.root, self.commit(endpoint)?)?;
+                if retain_output_modes {
+                    self.candidate_modes = Some(
+                        tree.iter()
+                            .map(|(path, entry)| (path.text.clone(), entry.mode.clone()))
+                            .collect(),
+                    );
+                }
                 let entries: BTreeMap<_, _> = tree
                     .into_iter()
                     .map(|(path, entry)| {
@@ -511,10 +571,11 @@ fn reply(output: &mut impl Write, result: Result<Value, String>) -> Result<(), S
 }
 pub fn serve(cwd: &Path, mut input: impl BufRead, mut out: impl Write) -> Result<(), String> {
     let first = frame(&mut input)?.ok_or("E_PROTOCOL: missing Git facts session header")?;
-    let (session, header) = match crate::decode(&first).and_then(|open| Session::open(cwd, open)) {
-        Ok(session) => session,
-        Err(error) => return reply(&mut out, Err(error)),
-    };
+    let (mut session, header) =
+        match crate::decode(&first).and_then(|open| Session::open(cwd, open)) {
+            Ok(session) => session,
+            Err(error) => return reply(&mut out, Err(error)),
+        };
     reply(&mut out, Ok(header))?;
     while let Some(line) = frame(&mut input)? {
         let result = crate::decode(&line).and_then(|op| session.execute(op));
