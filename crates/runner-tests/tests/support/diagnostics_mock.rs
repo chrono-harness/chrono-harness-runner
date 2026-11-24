@@ -103,6 +103,11 @@ fn trace(input: &mut impl BufRead) -> u8 {
             let row = format!("{}\n", serde_json::to_string(&event).unwrap());
             send(json!({"write":row}));
             let ack = receive(input);
+            if ack.pointer("/error/message").and_then(Value::as_str)
+                == Some("observed before session disconnect")
+            {
+                return 2;
+            }
             if ack != "ok" {
                 errors.push(writer_error("write", Some(row.as_bytes()), &ack));
             } else {

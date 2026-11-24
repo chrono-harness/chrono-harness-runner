@@ -58,6 +58,10 @@ pub trait RecordedError: Error + Send + Sync + 'static {
 #[derive(Debug)]
 pub struct NativeIoError(io::Error);
 impl NativeIoError {
+    pub(crate) fn into_inner(self) -> io::Error {
+        self.0
+    }
+
     pub fn new(error: io::Error) -> Self {
         Self(error)
     }
@@ -184,7 +188,7 @@ pub struct ReceivedError {
     writer: Option<io::Error>,
 }
 impl ReceivedError {
-    pub(crate) fn with_writer(record: ErrorRecord, writer: io::Error) -> Self {
+    pub(crate) fn with_native(record: ErrorRecord, writer: io::Error) -> Self {
         Self {
             node: record.error,
             writer: Some(writer),

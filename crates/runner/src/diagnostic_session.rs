@@ -1,7 +1,7 @@
 //! The installed diagnostics producer owns policy, formatting, and rolling files.
 //! Runner retains its actual output handles and any native errors returned by them.
 use crate::{
-    process_error::{ErrorRecord, Failure, NativeIoError, ReceivedError},
+    process_error::{ErrorRecord, Failure, NativeIoError, ReceivedError, RecordedError},
     trace_source::Source,
 };
 use serde::{Deserialize, Serialize};
@@ -156,7 +156,7 @@ struct Trace<I, O, W> {
     input: I,
     output: O,
     sink: W,
-    originals: VecDeque<io::Error>,
+    originals: Arc<Mutex<VecDeque<io::Error>>>,
 }
 impl<I: Write, O: BufRead, W: Write> Trace<I, O, W> {
     fn reply(&mut self) -> io::Result<Reply> {
@@ -170,57 +170,48 @@ impl<I: Write, O: BufRead, W: Write> Trace<I, O, W> {
                 Ok(()) => line(&mut self.input, "ok")?,
                 Err(e) => {
                     let ack = json!({"error":{"native_code":e.raw_os_error(),"kind":format!("{:?}",e.kind()),"custom_source":e.get_ref().is_some(),"message":e.to_string()}});
-                    self.originals.push_back(e);
+                    self.originals.lock().unwrap().push_back(e);
                     line(&mut self.input, ack)?;
                 }
             }
         }
     }
     fn finish_errors(&mut self, records: Vec<ErrorRecord>) -> Vec<ReceivedError> {
-        let mut errors = Vec::new();
-        for record in records {
-            let paired = record
-                .error
-                .source
-                .as_deref()
-                .zip(self.originals.front())
-                .is_some_and(|(source, original)| {
-                    record.error.code == "E_LOG_IO"
-                        && source.native_code == original.raw_os_error().map(i64::from)
-                        && source.message == original.to_string()
-                });
-            errors.push(if paired {
-                ReceivedError::with_writer(record, self.originals.pop_front().unwrap())
-            } else {
-                ReceivedError::from(record)
-            });
-        }
-        for cause in self.originals.drain(..) {
-            let record = Failure::new(
-                "E_LOG_PROTOCOL",
-                "diagnostics omitted an observed output error",
-            )
-            .record();
-            errors.push(ReceivedError::with_writer(record, cause));
-        }
-        errors
+        let mut originals = self.originals.lock().unwrap();
+        records
+            .into_iter()
+            .map(|record| {
+                let paired = record
+                    .error
+                    .source
+                    .as_deref()
+                    .zip(originals.front())
+                    .is_some_and(|(source, error)| {
+                        record.error.code == "E_LOG_IO"
+                            && source.native_code == error.raw_os_error().map(i64::from)
+                            && source.message == error.to_string()
+                    });
+                if paired {
+                    ReceivedError::with_native(record, originals.pop_front().unwrap())
+                } else {
+                    ReceivedError::from(record)
+                }
+            })
+            .collect()
     }
 }
-fn protocol(e: io::Error) -> ReceivedError {
-    ReceivedError::from(
-        Failure::wrap(
-            "E_LOG_PROTOCOL",
-            "diagnostic publication failed",
-            NativeIoError::new(e),
-        )
-        .record(),
-    )
+fn protocol(error: io::Error) -> ReceivedError {
+    let native = NativeIoError::new(error);
+    let mut record = Failure::new("E_LOG_PROTOCOL", "diagnostic publication failed").record();
+    record.error.source = Some(Box::new(native.error_node()));
+    ReceivedError::with_native(record, native.into_inner())
 }
 pub(crate) fn publish_failure(
     id: &str,
     failure: &Failure,
     sink: impl Write + Send + 'static,
 ) -> Vec<ReceivedError> {
+    let originals = Arc::new(Mutex::new(VecDeque::new()));
     let result = (|| -> io::Result<Vec<ReceivedError>> {
         let mut child = command()?
             .args(["trace-events-v1", "--sink-only", "chrono-harness"])
@@ -231,7 +222,7 @@ pub(crate) fn publish_failure(
             input: BufWriter::new(child.stdin.take().unwrap()),
             output: BufReader::new(child.stdout.take().unwrap()),
             sink,
-            originals: VecDeque::new(),
+            originals: originals.clone(),
         };
         let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut stream = stream;
@@ -279,7 +270,11 @@ pub(crate) fn publish_failure(
         }
         Ok(errors)
     })();
-    result.unwrap_or_else(|e| vec![protocol(e)])
+    let mut errors = result.unwrap_or_else(|e| vec![protocol(e)]);
+    for observed in originals.lock().unwrap().drain(..) {
+        errors.push(protocol(observed));
+    }
+    errors
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ExpiredLogs {
