@@ -10210,6 +10210,54 @@ fn failed_final_original_rolls_after_diagnostics_and_a_real_exact_consumer() {
 }
 
 #[test]
+fn removal_session_refuses_overlaps_and_holds_each_selected_path_until_eof() {
+    const NAME: &str = "removal_session_refuses_overlaps_and_holds_each_selected_path_until_eof";
+    if !isolated_capability_test(NAME) {
+        return;
+    }
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
+    let host = host(512, 32);
+    let root = host.path();
+    let first = tree(root, "first-removal");
+    let second = tree(root, "second-removal");
+    let held = inventory(root).begin("fixture", &first, json!({})).unwrap();
+    let (mut client, server) = UnixStream::pair().unwrap();
+    let mut reader = BufReader::new(client.try_clone().unwrap());
+    std::thread::scope(|scope| {
+        let owner = scope.spawn(|| {
+            let input = BufReader::new(server.try_clone().unwrap());
+            chrono_harness::retained_artifacts::session::serve(root, input, server).unwrap();
+        });
+        let mut query = |request: Value| -> Result<Value, String> {
+            serde_json::to_writer(&mut client, &request).unwrap();
+            client.write_all(b"\n").unwrap();
+            let mut reply = String::new();
+            reader.read_line(&mut reply).unwrap();
+            serde_json::from_str(&reply).unwrap()
+        };
+        assert!(query(json!({"operation":"check-removal"})).is_err());
+        assert!(query(json!({"operation":"open-removal","paths":[first,second]})).is_err());
+        assert_eq!(
+            query(json!({"operation":"open-removal","paths":[second]})).unwrap(),
+            true
+        );
+        assert!(query(json!({"operation":"open-removal","paths":[first]})).is_err());
+        query(json!({"operation":"check-removal"})).unwrap();
+        assert!(
+            inventory(root)
+                .begin("fixture", &second, json!({}))
+                .is_err()
+        );
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        owner.join().unwrap();
+        assert!(inventory(root).begin("fixture", &second, json!({})).is_ok());
+    });
+    drop(held);
+}
+
+#[test]
 fn external_removal_exclusion_survives_handoff_to_its_native_child() {
     if !isolated_capability_test("external_removal_exclusion_survives_handoff_to_its_native_child")
     {
