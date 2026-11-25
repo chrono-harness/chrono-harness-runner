@@ -8,6 +8,7 @@ pub extern crate chrono_identifiers as identifiers;
 #[cfg(verus_keep_ghost)]
 use identifiers::encode_concat;
 use identifiers::{equal_bytes, equal_text};
+use vstd::string::{StrSliceExecFns, StringExecFns};
 
 #[path = "verified_sources.rs"]
 pub mod sources;
@@ -615,22 +616,79 @@ pub fn bind_operation_output<I: sources::CandidateSourceRead + CompilerReportRea
     Ok(Some(proof))
 }
 
+
+pub open spec fn compiler_member(path: Seq<char>) -> Option<Seq<char>> {
+    let prefix = "{operation_state}/"@;
+    let suffix = ".rlib"@;
+    let name = path.skip(prefix.len() as int);
+    if path.len() >= prefix.len() + suffix.len() && path.take(prefix.len() as int) == prefix
+        && path.skip(path.len() - suffix.len()) == suffix
+        && !vstd::utf8::encode_utf8(name).contains(47u8) { Some(name) } else { None }
 }
 
-/// Bind the declared proof outputs to the directory already owned by the caller.
-/// Both the projects planner and direct managed use record this resolved argv.
-#[cfg(not(verus_keep_ghost))]
-pub fn bind_compiler_directory(args: &mut Vec<String>, directory: &str) {
-    let Some(name) = args
-        .get(10)
-        .and_then(|output| output.strip_prefix("{operation_state}/"))
-    else {
-        return;
-    };
-    if !name.ends_with(".rlib") || name.contains('/') || !canonical_verifier_arguments(args) {
-        return;
+fn compiler_member_name(path: &str) -> (name: Option<&str>)
+    ensures match name {
+        Some(value) => compiler_member(path@) == Some(value@),
+        None => compiler_member(path@).is_none(),
+    },
+{
+    let prefix = "{operation_state}/";
+    let suffix = ".rlib";
+    let prefix_len = prefix.unicode_len();
+    let suffix_len = suffix.unicode_len();
+    let size = path.unicode_len();
+    if size < prefix_len || size - prefix_len < suffix_len { return None; }
+    if !equal_text(path.substring_char(0, prefix_len), prefix)
+        || !equal_text(path.substring_char(size - suffix_len, size), suffix) { return None; }
+    let name = path.substring_char(prefix_len, size);
+    if single_path_component(name.as_bytes()) { Some(name) } else { None }
+}
+
+fn single_path_component(bytes: &[u8]) -> (single: bool)
+    ensures single == !bytes@.contains(47u8),
+{
+    let mut i = 0;
+    while i < bytes.len()
+        invariant i <= bytes.len(), forall|j: int| 0 <= j < i ==> bytes@[j] != 47u8,
+        decreases bytes.len() - i,
+    {
+        if bytes[i] == 47u8 {
+            assert(bytes@[i as int] == 47u8);
+            return false;
+        }
+        i += 1;
     }
-    let output = format!("{directory}/{name}");
-    args[7] = format!("--emit=link={output},dep-info={output}.d");
+    true
+}
+
+pub open spec fn bound_output(args: Seq<String>, directory: Seq<char>) -> Option<Seq<char>> {
+    if verifier_arguments(args) {
+        match compiler_member(args[10]@) {
+            Some(name) => Some(directory + "/"@ + name), None => None,
+        }
+    } else { None }
+}
+
+/// Bind the library and its dep-info to the same directory supplied by the caller.
+pub fn bind_compiler_directory(args: &mut Vec<String>, directory: &str)
+    ensures
+        args.len() == old(args).len(),
+        match bound_output(old(args)@, directory@) {
+            None => args@ == old(args)@,
+            Some(output) => args@[10]@ == output
+                && args@[7]@ == "--emit=link="@ + output + ",dep-info="@ + output + ".d"@
+                && (forall|i: int| 0 <= i < args.len() && i != 7 && i != 10
+                    ==> args@[i] == old(args)@[i]),
+        },
+{
+    if !canonical_verifier_arguments(args) { return; }
+    let name = match compiler_member_name(args[10].as_str()) {
+        Some(name) => name, None => return,
+    };
+    let output = directory.to_string().concat("/").concat(name);
+    let emit = "--emit=link=".to_string().concat(output.as_str())
+        .concat(",dep-info=").concat(output.as_str()).concat(".d");
+    args[7] = emit;
     args[10] = output;
+}
 }
