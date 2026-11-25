@@ -1701,7 +1701,10 @@ fn original_compiler_header_preserves_literal_spaces_and_stops_at_the_first_line
     let (decoded, paths) = policy::sources::compiler_dependency_header(&input).unwrap();
     expect_verifier_true(decoded.len() == 3 && decoded[0] == 97 && decoded[1] == 32 && decoded[2] == 98);
     assert(policy::sources::dependency_values(paths@) == seq![seq![120u8]]);
-    assert(paths.len() == 1 && paths[0]@ == seq![120u8]);
+    assert(paths@.len() == policy::sources::dependency_values(paths@).len());
+    assert(paths.len() == 1);
+    assert(policy::sources::dependency_values(paths@)[0] == paths@[0]@);
+    assert(paths@[0]@ == seq![120u8]);
     expect_verifier_true(paths.len() == 1 && paths[0].len() == 1 && paths[0][0] == 120);
     let unterminated = [97u8, 46, 100, 58, 32, 120];
     assert(unterminated@ =~= seq![97u8, 46, 100, 58, 32, 120]);
