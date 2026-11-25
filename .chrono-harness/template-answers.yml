@@ -1,4 +1,4 @@
-_commit: v0.1.32
+_commit: v0.1.34
 _src_path: gh:chrono-harness/chrono-harness-copier
 dev_branch: dev
 features:
@@ -30,4 +30,5 @@ publisher_workflow: Release chrono-harness
 release_plan: {}
 repository: chrono-harness/chrono-harness-runner
 required_check: check
-
+tool_install_channels: pinned
+tool_versions: {}
