@@ -423,8 +423,8 @@ pub fn publication_read_scope<T>(path: Option<T>, inputs: bool) -> (scope: Publi
     ensures match path {
         Some(p) => if inputs { scope == PublicationReadScope::Inputs(p) }
                    else { scope == PublicationReadScope::Output(p) },
-        None => if inputs { scope == PublicationReadScope::RootInputs }
-                else { scope == PublicationReadScope::MissingOutput },
+        None => if inputs { scope == PublicationReadScope::<T>::RootInputs }
+                else { scope == PublicationReadScope::<T>::MissingOutput },
     },
 {
     match path {
