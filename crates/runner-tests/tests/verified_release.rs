@@ -39,19 +39,21 @@ fn archived_tree_must_contain_the_report_and_own_all_its_inputs() {
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn session_reads_distinguish_root_inputs_from_one_publication() {
     use policy::PublicationReadScope::*;
-    assert(matches!(policy::publication_read_scope(Some(7u8), true), Inputs(7)));
-    assert(matches!(policy::publication_read_scope(Some(9u8), false), Output(9)));
-    assert(matches!(policy::publication_read_scope(None::<u8>, true), RootInputs));
-    assert(matches!(policy::publication_read_scope(None::<u8>, false), MissingOutput));
+    expect_true(matches!(policy::publication_read_scope(Some(7u8), true), Inputs(7)));
+    expect_true(matches!(policy::publication_read_scope(Some(9u8), false), Output(9)));
+    expect_true(matches!(policy::publication_read_scope(None::<u8>, true), RootInputs));
+    expect_true(matches!(policy::publication_read_scope(None::<u8>, false), MissingOutput));
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn settlement_requires_the_live_original_selected_for_the_report_slot() {
     use policy::ReportSettlement::*;
-    assert(matches!(policy::report_settlement(true, Some("original/a"), "original/a"), Commit));
-    assert(matches!(policy::report_settlement(true, Some("original/b"), "original/a"), Reject));
-    assert(matches!(policy::report_settlement(true, None, "original/a"), Reject));
-    assert(matches!(policy::report_settlement(false, None, "original/a"), Unmanaged));
+    proof { reveal_strlit("original/a"); reveal_strlit("original/b");
+        assert("original/a"@[9] != "original/b"@[9]); }
+    expect_true(matches!(policy::report_settlement(true, Some("original/a"), "original/a"), Commit));
+    expect_true(matches!(policy::report_settlement(true, Some("original/b"), "original/a"), Reject));
+    expect_true(matches!(policy::report_settlement(true, None, "original/a"), Reject));
+    expect_true(matches!(policy::report_settlement(false, None, "original/a"), Unmanaged));
 }
 
 proof fn two_creation_ticks_can_fill_the_storage_bound() {
