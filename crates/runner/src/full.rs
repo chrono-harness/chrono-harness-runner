@@ -423,6 +423,20 @@ pub fn artifact_bytes(artifacts: &Value, address: &str) -> Result<Vec<u8>, Strin
     }
     Ok(bytes)
 }
+fn preparation_originals(binding: &Value) -> Result<Vec<crate::prepared::Original>, String> {
+    if !binding.is_object() {
+        return Ok(Vec::new());
+    }
+    let mut originals: Vec<crate::prepared::Original> =
+        serde_json::from_value(binding["result"]["originals"].clone())
+            .map_err(|e| e.to_string())?;
+    originals.extend(
+        serde_json::from_value::<Vec<crate::prepared::Original>>(binding["receipts"].clone())
+            .map_err(|e| e.to_string())?,
+    );
+    Ok(originals)
+}
+
 fn retain_artifacts(
     req: &Request,
     judges: &[Value],
@@ -468,21 +482,11 @@ fn retain_artifacts(
     if let Some(p) = ctx["retained_inputs"].as_str() {
         retain(p, no_symlink_parents(&req.candidate.root, p))?;
     }
-    if req.observations["preparation"].is_object() {
-        let binding = &req.observations["preparation"];
-        let mut originals: Vec<crate::prepared::Original> =
-            serde_json::from_value(binding["result"]["originals"].clone())
-                .map_err(|e| e.to_string())?;
-        originals.extend(
-            serde_json::from_value::<Vec<crate::prepared::Original>>(binding["receipts"].clone())
-                .map_err(|e| e.to_string())?,
-        );
-        for original in originals {
-            retain(
-                &original.path,
-                no_symlink_parents(&req.candidate.root, &original.path),
-            )?;
-        }
+    for original in preparation_originals(&req.observations["preparation"])? {
+        retain(
+            &original.path,
+            no_symlink_parents(&req.candidate.root, &original.path),
+        )?;
     }
     for name in ["base", "candidate"] {
         for file in req.observations["retained"][name]["files"]
@@ -1596,7 +1600,10 @@ pub fn check_prepared(
             record["process"] = projection["process"].clone();
         }
     }
-    let mut originals = Vec::new();
+    let mut originals: Vec<String> = preparation_originals(&report["preparation"])?
+        .into_iter()
+        .map(|original| original.path)
+        .collect();
     if let Some(path) = report["tests"]["operation_state"]["path"].as_str() {
         crate::relative_path(path)?;
         originals.push(path.to_owned());
@@ -1714,6 +1721,15 @@ pub fn check_prepared(
             )?;
             if let Some(inventory) = crate::retained_artifacts::retention::Inventory::adopted(root)?
             {
+                if status.exit_code() == 0 && report["preparation"]["request"]["source"] == "local"
+                {
+                    let receipts: Vec<crate::prepared::Original> =
+                        serde_json::from_value(report["preparation"]["receipts"].clone())
+                            .map_err(|e| e.to_string())?;
+                    for receipt in receipts {
+                        inventory.settle_local_acquisition(&receipt)?;
+                    }
+                }
                 inventory.reference_paths(&recovery_root, &[])?;
             }
             Ok::<_, String>(())

@@ -1800,6 +1800,64 @@ impl Inventory {
         );
         self.save(&ledger, &gate)
     }
+    /// The successful local check has published both copies of its report.
+    /// Retire only the provisional reader of this exact acquisition and leave
+    /// the bytes available through the already registered creation window.
+    pub(crate) fn settle_local_acquisition(
+        &self,
+        receipt: &crate::prepared::Original,
+    ) -> Result<(), String> {
+        if !self.accepts("check-original", &receipt.path) {
+            return Ok(());
+        }
+        let gate = self.member_gate(&[], std::slice::from_ref(&receipt.path))?;
+        let ledger = self.load(&gate)?;
+        let Some(output) = ledger.outputs.iter().find(|o| o.path == receipt.path) else {
+            return Ok(());
+        };
+        let id = output.id.clone();
+        drop(gate);
+        let role = format!("consumer:publication-recheck:{id}");
+        let gate = self.addressed_gate_scope(
+            std::slice::from_ref(&id),
+            std::slice::from_ref(&receipt.path),
+            std::slice::from_ref(&role),
+            None,
+            false,
+            true,
+            true,
+        )?;
+        let mut ledger = self.load(&gate)?;
+        let Some(members) = ledger.roots.get(&role) else {
+            return Ok(());
+        };
+        let output = ledger
+            .outputs
+            .iter_mut()
+            .find(|o| o.id == id)
+            .ok_or("acquisition publication disappeared before handoff")?;
+        if members.as_slice() != std::slice::from_ref(&id)
+            || output.path != receipt.path
+            || output.tree
+            || output.producer != "check-original"
+            || output.phase != "released"
+            || !output.manifest.sealed
+            || output.sha256.as_deref() != Some(receipt.sha256.as_str())
+            || output.outcome["kind"] != "addressed-original"
+            || output.outcome["sha256"] != receipt.sha256
+            || identity(&no_symlink_parents(&self.root, &receipt.path)?)? != output.identity
+        {
+            return Err(
+                "local acquisition differs from its sealed publication; preserve it".into(),
+            );
+        }
+        if let Some(window) = &output.lifetime {
+            output.expires = window.deadline;
+        }
+        self.reference_locked(&mut ledger, &role, &[])?;
+        self.save(&ledger, &gate)
+    }
+
     /// Explicit original addresses supplied by the actual consumer, never inferred from JSON or names.
     pub fn reference_paths(&self, consumer: &str, paths: &[String]) -> Result<(), String> {
         self.partition_reference_paths(consumer, paths, false)
