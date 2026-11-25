@@ -41,7 +41,7 @@ check_native crates/proofs/verifier "$verifier_src/lib.rs" "$verifier_src/verifi
 src=crates/runner/src
 check_native crates/runner "$src/lib.rs" "$src/source_endpoints.rs" "$src/source_coverage.rs" "$src/route_evidence.rs" \
   "$src/verified_cli.rs" "$src/verified_git_binding.rs" "$src/verified_limits.rs" "$src/verified_paths.rs" "$src/verified_status.rs" \
-  "$src/facts.rs" "$src/facts_binding.rs" "$src/publication.rs" "$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs"
+  "$src/facts.rs" "$src/facts_binding.rs" "$src/publication.rs" "$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs" "$src/retained_artifacts/manifest.rs"
 
 verifier=$(command -v "${VERUS:-verus}")
 cargo_verus=$(dirname "$verifier")/cargo-verus

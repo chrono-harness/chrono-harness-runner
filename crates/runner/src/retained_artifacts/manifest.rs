@@ -6,14 +6,111 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 verus! {
-fn sealed_member_matches(same_identity: bool, directory: bool, same_stamp: bool,
-    batch_file: bool, same_data_stamp: bool) -> (accepted: bool)
-    ensures
-        accepted == (same_identity && (directory || same_stamp || (batch_file && same_data_stamp))),
-        !same_identity ==> !accepted,
-        !directory && !same_stamp && accepted ==> batch_file && same_data_stamp,
+/// Last colon strictly before the supplied endpoint, or -1 when absent.
+pub open spec fn previous_colon(stamp: Seq<u8>, end: int) -> int
+    decreases end,
 {
-    same_identity && (directory || same_stamp || (batch_file && same_data_stamp))
+    if end <= 0 || end > stamp.len() { -1 }
+    else if stamp[end - 1] == 58 { end - 1 }
+    else { previous_colon(stamp, end - 1) }
+}
+
+pub open spec fn stamp_data_end(stamp: Seq<u8>) -> int {
+    previous_colon(stamp, previous_colon(stamp, stamp.len() as int))
+}
+
+fn last_colon(stamp: &[u8], end: usize) -> (found: Option<usize>)
+    requires end <= stamp.len(),
+    ensures match found {
+        Some(i) => i < end && i as int == previous_colon(stamp@, end as int),
+        None => previous_colon(stamp@, end as int) == -1,
+    },
+{
+    let mut i = end;
+    while i > 0
+        invariant i <= end <= stamp.len(),
+            previous_colon(stamp@, i as int) == previous_colon(stamp@, end as int),
+        decreases i,
+    {
+        if stamp[i - 1] == 58 { return Some(i - 1); }
+        i -= 1;
+    }
+    None
+}
+
+fn data_end(stamp: &[u8]) -> (found: Option<usize>)
+    ensures match found {
+        Some(i) => i < stamp.len() && i as int == stamp_data_end(stamp@),
+        None => stamp_data_end(stamp@) == -1,
+    },
+{
+    match last_colon(stamp, stamp.len()) {
+        Some(last) => last_colon(stamp, last),
+        None => None,
+    }
+}
+
+fn same_prefix(left: &[u8], right: &[u8], len: usize) -> (same: bool)
+    requires len <= left.len(), len <= right.len(),
+    ensures same == (left@.take(len as int) =~= right@.take(len as int)),
+{
+    let mut i = 0;
+    while i < len
+        invariant i <= len <= left.len(), len <= right.len(),
+            forall|k: int| 0 <= k < i ==> left@[k] == right@[k],
+        decreases len - i,
+    {
+        if left[i] != right[i] {
+            assert(left@.take(len as int)[i as int] != right@.take(len as int)[i as int]);
+            return false;
+        }
+        i += 1;
+    }
+    assert(left@.take(len as int) =~= right@.take(len as int));
+    true
+}
+
+fn same_bytes(left: &[u8], right: &[u8]) -> (same: bool)
+    ensures same == (left@ =~= right@),
+{
+    if left.len() != right.len() { return false; }
+    assert(left@.take(left.len() as int) =~= left@);
+    assert(right@.take(left.len() as int) =~= right@);
+    same_prefix(left, right, left.len())
+}
+
+pub open spec fn regular_file(identity: Seq<u8>) -> bool {
+    identity.len() >= 5 && identity[identity.len() - 5] == 58
+        && identity[identity.len() - 4] == 102 && identity[identity.len() - 3] == 105
+        && identity[identity.len() - 2] == 108 && identity[identity.len() - 1] == 101
+}
+
+fn regular_file_identity(identity: &[u8]) -> (file: bool)
+    ensures file == regular_file(identity@),
+{
+    let n = identity.len();
+    n >= 5 && identity[n - 5] == 58 && identity[n - 4] == 102
+        && identity[n - 3] == 105 && identity[n - 2] == 108 && identity[n - 1] == 101
+}
+
+pub open spec fn same_data(left: Seq<u8>, right: Seq<u8>) -> bool {
+    let end = stamp_data_end(left);
+    end >= 0 && end == stamp_data_end(right) && left.take(end) =~= right.take(end)
+}
+
+/// Compare the sealed and observed bytes before any member can be unlinked.
+pub fn sealed_member_matches(identity: &[u8], observed_identity: &[u8], directory: bool,
+    stamp: &[u8], observed_stamp: &[u8], batch_directory: bool) -> (accepted: bool)
+    ensures accepted == (identity@ == observed_identity@ && (directory || stamp@ == observed_stamp@
+        || (batch_directory && regular_file(identity@) && same_data(stamp@, observed_stamp@)))),
+{
+    if !same_bytes(identity, observed_identity) { return false; }
+    if directory || same_bytes(stamp, observed_stamp) { return true; }
+    if !batch_directory || !regular_file_identity(identity) { return false; }
+    match (data_end(stamp), data_end(observed_stamp)) {
+        (Some(left), Some(right)) => left == right && same_prefix(stamp, observed_stamp, left),
+        _ => false,
+    }
 }
 }
 
@@ -186,19 +283,13 @@ impl Manifest {
         // Unlinking a sibling name changes ctime on the same inode. In a
         // disposable batch the producer owns the name, including on interruption.
         // Keep length and mtime checks, and always check the sealed inode and type.
-        let batch_file = batch_directory && entry.identity.ends_with(":file");
-        let same_data_stamp = batch_file
-            && entry
-                .stamp
-                .rsplitn(3, ':')
-                .nth(2)
-                .is_some_and(|stamp| current.stamp.rsplitn(3, ':').nth(2) == Some(stamp));
         if !sealed_member_matches(
-            current.identity == entry.identity,
+            entry.identity.as_bytes(),
+            current.identity.as_bytes(),
             entry.directory,
-            entry.stamp == current.stamp,
-            batch_file,
-            same_data_stamp,
+            entry.stamp.as_bytes(),
+            current.stamp.as_bytes(),
+            batch_directory,
         ) {
             return Err("sealed descendant identity/content changed; preserve replacement".into());
         }

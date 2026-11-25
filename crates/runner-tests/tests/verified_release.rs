@@ -36,6 +36,47 @@ fn archived_tree_must_contain_the_report_and_own_all_its_inputs() {
     assert(tree && file && !external && !missing && !unbound);
 }
 
+/// Raw observed identities and timestamp bytes are the only inputs to eligibility.
+fn sealed_member_boundaries() -> (accepted: bool)
+    ensures accepted,
+{
+    let f: &[u8] = &[49, 58, 102, 105, 108, 101]; // 1:file
+    let replaced: &[u8] = &[50, 58, 102, 105, 108, 101]; // 2:file
+    let dir: &[u8] = &[49, 58, 100, 105, 114]; // 1:dir
+    let link: &[u8] = &[49, 58, 108, 105, 110, 107]; // 1:link
+    let recorded: &[u8] = &[57, 58, 50, 58, 51, 58, 52, 58, 53]; // 9:2:3:4:5
+    let ctime: &[u8] = &[57, 58, 50, 58, 51, 58, 54, 58, 55]; // 9:2:3:6:7
+    let data: &[u8] = &[57, 58, 50, 58, 52, 58, 52, 58, 53]; // 9:2:4:4:5
+    let malformed: &[u8] = &[57, 58, 50]; // 9:2
+    let other: &[u8] = &[57, 58, 56]; // 9:8
+    let equal = accounting::sealed_member_matches(f, f, false, recorded, recorded, false);
+    let directory = accounting::sealed_member_matches(dir, dir, true, recorded, data, false);
+    let new_file = accounting::sealed_member_matches(f, replaced, false, recorded, recorded, true);
+    let wrong_type = accounting::sealed_member_matches(dir, f, true, recorded, recorded, true);
+    let single = accounting::sealed_member_matches(f, f, false, recorded, ctime, false);
+    let batch = accounting::sealed_member_matches(f, f, false, recorded, ctime, true);
+    let modified = accounting::sealed_member_matches(f, f, false, recorded, data, true);
+    let symlink = accounting::sealed_member_matches(link, link, false, recorded, ctime, true);
+    let incomplete = accounting::sealed_member_matches(f, f, false, malformed, other, true);
+    let equal_malformed = accounting::sealed_member_matches(f, f, false, malformed, malformed, true);
+    proof {
+        reveal_with_fuel(accounting::previous_colon, 12);
+        assert(equal);
+        assert(directory);
+        assert(!new_file);
+        assert(!wrong_type);
+        assert(!single);
+        assert(batch);
+        assert(recorded@.take(5)[4] != data@.take(5)[4]);
+        assert(!modified);
+        assert(!symlink);
+        assert(!incomplete);
+        assert(equal_malformed);
+    }
+    equal && directory && !new_file && !wrong_type && !single && batch && !modified
+        && !symlink && !incomplete && equal_malformed
+}
+
 proof fn two_creation_ticks_can_fill_the_storage_bound() {
     let live = seq![3nat, 3nat, 0nat];
     policy::rolling_storage_bound(live, 2, 3);
@@ -1093,4 +1134,10 @@ fn replay_or_missing_observation_keeps_the_current_original() {
     expect_true(valid_state && !unknown_write);
 }
 
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn sealed_tree_decisions_use_the_observed_bytes() {
+    assert!(sealed_member_boundaries());
 }
