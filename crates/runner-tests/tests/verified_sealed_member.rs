@@ -11,6 +11,29 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 verus! {
+/// Non-capacity failures keep their original text, including the capacity diagnostics.
+#[cfg(verus_keep_ghost)]
+fn overflow_requires_a_tree_and_a_local_capacity_error(message: String) {
+    use accounting::SealError;
+    let directory = SealError::DirectoryCapacity;
+    let entries = SealError::TreeCapacity;
+    let other = SealError::Observation(message);
+    let ordinary_directory = directory.permits_overflow(false);
+    let ordinary_entries = entries.permits_overflow(false);
+    let ordinary_other = other.permits_overflow(false);
+    let tree_directory = directory.permits_overflow(true);
+    let tree_entries = entries.permits_overflow(true);
+    let tree_other = other.permits_overflow(true);
+    assert(!ordinary_directory && !ordinary_entries && !ordinary_other);
+    assert(tree_directory && tree_entries && !tree_other);
+    let reported_directory = directory.into_message();
+    let reported_entries = entries.into_message();
+    let reported_other = other.into_message();
+    assert(reported_directory@ == "directory identity capacity; preserve original"@);
+    assert(reported_entries@ == "tree identity manifest capacity; preserve original"@);
+    assert(reported_other@ == message@);
+}
+
 /// Raw observed identities and timestamp bytes are the only inputs to eligibility.
 fn sealed_member_boundaries() -> (accepted: bool)
     ensures accepted,

@@ -3198,7 +3198,7 @@ impl Inventory {
                     &output.path,
                     self.policy.max_manifest_nodes,
                 ) {
-                    accounting_errors.push(json!({"id":output.id,"reason":error}));
+                    accounting_errors.push(json!({"id":output.id,"reason":error.into_message()}));
                     break;
                 }
                 if l.outputs[index].manifest.sealed {
@@ -3396,13 +3396,13 @@ impl Inventory {
                         &o.path,
                         self.policy.max_manifest_nodes,
                     ) {
-                        if o.tree && error.contains("capacity") {
+                        if error.permits_overflow(o.tree) {
                             l.outputs[i].overflow_disposal = true;
                             l.outputs[i].phase = "disposing".into();
                             self.save(&l, &gate)?;
                             break;
                         }
-                        return Err(error);
+                        return Err(error.into_message());
                     }
                     self.save(&l, &gate)?;
                 }
@@ -4324,7 +4324,7 @@ impl Publication {
                     &o.path,
                     self.inventory.policy.max_manifest_nodes,
                 ) {
-                    accounting_error = Some(error);
+                    accounting_error = Some(error.into_message());
                     break;
                 }
             }
