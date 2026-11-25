@@ -157,8 +157,8 @@ fn hint_send_requires_the_exact_observed_length() {
 }
 
 fn policy_case<'a>(schema: &'a str, directory: &'a str, socket: &'a str,
-    idle: Option<u64>, timer: u64, failure: u8, payload: &'a str, fields: bool)
-    requires fields == signal::maintenance_policy_fields(schema, directory, socket, idle, timer),
+    failure: u8, payload: &'a str, fields: bool)
+    requires fields == signal::maintenance_policy_fields(schema, directory, socket),
 {
     let directory_check = |mut trace: Vec<(u8, &'a str)>, path: &'a str|
         -> (out: (Vec<(u8, &'a str)>, Result<(), String>))
@@ -181,7 +181,7 @@ fn policy_case<'a>(schema: &'a str, directory: &'a str, socket: &'a str,
         (trace, if failure == 2 { Err(payload.to_string()) } else { Ok(()) })
     };
     let (trace, result) = signal::validate_policy(Vec::new(), schema, directory, socket,
-        idle, timer, directory_check, socket_check);
+        directory_check, socket_check);
     expect_hint(trace.len() == if failure == 1 { 1 } else { 2 });
     expect_hint(trace[0].0 == 0);
     expect_hint_text(trace[0].1, directory);
@@ -206,21 +206,27 @@ fn policy_case<'a>(schema: &'a str, directory: &'a str, socket: &'a str,
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn policy_checks_keep_path_order_and_the_first_complete_error() {
-    policy_case("bad", "原目录/λ\0\n", "原 socket/λ\0\n", Some(0), 0, 1,
+    proof {
+        reveal(signal::maintenance_policy_fields);
+        reveal_strlit("bad");
+        reveal_strlit("chrono-unified-maintenance/v2");
+        assert("bad"@.len() == 3 && "chrono-unified-maintenance/v2"@.len() == 29);
+    }
+    policy_case("bad", "原目录/λ\0\n", "原 socket/λ\0\n", 1,
         "原错/λ\0\n", false);
-    policy_case("bad", "原目录/λ\0\n", "原 socket/λ\0\n", Some(0), 0, 2,
+    policy_case("bad", "原目录/λ\0\n", "原 socket/λ\0\n", 2,
         "原错/λ\0\n", false);
-    policy_case("bad", "", "", None, 0, 1, "", false);
+    policy_case("bad", "", "", 1, "", false);
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
-fn policy_fields_keep_exact_schema_path_and_timer_boundaries() {
+fn policy_fields_keep_exact_schema_and_path_boundaries() {
     proof {
         reveal(signal::maintenance_location);
         reveal(signal::maintenance_policy_fields);
-        reveal_strlit("chrono-unified-maintenance/v1");
-        reveal_strlit("chrono-unified-maintenance/v1\n");
-        reveal_strlit("Chrono-unified-maintenance/v1");
+        reveal_strlit("chrono-unified-maintenance/v2");
+        reveal_strlit("chrono-unified-maintenance/v2\n");
+        reveal_strlit("Chrono-unified-maintenance/v2");
         reveal_strlit(".chrono-harness/state/");
         reveal_strlit(".chrono-harness/state/m");
         reveal_strlit(".chrono-harness/state/m/");
@@ -252,12 +258,12 @@ fn policy_fields_keep_exact_schema_path_and_timer_boundaries() {
         assert(prefix.len() == 22);
         assert(prefix.take(prefix.len() as int) =~= prefix);
         assert(prefix.last() == 47u8);
-        assert("chrono-unified-maintenance/v1"@.len() == 29);
-        assert("chrono-unified-maintenance/v1\n"@.len() == 30);
-        assert("chrono-unified-maintenance/v1"@[0] == 'c');
-        assert("Chrono-unified-maintenance/v1"@[0] == 'C');
-        assert("chrono-unified-maintenance/v1\n"@ != "chrono-unified-maintenance/v1"@);
-        assert("Chrono-unified-maintenance/v1"@ != "chrono-unified-maintenance/v1"@);
+        assert("chrono-unified-maintenance/v2"@.len() == 29);
+        assert("chrono-unified-maintenance/v2\n"@.len() == 30);
+        assert("chrono-unified-maintenance/v2"@[0] == 'c');
+        assert("Chrono-unified-maintenance/v2"@[0] == 'C');
+        assert("chrono-unified-maintenance/v2\n"@ != "chrono-unified-maintenance/v2"@);
+        assert("Chrono-unified-maintenance/v2"@ != "chrono-unified-maintenance/v2"@);
         assert("".spec_bytes().len() == 0);
         assert(".chrono-harness/state/m/".spec_bytes().last() == 47u8);
         assert(".chrono-harness/state/m.sock".spec_bytes().last() == 107u8);
@@ -276,31 +282,18 @@ fn policy_fields_keep_exact_schema_path_and_timer_boundaries() {
         assert(signal::maintenance_location(".chrono-harness/state/λ//", true));
         assert(signal::maintenance_location(".chrono-harness/state/λ", false));
     }
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state/", ".chrono-harness/state/m",
-        None, 1, 0, "", true);
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state/λ//", ".chrono-harness/state/λ",
-        Some(u64::MAX), u64::MAX, 0, "", true);
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock",
-        Some(1), 1, 0, "", true);
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock",
-        Some(0), 1, 0, "", false);
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock",
-        None, 0, 0, "", false);
-    policy_case("chrono-unified-maintenance/v1\n", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock",
-        None, 1, 0, "", false);
-    policy_case("Chrono-unified-maintenance/v1", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock",
-        None, 1, 0, "", false);
-    policy_case("", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock", None, 1, 0, "", false);
-    policy_case("chrono-unified-maintenance/v1", "", ".chrono-harness/state/m", None, 1, 0, "", false);
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state/m", ".chrono-harness/state/m",
-        None, 1, 0, "", false);
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state2/m/", ".chrono-harness/state/m",
-        None, 1, 0, "", false);
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state/m/", "", None, 1, 0, "", false);
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state/m/", ".chrono-harness/state/",
-        None, 1, 0, "", false);
-    policy_case("chrono-unified-maintenance/v1", ".chrono-harness/state/m/", ".chrono-harness/state2/m",
-        None, 1, 0, "", false);
+    policy_case("chrono-unified-maintenance/v2", ".chrono-harness/state/", ".chrono-harness/state/m", 0, "", true);
+    policy_case("chrono-unified-maintenance/v2", ".chrono-harness/state/λ//", ".chrono-harness/state/λ", 0, "", true);
+    policy_case("chrono-unified-maintenance/v2", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock", 0, "", true);
+    policy_case("chrono-unified-maintenance/v2\n", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock", 0, "", false);
+    policy_case("Chrono-unified-maintenance/v2", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock", 0, "", false);
+    policy_case("", ".chrono-harness/state/m/", ".chrono-harness/state/m.sock", 0, "", false);
+    policy_case("chrono-unified-maintenance/v2", "", ".chrono-harness/state/m", 0, "", false);
+    policy_case("chrono-unified-maintenance/v2", ".chrono-harness/state/m", ".chrono-harness/state/m", 0, "", false);
+    policy_case("chrono-unified-maintenance/v2", ".chrono-harness/state2/m/", ".chrono-harness/state/m", 0, "", false);
+    policy_case("chrono-unified-maintenance/v2", ".chrono-harness/state/m/", "", 0, "", false);
+    policy_case("chrono-unified-maintenance/v2", ".chrono-harness/state/m/", ".chrono-harness/state/", 0, "", false);
+    policy_case("chrono-unified-maintenance/v2", ".chrono-harness/state/m/", ".chrono-harness/state2/m", 0, "", false);
 }
 
 proof fn unicode_policy_path_bytes()
@@ -343,11 +336,9 @@ fn host() -> (tempfile::TempDir, std::path::PathBuf) {
     let root = host.path();
     fs::create_dir_all(root.join(".chrono-harness/state/m")).unwrap();
     let policy = Policy {
-        schema: "chrono-unified-maintenance/v1".into(),
+        schema: "chrono-unified-maintenance/v2".into(),
         state_directory: ".chrono-harness/state/m/".into(),
         socket: ".chrono-harness/state/m/wake.sock".into(),
-        idle_seconds: Some(300),
-        timer_seconds: 3600,
     };
     fs::write(
         root.join(signal::POLICY_PATH),
@@ -356,6 +347,24 @@ fn host() -> (tempfile::TempDir, std::path::PathBuf) {
     .unwrap();
     let socket = policy.socket_path(root).unwrap();
     (host, socket)
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn adoption_rejects_old_schema_and_each_retired_scheduling_field() {
+    let (host, _) = host();
+    let path = host.path().join(signal::POLICY_PATH);
+    let current: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for (field, value) in [
+        ("schema", serde_json::json!("chrono-unified-maintenance/v1")),
+        ("timer_seconds", serde_json::json!(3600)),
+        ("idle_seconds", serde_json::Value::Null),
+    ] {
+        let mut rejected = current.clone();
+        rejected[field] = value;
+        fs::write(&path, serde_json::to_vec(&rejected).unwrap()).unwrap();
+        assert!(signal::adopted(host.path()).is_err(), "{field}");
+    }
 }
 
 #[test]
@@ -459,6 +468,82 @@ fn maintenance_report_publication_does_not_wake_itself_or_suppress_other_threads
     assert_eq!(
         signal::request_adopted(host.path(), "after-round")["accepted"],
         true
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
+fn a_maintenance_custody_session_seals_its_report_while_other_sessions_still_wake_the_owner() {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        process::{Command, Stdio},
+    };
+
+    let (host, socket_path) = host();
+    let socket = UnixDatagram::bind(socket_path).unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let retention = serde_json::json!({
+        "schema":"chrono-output-retention/v2",
+        "producers":{"check-original":[".chrono-harness/state/"]},
+        "keep_seconds":0, "max_related_outputs":32, "max_summaries":16,
+        "max_nodes_per_round":256, "max_bytes_per_round":1048576, "max_millis_per_round":1000,
+    });
+    fs::write(
+        host.path()
+            .join(chrono_harness::retained_artifacts::retention::POLICY_PATH),
+        serde_json::to_vec(&retention).unwrap(),
+    )
+    .unwrap();
+
+    let open = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
+            .arg("retained-artifacts-v1")
+            .args(args)
+            .current_dir(host.path())
+            .env_remove(signal::CONTEXT_ENV)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let publish = |child: &mut std::process::Child, name: &str| {
+        let request = serde_json::json!({
+            "operation":"retain-original-text", "directory":".chrono-harness/state/",
+            "prefix":"report", "text":name
+        });
+        writeln!(child.stdin.as_mut().unwrap(), "{request}").unwrap();
+        let mut reply = String::new();
+        BufReader::new(child.stdout.as_mut().unwrap())
+            .read_line(&mut reply)
+            .unwrap();
+        let original = serde_json::from_str::<Result<serde_json::Value, String>>(&reply)
+            .unwrap()
+            .unwrap();
+        assert_eq!(original["sha256"], chrono_harness::sha256(name.as_bytes()));
+        assert_eq!(
+            fs::read(host.path().join(original["path"].as_str().unwrap())).unwrap(),
+            name.as_bytes()
+        );
+    };
+    let mut round = open(&["--maintenance-round"]);
+    let mut business = open(&[]);
+    publish(&mut round, "maintenance inventory");
+    let mut bytes = [0; 64];
+    assert_eq!(
+        socket.recv(&mut bytes).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    publish(&mut business, "caller result");
+    let read = socket.recv(&mut bytes).unwrap();
+    assert_eq!(&bytes[..read], b"retention-complete");
+    publish(&mut round, "maintenance report");
+    for mut child in [round, business] {
+        drop(child.stdin.take());
+        assert!(child.wait().unwrap().success());
+    }
+    assert_eq!(
+        socket.recv(&mut bytes).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
     );
 }
 

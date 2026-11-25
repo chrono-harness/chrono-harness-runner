@@ -2186,6 +2186,10 @@ pub fn dispatch_observed(args: &[&str], entry: Value) -> CliOutput {
     ["check",rest @ ..]=>match check(rest, entry){Ok(output)=>output,Err(e)=>CliOutput{exit_code:2,stdout:String::new(),stderr:format!("E_CHECK: {e}\n")}},
     ["retention",rest @ ..]=>retained_artifacts::retention_command::command(rest),
     ["retained-artifacts-v1"]=>retained_artifacts::session::command(),
+    ["retained-artifacts-v1", "--maintenance-round"] => {
+        let _round = maintenance_signal::RoundGuard::enter();
+        retained_artifacts::session::command()
+    }
     _=>CliOutput{exit_code:2,stdout:String::new(),stderr:"E_USAGE: use --help\n".into()}
 }
 }
