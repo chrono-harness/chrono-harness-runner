@@ -10302,6 +10302,78 @@ fn failed_final_original_rolls_after_diagnostics_and_a_real_exact_consumer() {
 }
 
 #[test]
+fn publication_session_releases_each_report_slot_to_its_owner() {
+    if !isolated_capability_test("publication_session_releases_each_report_slot_to_its_owner") {
+        return;
+    }
+    use chrono_harness::{
+        prepared::{read_original, retain_original},
+        retained_artifacts::session,
+    };
+    let host = report_host();
+    let root = host.path();
+    let directory = ".chrono-harness/state/preparation/";
+    let activity = inventory(root).read_scope().unwrap();
+    let old = retain_original(root, directory, "report", b"old report").unwrap();
+    let new = retain_original(root, directory, "report", b"new report").unwrap();
+    drop(activity);
+    let slot = "unit/check.json";
+    let refer = |kind: &str, path: &str| json!({"kind":kind,"slot":slot,"path":path,"inputs":[]});
+    let settle = |path: &str| json!({"kind":"settle","slot":slot,"path":path});
+    let close = |kind: &str, token: u64| json!({"kind":kind,"token":token});
+    let mut requests = Vec::new();
+    for action in [
+        refer("reference", &old.path),
+        settle(&old.path),
+        refer("reference-held", &new.path),
+        json!({"kind":"scope","path":null,"inputs":true}),
+        close("end-scope", 1),
+        close("release-read", 2),
+        settle(&old.path),
+        settle(&new.path),
+        close("release-read", 1),
+        close("end-scope", 2),
+        close("release-read", 1),
+        settle(&old.path),
+    ] {
+        serde_json::to_writer(
+            &mut requests,
+            &json!({"operation":"publication","action":action}),
+        )
+        .unwrap();
+        requests.push(b'\n');
+    }
+    let mut output = Vec::new();
+    session::serve(root, requests.as_slice(), &mut output).unwrap();
+    let replies: Vec<Result<Value, String>> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|reply| serde_json::from_str(reply).unwrap())
+        .collect();
+    let ok = |value: Value| Some(value);
+    assert_eq!(
+        replies.into_iter().map(Result::ok).collect::<Vec<_>>(),
+        vec![
+            ok(Value::Null),
+            ok(Value::Null),
+            ok(json!(1)),
+            ok(json!(2)),
+            None,
+            None,
+            None,
+            ok(Value::Null),
+            ok(Value::Null),
+            ok(Value::Null),
+            None,
+            None
+        ]
+    );
+    maintain_fixture_rounds_to(root, 1);
+    assert!(!root.join(&old.path).exists());
+    assert_eq!(read_original(root, &new, None).unwrap(), b"new report");
+}
+
+#[test]
 fn publication_stream_admits_exact_raw_bytes_and_drains_rejected_frames() {
     use std::io::{BufRead, Cursor};
     let host = host(512, 16);

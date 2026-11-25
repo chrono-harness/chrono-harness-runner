@@ -10,7 +10,7 @@
 
 bootstrap 通过 `retained-artifacts-v1` 中的 `publication` 操作创建或接管宿主登记的目录，保留读取租约、诊断和报告引用，并在完成后封存。关闭未完成的发布会释放使用权，原始状态继续交给保管者处理。需要把新取得的租约交给原生子进程时，调用方将匿名 Unix socket 用作会话 stdin，stdout 仍返回逐行 JSON。`scoped-descriptors` 从给定 `offset` 返回最多 32 个描述符。计数大于零时，同一个 socket 传递一个字节 `01` 和相应的 `SCM_RIGHTS`。计数达到 32 时，调用方继续读下一批。
 
-工作树启用原件保管时，在同一 `retained-artifacts-v1` 会话中登记文件、目录及读取它们的操作。普通 JSON 请求每行返回一个 `Result`。显式发出 `explicit-read-scopes` 后，调用方为每次操作打开并关闭自己的读取范围。固定报告的 `reference-held` 返回独立的租约句柄，在指针落地后释放。
+工作树启用原件保管时，在同一 `retained-artifacts-v1` 会话中登记文件、目录及读取它们的操作。普通 JSON 请求每行返回一个 `Result`。显式发出 `explicit-read-scopes` 后，调用方为每次操作打开并关闭自己的读取范围。固定报告先用 `reference` 或 `reference-held` 登记槽位和原件。写入固定报告并同步后，用同一会话、槽位和原件调用 `settle`。普通引用随成功结算释放，`reference-held` 的句柄由调用方用 `release-read` 释放。
 
 `observe-maintenance` 先逐行发出 `{"observation": ...}`，最后返回本轮汇总或错误。维护进程可以边读边写 inventory。对于任意长度的原件，`publish-stream` 请求给出 producer、path、length、sha256 和 outcome。收到 `{"receive": length}` 后发送恰好 length 字节，再读取最终结果。提前拒绝、复用已有原件及内容校验失败都有明确返回值。
 

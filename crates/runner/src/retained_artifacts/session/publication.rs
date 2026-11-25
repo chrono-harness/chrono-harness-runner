@@ -2,6 +2,7 @@
 //! remain in the same session as reference updates and admission.
 use super::*;
 use crate::ownership::Lease;
+use crate::verified_release::{self, PublicationReadScope, ReportSettlement};
 use serde::Deserialize;
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -114,29 +115,75 @@ pub(super) enum Action {
         path: String,
     },
 }
+struct ReportReference {
+    original: String,
+    _guard: Lease,
+    held_by_reader: bool,
+}
+
+enum ReadLease {
+    Original { _guard: Lease },
+    ReportSlot(String),
+}
+
 #[derive(Default)]
 pub(super) struct Publications {
     open: BTreeMap<String, Publication>,
-    slots: BTreeMap<String, Lease>,
-    reads: BTreeMap<u64, Lease>,
+    slots: BTreeMap<String, ReportReference>,
+    reads: BTreeMap<u64, ReadLease>,
     next_read: u64,
     scopes: BTreeMap<u64, retention::ReadScope>,
 }
 impl Publications {
     fn next_token(&mut self) -> Result<u64, String> {
-        self.next_read = self.next_read.checked_add(1).ok_or("read id exhausted")?;
+        self.next_read =
+            verified_release::next_observation(self.next_read).ok_or("read id exhausted")?;
         Ok(self.next_read)
     }
 
     fn retain_read(&mut self, guard: Option<Lease>) -> Result<Value, String> {
         if let Some(guard) = guard {
             let token = self.next_token()?;
-            self.reads.insert(token, guard);
+            self.reads
+                .insert(token, ReadLease::Original { _guard: guard });
             Ok(json!(token))
         } else {
             Ok(Value::Null)
         }
     }
+    fn reference(
+        &mut self,
+        root: &Path,
+        slot: String,
+        original: String,
+        inputs: &[String],
+        held_by_reader: bool,
+    ) -> Result<Value, String> {
+        if self.slots.contains_key(&slot) {
+            return Err("report slot already open".into());
+        }
+        let Some(guard) = retention::reference_report(root, &slot, &original, inputs, None)? else {
+            return Ok(Value::Null);
+        };
+        let token = if held_by_reader {
+            let token = self.next_token()?;
+            self.reads
+                .insert(token, ReadLease::ReportSlot(slot.clone()));
+            Some(token)
+        } else {
+            None
+        };
+        self.slots.insert(
+            slot,
+            ReportReference {
+                original,
+                _guard: guard,
+                held_by_reader,
+            },
+        );
+        Ok(json!(token))
+    }
+
     fn active(&self, path: &str) -> Result<&Publication, String> {
         self.open
             .get(path)
@@ -246,11 +293,17 @@ impl Publications {
                 self.retain_read(guard)
             }
             Action::Scope { path, inputs } => {
-                let scope = match path {
-                    Some(path) if inputs => retention::publication_read_scope(self.active(&path)?)?,
-                    Some(path) => retention::published_output_scope(self.active(&path)?)?,
-                    None if inputs => retention::read_scope(root)?,
-                    None => return Err("output scope requires a publication".into()),
+                let scope = match verified_release::publication_read_scope(path, inputs) {
+                    PublicationReadScope::Inputs(path) => {
+                        retention::publication_read_scope(self.active(&path)?)?
+                    }
+                    PublicationReadScope::Output(path) => {
+                        retention::published_output_scope(self.active(&path)?)?
+                    }
+                    PublicationReadScope::RootInputs => retention::read_scope(root)?,
+                    PublicationReadScope::MissingOutput => {
+                        return Err("output scope requires a publication".into());
+                    }
                 };
                 let token = self.next_token()?;
                 self.scopes.insert(token, scope);
@@ -263,8 +316,7 @@ impl Publications {
                 Ok(Value::Null)
             }
             Action::ReferenceHeld { slot, path, inputs } => {
-                let guard = retention::reference_report(root, &slot, &path, &inputs, None)?;
-                self.retain_read(guard)
+                self.reference(root, slot, path, &inputs, true)
             }
             Action::CreateMember { path, name } => {
                 crate::relative_path(&name)?;
@@ -303,9 +355,13 @@ impl Publications {
                 self.retain_read(guard)
             }
             Action::ReleaseRead { token } => {
-                self.reads
+                if let ReadLease::ReportSlot(slot) = self
+                    .reads
                     .remove(&token)
-                    .ok_or("read capability is not active")?;
+                    .ok_or("read capability is not active")?
+                {
+                    self.slots.remove(&slot);
+                }
                 Ok(Value::Null)
             }
             Action::ReserveContent { path, length } => {
@@ -334,18 +390,18 @@ impl Publications {
                 Ok(json!(self.active(&path)?.protect_consumer(&consumer)?))
             }
             Action::Reference { slot, path, inputs } => {
-                if self.slots.contains_key(&slot) {
-                    return Err("report slot already open".into());
-                }
-                if let Some(guard) = retention::reference_report(root, &slot, &path, &inputs, None)?
-                {
-                    self.slots.insert(slot, guard);
-                }
-                Ok(Value::Null)
+                self.reference(root, slot, path, &inputs, false)
             }
             Action::Settle { slot, path } => {
-                retention::settle_report(root, &slot, &path)?;
-                self.slots.remove(&slot);
+                let claim = self.slots.get(&slot);
+                match verified_release::report_settlement(inventory.is_some(), claim.map(|c| c.original.as_str()), &path) {
+                    ReportSettlement::Unmanaged => return Ok(Value::Null),
+                    ReportSettlement::Reject => return Err("report settlement requires the active reference for this slot and original".into()),
+                    ReportSettlement::Commit => retention::settle_report(root, &slot, &path)?,
+                }
+                if claim.is_some_and(|c| !c.held_by_reader) {
+                    self.slots.remove(&slot);
+                }
                 Ok(Value::Null)
             }
             Action::Complete {
