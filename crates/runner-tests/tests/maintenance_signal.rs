@@ -17,6 +17,27 @@ use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::vpanic as panic;
 verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn git_source_keeps_indexed_and_staged_deleted_paths_and_original_errors() {
+    let no_paths = |_previous: bool| -> (out: (bool, Result<Vec<u8>, u8>))
+        ensures out.0 && match out.1 { Ok(bytes) => bytes.len() == 0, Err(_) => false },
+    { (true, Ok(Vec::new())) };
+    let a_path = |_previous: bool| -> (out: (bool, Result<Vec<u8>, u8>))
+        ensures out.0 && match out.1 { Ok(bytes) => bytes.len() > 0, Err(_) => false },
+    { (true, Ok(vec![0u8])) };
+    let failure = |_previous: bool| -> (out: (bool, Result<Vec<u8>, u8>))
+        ensures out == (true, Err::<Vec<u8>, u8>(17u8)),
+    { (true, Err(17u8)) };
+    let indexed = disposal::protected_git_source(false, Ok(vec![0u8]), &failure);
+    let first_error = disposal::protected_git_source(false, Err(29u8), &failure);
+    let absent = disposal::protected_git_source(false, Ok(Vec::new()), &no_paths);
+    let deleted = disposal::protected_git_source(false, Ok(Vec::new()), &a_path);
+    let later_error = disposal::protected_git_source(false, Ok(Vec::new()), &failure);
+    if !matches!(indexed, (false, Ok(true))) || !matches!(first_error, (false, Err(29)))
+        || !matches!(absent, (true, Ok(false))) || !matches!(deleted, (true, Ok(true)))
+        || !matches!(later_error, (true, Err(17))) { panic!(); }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn observing_a_socket_requires_both_the_observer_and_socket_kind() {
     if !disposal::observable_socket(true, true)
         || disposal::observable_socket(false, true)
