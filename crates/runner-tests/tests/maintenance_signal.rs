@@ -473,6 +473,82 @@ fn maintenance_report_publication_does_not_wake_itself_or_suppress_other_threads
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn a_maintenance_custody_session_seals_its_report_while_other_sessions_still_wake_the_owner() {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        process::{Command, Stdio},
+    };
+
+    let (host, socket_path) = host();
+    let socket = UnixDatagram::bind(socket_path).unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let retention = serde_json::json!({
+        "schema":"chrono-output-retention/v2",
+        "producers":{"check-original":[".chrono-harness/state/"]},
+        "keep_seconds":0, "max_related_outputs":32, "max_summaries":16,
+        "max_nodes_per_round":256, "max_bytes_per_round":1048576, "max_millis_per_round":1000,
+    });
+    fs::write(
+        host.path()
+            .join(chrono_harness::retained_artifacts::retention::POLICY_PATH),
+        serde_json::to_vec(&retention).unwrap(),
+    )
+    .unwrap();
+
+    let open = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
+            .arg("retained-artifacts-v1")
+            .args(args)
+            .current_dir(host.path())
+            .env_remove(signal::CONTEXT_ENV)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let publish = |child: &mut std::process::Child, name: &str| {
+        let request = serde_json::json!({
+            "operation":"retain-original-text", "directory":".chrono-harness/state/",
+            "prefix":"report", "text":name
+        });
+        writeln!(child.stdin.as_mut().unwrap(), "{request}").unwrap();
+        let mut reply = String::new();
+        BufReader::new(child.stdout.as_mut().unwrap())
+            .read_line(&mut reply)
+            .unwrap();
+        let original = serde_json::from_str::<Result<serde_json::Value, String>>(&reply)
+            .unwrap()
+            .unwrap();
+        assert_eq!(original["sha256"], chrono_harness::sha256(name.as_bytes()));
+        assert_eq!(
+            fs::read(host.path().join(original["path"].as_str().unwrap())).unwrap(),
+            name.as_bytes()
+        );
+    };
+    let mut round = open(&["--maintenance-round"]);
+    let mut business = open(&[]);
+    publish(&mut round, "maintenance inventory");
+    let mut bytes = [0; 64];
+    assert_eq!(
+        socket.recv(&mut bytes).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    publish(&mut business, "caller result");
+    let read = socket.recv(&mut bytes).unwrap();
+    assert_eq!(&bytes[..read], b"retention-complete");
+    publish(&mut round, "maintenance report");
+    for mut child in [round, business] {
+        drop(child.stdin.take());
+        assert!(child.wait().unwrap().success());
+    }
+    assert_eq!(
+        socket.recv(&mut bytes).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn linked_retention_routes_only_its_own_hint_to_the_known_physical_owner() {
     let (owner, owner_path) = host();
     let (linked, linked_path) = host();

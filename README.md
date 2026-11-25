@@ -14,6 +14,8 @@ bootstrap 通过 `retained-artifacts-v1` 中的 `publication` 操作创建或接
 
 `observe-maintenance` 先逐行发出 `{"observation": ...}`，最后返回本轮汇总或错误。维护进程可以边读边写 inventory。对于任意长度的原件，`publish-stream` 请求给出 producer、path、length、sha256 和 outcome。收到 `{"receive": length}` 后发送恰好 length 字节，再读取最终结果。提前拒绝、复用已有原件及内容校验失败都有明确返回值。
 
+维护服务在持有执行轮次时，用 `chrono-harness retained-artifacts-v1 --maintenance-round` 保管本轮的清单与报告。这些原件正常封存。该会话关闭前，它自身的完成和引用操作不向同一服务发送新事件。并发业务会话使用普通入口，继续发送维护请求。
+
 工作树清理器使用 `retained-artifacts-v1` 的 `open-removal` 登记一组宿主相对路径。返回 true 时，保管进程持有这组路径的删除租约，直到输入关闭。调用方在实际删除前用 `check-removal` 再次核对租约。若要将保护传给子进程，调用方通过同一 Unix 会话的 `scoped-descriptors` 接收并传递原文件描述符。
 
 `chrono-harness inherited-descriptors-v1` 校验并报告当前是否继承了所有权描述符。`chrono-harness exec-with-descriptors-v1 PROGRAM [ARGS...]` 将租约交给实际程序，在同一 PID 上执行它，沿用调用方提供的当前目录、环境和标准流。
