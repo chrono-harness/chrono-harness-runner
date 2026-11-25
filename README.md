@@ -35,7 +35,15 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 
 ## 验证
 
-在仓库根运行 `mise exec -- ./check.sh` 执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。编译器在新的临时 target 内按 Cargo 包依赖产生和读取证明元数据，检查结束后回收。
+在仓库根运行 `mise exec -- ./check.sh` 执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。本地入口需要 Python 3.8+ 和支持 BSD flock 的本地文件系统。每次检查在本工作树的 `target/native-checks/` 下独占一个目录；标准错误会输出路径。原生编译和 Verus 结束并释放租约后，成功目录立即清理。自选 `CARGO_TARGET_DIR` 由调用者管理，应放在本工具的专用目录以外。
+
+失败和中断的可重建目录默认保留 24 小时。需要保存的诊断应在窗口内复制到其他存储，读回并核对摘要。失败从进程返回时计时，中断按目录最后一次修改时间计时。检查进程及继承租约的子进程仍在使用时，维护跳过该目录。长期检出在该用户的 crontab 加一条每小时的任务，将路径替换为仓库的绝对路径。
+
+```cron
+17 * * * * cd "/absolute/path/to/chrono-harness-runner" && ./check.sh --maintain
+```
+
+机器在线、任务已安装、目录已到期且读者释放后，下一次成功维护回收整次检查的目录。维护使用系统 Python 和 Git。较早版本生成的 `target/check.*` 没有租约，只在核实旧检查已经退出后按实际归属回收。
 
 [本仓 Cargo 工作区](Cargo.toml) 使用一份根 Cargo.lock 管理 runner、测试、进程替身及三个证明包。证明包登记 `chrono-identifiers`、`chrono-verifier` 及其余各根对应的 Cargo 库目标。生产 runner、Cargo 的原生测试及 Verus 均使用这两个包的同一份源码。runner 保留从固定 Git 端点取数的适配器；验证器包负责根据已经观察到的数据作判断。
 
@@ -51,7 +59,7 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 | `runner_cli`、`runner_cli_tests` | CLI 选择、参数解码、判官请求和输出；发布失败会保留产生它的写入或 flush 阶段 |
 | `runner_fixture_tests` | 原生测试的进程替身与输入预期，由测试框架使用 |
 
-每个整根的实际输入见 [Cargo 目标](crates/proofs/expectations/Cargo.toml) 和 [检查入口](check.sh)。原生测试核对换用系统接口后可观察的业务结果，Verus 的结论依赖所登记的工具、编译器和外部模型。
+每个整根的实际输入见 [Cargo 目标](crates/proofs/expectations/Cargo.toml) 和 [原生和证明检查](.chrono-harness/native-check.sh)。原生测试核对换用系统接口后可观察的业务结果，Verus 的结论依赖所登记的工具、编译器和外部模型。
 
 运行库与测试从 [原实现的固定提交](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/runner) 分出。旧宿主的登记表检查由新的采用宿主负责。工作树、CI 生成器及安装器各自负责其命令替身的断言。
 
