@@ -6,7 +6,11 @@ cd "$(dirname "$0")"
 # the first new allocation so the same entry can still perform the final sweep.
 bootstrap=target/native-check-bootstrap
 if [[ $# == 0 ]]; then
-  installed=$(mise which chrono-host-bootstrap)
+  installed=$(command -v chrono-host-bootstrap)
+  if [[ $installed != /* ]]; then
+    echo "expected the installed chrono-host-bootstrap on PATH" >&2
+    exit 1
+  fi
   if [[ -L target || ( -e "$bootstrap" && ! -L "$bootstrap" ) ]]; then
     echo "expected a physical target directory and a managed bootstrap link" >&2
     exit 1
