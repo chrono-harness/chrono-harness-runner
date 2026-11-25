@@ -1,7 +1,7 @@
 //! Invocation-scoped JSON lines connection to one policy-bound Git reader.
 #[path = "git_facts_output.rs"]
 mod output;
-use crate::{facts, wire};
+use crate::{facts, verified_git_binding, wire};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -440,18 +440,16 @@ impl Session {
                         .git(&self.root, &["rev-parse", "--git-path", "shallow"])?,
                 )?;
                 let path = self.root.join(path.trim());
-                let (state, response) = match fs::read_to_string(&path) {
-                    Ok(text) => ("present", Ok(json!(text.lines().collect::<Vec<_>>()))),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        ("absent", Ok(json!([])))
-                    }
-                    Err(error) => ("error", Err(format!("E_HISTORY_MISSING: {error}"))),
-                };
-                if self.reader.is_bound() {
-                    self.shallow_reads.push(json!({
-                        "path": path, "state": state, "response": response
-                    }));
-                }
+                let read = fs::read_to_string(&path)
+                    .map(|text| json!(text.lines().collect::<Vec<_>>()))
+                    .map_err(|error| (error.kind() == std::io::ErrorKind::NotFound, error));
+                let (state, response) = verified_git_binding::shallow_file_reply(read, json!([]));
+                let response = response.map_err(|error| format!("E_HISTORY_MISSING: {error}"));
+                verified_git_binding::retain_shallow_read(
+                    &mut self.shallow_reads,
+                    self.reader.is_bound(),
+                    || json!({"path": path, "state": state, "response": response}),
+                );
                 response
             }
             Operation::CheckoutRoot => {
@@ -490,8 +488,10 @@ impl Session {
             }
             Operation::Observation => {
                 let mut observed = self.reader.observation();
-                if !self.shallow_reads.is_empty() {
-                    observed["shallow_reads"] = json!(self.shallow_reads);
+                if let Some(records) =
+                    verified_git_binding::observed_shallow_reads(&self.shallow_reads)
+                {
+                    observed["shallow_reads"] = json!(records);
                 }
                 Ok(observed)
             }

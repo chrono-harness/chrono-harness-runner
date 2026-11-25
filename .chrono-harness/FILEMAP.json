@@ -810,7 +810,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/verified_git_binding.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner-tests/tests/verified_limits.rs",
@@ -1649,7 +1658,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_git_binding.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/verified_limits.rs",
