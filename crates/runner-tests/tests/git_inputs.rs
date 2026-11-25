@@ -169,6 +169,72 @@ fn observed_host() -> Host {
 }
 
 #[test]
+fn shallow_boundary_observations_keep_each_reply_from_its_original_read() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
+    let host = observed_host();
+    host.save();
+    let path = host.root.join("git mock observed");
+    let (client, server) = UnixStream::pair().unwrap();
+    let root = host.root.clone();
+    let worker = std::thread::spawn(move || {
+        let input = BufReader::new(server.try_clone().unwrap());
+        chrono_harness::git_facts_session::serve(&root, input, server).unwrap();
+    });
+    let mut replies = BufReader::new(client.try_clone().unwrap());
+    let mut requests = client;
+    let mut exchange = |op: Value| {
+        writeln!(requests, "{op}").unwrap();
+        let mut line = String::new();
+        replies.read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()
+    };
+    let oid = "a".repeat(40);
+    let header =
+        json!({"mode":"config","config":".chrono-harness/config.json","base":oid,"candidate":oid});
+    assert_eq!(exchange(header), json!({"Ok":{"bound":true}}));
+    assert!(
+        exchange(json!({"op":"observation"}))["Ok"]
+            .get("shallow_reads")
+            .is_none()
+    );
+
+    let op = json!({"op":"shallow-boundaries"});
+    let mut expected = Vec::new();
+    for (state, contents, boundaries) in [
+        ("absent", None, json!([])),
+        ("present", Some(String::new()), json!([])),
+        (
+            "present",
+            Some(format!("{oid}\n{oid}\n")),
+            json!([oid, oid]),
+        ),
+    ] {
+        if let Some(text) = contents {
+            fs::write(&path, text).unwrap();
+        }
+        let reply = exchange(op.clone());
+        assert_eq!(reply, json!({"Ok":boundaries}));
+        expected.push(json!({"path":path,"state":state,"response":reply}));
+    }
+    fs::write(&path, [0xff]).unwrap();
+    let failed = exchange(op);
+    assert!(
+        failed["Err"]
+            .as_str()
+            .unwrap()
+            .starts_with("E_HISTORY_MISSING:")
+    );
+    expected.push(json!({"path":path,"state":"error","response":failed}));
+    fs::remove_file(&path).unwrap();
+    let observed = exchange(json!({"op":"observation"}));
+    assert_eq!(observed["Ok"]["shallow_reads"], json!(expected));
+    requests.shutdown(std::net::Shutdown::Write).unwrap();
+    worker.join().unwrap();
+}
+
+#[test]
 fn event_session_runs_the_selected_git_with_exact_revision_and_fetch_arguments() {
     let host = observed_host();
     host.save();

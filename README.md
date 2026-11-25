@@ -85,6 +85,8 @@ The local checkout must match the candidate. The report and operation streams ar
 
 后续请求的 `op` 可取 `delta`、`observation`，或带 `endpoint`（`base` 或 `candidate`）的 `verify-tree`、`registry-snapshot`、`checked-out-snapshot`、`json-blob`。`json-blob` 另需相对路径 `path`。快照返回 `originals`、`values`、`effective_path`、`selection`，检出快照还核对 HEAD 和配置原字节。发生操作错误后仍可读取该会话已执行的 Git 观察，再关闭输入并等待进程退出。
 
+workflow 判官通过同一会话的 `shallow-boundaries` 读取 Git 报出的浅历史边界文件。已绑定会话的 `observation.shallow_reads` 按读取顺序保留实际路径、文件状态和当时返回的 `Ok` 或 `Err`。文件缺失和空文件的边界列表均为空，状态分别为 `absent` 和 `present`。读取失败的状态为 `error`。
+
 `git-facts-v1` 的 `checkout-excluding` 接收宿主登记的 `artifacts` 路径列表，返回当前固定候选的 HEAD、跟踪变更、范围外的未跟踪路径和 index 标志。项目判官在执行前后使用同一 Git 读取会话核对候选输入，并将 Git 观察纳入响应。
 
 

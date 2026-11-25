@@ -47,7 +47,8 @@ jobs:
           set -euo pipefail
           cargo build --release --locked --package chrono-harness
           binary="$CARGO_TARGET_DIR/release/chrono-harness"
-          test "$("$binary" --version)" = 'chrono-harness 0.1.0'
+          version=${GITHUB_REF_NAME#v}
+          test "$("$binary" --version)" = "chrono-harness ${version%%-alpha.*}"
           "$binary" --help | grep -F 'chrono-harness check' >/dev/null
           mkdir "$RUNNER_TEMP/dist"
           cp "$CARGO_TARGET_DIR/release/chrono-harness" "$RUNNER_TEMP/dist/chrono-harness-$PLATFORM"

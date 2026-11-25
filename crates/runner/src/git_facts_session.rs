@@ -148,6 +148,7 @@ struct Session {
     base: Option<String>,
     candidate: String,
     reader: facts::Reader,
+    shallow_reads: Vec<Value>,
     candidate_modes: Option<BTreeMap<String, String>>,
     output_binding: Option<output::Binding>,
     collection: Option<(
@@ -274,6 +275,7 @@ impl Session {
                 base,
                 candidate,
                 reader,
+                shallow_reads: Vec::new(),
                 candidate_modes: None,
                 output_binding: None,
                 collection,
@@ -437,12 +439,20 @@ impl Session {
                     self.reader
                         .git(&self.root, &["rev-parse", "--git-path", "shallow"])?,
                 )?;
-                let boundaries = match fs::read_to_string(self.root.join(path.trim())) {
-                    Ok(text) => text,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-                    Err(error) => return Err(format!("E_HISTORY_MISSING: {error}")),
+                let path = self.root.join(path.trim());
+                let (state, response) = match fs::read_to_string(&path) {
+                    Ok(text) => ("present", Ok(json!(text.lines().collect::<Vec<_>>()))),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        ("absent", Ok(json!([])))
+                    }
+                    Err(error) => ("error", Err(format!("E_HISTORY_MISSING: {error}"))),
                 };
-                Ok(json!(boundaries.lines().collect::<Vec<_>>()))
+                if self.reader.is_bound() {
+                    self.shallow_reads.push(json!({
+                        "path": path, "state": state, "response": response
+                    }));
+                }
+                response
             }
             Operation::CheckoutRoot => {
                 let top = facts::utf8(
@@ -478,7 +488,13 @@ impl Session {
                     .blob(&self.root, self.commit(endpoint)?, &path)?;
                 crate::json(&bytes).map_err(|error| format!("E_SEMANTIC_INPUT: {path}: {error}"))
             }
-            Operation::Observation => Ok(self.reader.observation()),
+            Operation::Observation => {
+                let mut observed = self.reader.observation();
+                if !self.shallow_reads.is_empty() {
+                    observed["shallow_reads"] = json!(self.shallow_reads);
+                }
+                Ok(observed)
+            }
             Operation::VerifyConfig { candidate } => {
                 facts::full_oid(&candidate)?;
                 self.reader.verify_config(&self.root, &candidate)?;
