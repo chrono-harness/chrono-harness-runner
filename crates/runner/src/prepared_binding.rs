@@ -76,7 +76,8 @@ pub fn validate_binding(
         || selector
             .as_ref()
             .is_some_and(|h| h != &sha256(req.source.as_bytes()))
-        || std::env::var(SOURCE).unwrap_or_else(|_| "local".into()) != req.source
+        || (!c.inputs.inherit_environment.iter().any(|key| key == SOURCE)
+            && std::env::var(SOURCE).unwrap_or_else(|_| "local".into()) != req.source)
     {
         return Err("check source selector disagreement".into());
     }
