@@ -1,148 +1,1850 @@
 {
   "schema_version": 2,
   "files": [
-    {"path": ".chrono-harness/rules.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": "docs/licenses/methodology-attribution.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": "docs/licenses/trureturing-Apache-2.0.txt", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": "AGENTS.md", "symlink": "CLAUDE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": "CLAUDE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": ".github/ISSUE_TEMPLATE/bug.yml", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": ".github/ISSUE_TEMPLATE/documentation.yml", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": ".github/ISSUE_TEMPLATE/enhancement.yml", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": ".github/ISSUE_TEMPLATE/question.yml", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": ".github/PULL_REQUEST_TEMPLATE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": ".config/mise/conf.d/chrono-harness.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
-    {"path": ".chrono-harness/pr.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".chrono-harness/USAGE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": ".chrono-harness/template-answers.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".chrono-harness/.gitignore", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".chrono-harness/FILEMAP.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
-    {"path": ".chrono-harness/check.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
-    {"path": ".chrono-harness/projects.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
-    {"path": ".github/roadmap.cjs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".github/workflows/issue-roadmap.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".github/workflows/check.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
-    {"path": ".github/workflows/release.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": ".gitignore", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "README.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": "check.sh", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": ".chrono-harness/test-native-check.py", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": ".chrono-harness/native-check.sh", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": ".chrono-harness/native-check.py", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "Cargo.lock", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/Cargo.toml", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/checkout.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/fixtures/host-registries.json", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/registered_git.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/registered_git_inputs.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/registration_reports.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/registration_judge.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/cli_contract.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/diagnostics_mock.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/fixtures/git-command.json", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/fixtures/retention.json", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/git_inputs.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/maintenance_signal.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/process_fds.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/protocol_v1.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/registry_snapshot.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/retention.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/runtime_logging.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/cli_child.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/debug_events.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/git_fixture.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/git_input.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/isolated_capability.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/native_executable.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/prepared_producer.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/process_lifecycle.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/protocol_judge.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/retention_child.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/retention_frontier.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/retention_state.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/source_pipeline.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/support/verified_continuity.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_cli.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_fixture.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_git_binding.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_limits.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}], "verification": {"role": "program", "roots": [{"path": "crates/runner-tests/tests/verified_limits.rs", "operation": "verify.resource-limits-tests"}]}},
-    {"path": "crates/runner-tests/tests/verified_identifiers.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_paths.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_release.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_sealed_member.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}], "verification": {"role": "program", "roots": [{"path": "crates/runner-tests/tests/verified_sealed_member.rs", "operation": "verify.sealed-member-tests"}]}},
-    {"path": "crates/runner-tests/tests/verified_status.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_verifier.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "Cargo.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/proofs/identifiers/Cargo.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/proofs/verifier/Cargo.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/proofs/expectations/Cargo.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/Cargo.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/artifact_disposal.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/canonical_request.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/checkout.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/command_stream.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/observed_command.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/facts.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/git_facts_output.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/git_facts_session.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/judge_evidence.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/facts_binding.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/finding_registry.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/facts_configs.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/facts_inputs.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/full.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/initial.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/input_file.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/installed_query.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/invocation_query.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/lib.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/main.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/maintenance_signal.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/observation.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/ownership.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/prepared.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/prepared_artifacts.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/prepared_binding.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/process_child.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/diagnostic_session.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/trace_source.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/process_error.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/process_fds.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/process_ownership.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/publication.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/manifest.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}], "verification": {"role": "program", "roots": [{"path": "crates/runner/src/retained_artifacts/manifest.rs", "operation": "verify.sealed-member"}, {"path": "crates/runner-tests/tests/verified_sealed_member.rs", "operation": "verify.sealed-member-tests"}]}},
-    {"path": "crates/runner/src/retained_artifacts/partition.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/retention.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/retention_command.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/session.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/session/directory.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/session/descriptors.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/session/inventory.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/session/publication.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/verified_release.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/route_evidence.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/scoped_report.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/short_console.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/source_coverage.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/source_endpoints.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/units.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/verified_cli.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/proofs/verifier/src/verified_continuity.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/verified_export.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/verified_git_binding.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/verified_limits.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}], "verification": {"role": "program", "roots": [{"path": "crates/runner/src/verified_limits.rs", "operation": "verify.resource-limits"}, {"path": "crates/runner-tests/tests/verified_limits.rs", "operation": "verify.resource-limits-tests"}]}},
-    {"path": "crates/proofs/identifiers/src/lib.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}], "verification": {"role": "program", "roots": [{"path": "crates/proofs/identifiers/src/lib.rs", "operation": "verify.identifiers"}]}},
-    {"path": "crates/runner/src/verified_paths.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/verified_scope.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/proofs/verifier/src/verified_source_pipeline.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/proofs/verifier/src/verified_sources.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/verified_status.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/proofs/verifier/src/lib.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/wire.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/test-process/Cargo.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/test-process/src/lib.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "rust-toolchain.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]}
+    {
+      "path": ".chrono-harness/install-tools.sh",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member-tests"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/rules.json",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".config/mise/conf.d/.gitignore",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "docs/licenses/methodology-attribution.md",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "docs/licenses/trureturing-Apache-2.0.txt",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "AGENTS.md",
+      "symlink": "CLAUDE.md",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "CLAUDE.md",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/bug.yml",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/documentation.yml",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/enhancement.yml",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/ISSUE_TEMPLATE/question.yml",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".config/mise/conf.d/chrono-harness.toml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member-tests"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/pr.json",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/USAGE.md",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/template-answers.yml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/.gitignore",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".chrono-harness/FILEMAP.json",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:identifiers"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member-tests"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/check.json",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:identifiers"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member-tests"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/projects.json",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:identifiers"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member-tests"
+        }
+      ]
+    },
+    {
+      "path": ".github/roadmap.cjs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/workflows/issue-roadmap.yml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": ".github/workflows/check.yml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member-tests"
+        }
+      ]
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": ".gitignore",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "owner": "runner",
+      "surface": "documentation",
+      "cost": "unmeasured",
+      "edges": []
+    },
+    {
+      "path": "check.sh",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/test-native-check.py",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/native-check.sh",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": ".chrono-harness/native-check.py",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "Cargo.lock",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/Cargo.toml",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/checkout.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/fixtures/host-registries.json",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/registered_git.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/registered_git_inputs.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/registration_reports.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/registration_judge.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/cli_contract.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/diagnostics_mock.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/fixtures/git-command.json",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/fixtures/retention.json",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/git_inputs.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/maintenance_signal.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/process_fds.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/protocol_v1.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/registry_snapshot.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/retention.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/runtime_logging.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/cli_child.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/debug_events.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/git_fixture.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/git_input.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/isolated_capability.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/native_executable.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/prepared_producer.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/process_lifecycle.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/protocol_judge.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/retention_child.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/retention_frontier.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/retention_state.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/source_pipeline.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/support/verified_continuity.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_cli.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_fixture.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_git_binding.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_limits.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/verified_limits.rs",
+            "operation": "verify.resource-limits-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_identifiers.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_paths.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_release.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_sealed_member.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/verified_sealed_member.rs",
+            "operation": "verify.sealed-member-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_status.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_verifier.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "Cargo.toml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/proofs/identifiers/Cargo.toml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/proofs/verifier/Cargo.toml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/proofs/expectations/Cargo.toml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/Cargo.toml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/artifact_disposal.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/canonical_request.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/checkout.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/command_stream.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/observed_command.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/facts.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/git_facts_output.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/git_facts_session.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/judge_evidence.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/facts_binding.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/finding_registry.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/facts_configs.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/facts_inputs.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/full.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/initial.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/input_file.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/installed_query.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/invocation_query.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/lib.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/main.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/maintenance_signal.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/observation.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/ownership.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/prepared.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/prepared_artifacts.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/prepared_binding.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/process_child.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/diagnostic_session.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/trace_source.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/process_error.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/process_fds.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/process_ownership.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/publication.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/manifest.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/retained_artifacts/manifest.rs",
+            "operation": "verify.sealed-member"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_sealed_member.rs",
+            "operation": "verify.sealed-member-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/partition.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/retention.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/retention_command.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/session.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/session/directory.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/session/descriptors.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/session/inventory.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/session/publication.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/retained_artifacts/verified_release.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/route_evidence.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/scoped_report.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/short_console.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/source_coverage.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/source_endpoints.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/units.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/verified_cli.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/proofs/verifier/src/verified_continuity.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/verified_export.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/verified_git_binding.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/verified_limits.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_limits.rs",
+            "operation": "verify.resource-limits"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_limits.rs",
+            "operation": "verify.resource-limits-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/proofs/identifiers/src/lib.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:identifiers"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/proofs/identifiers/src/lib.rs",
+            "operation": "verify.identifiers"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/runner/src/verified_paths.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/verified_scope.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/proofs/verifier/src/verified_source_pipeline.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/proofs/verifier/src/verified_sources.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/verified_status.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/proofs/verifier/src/lib.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/runner/src/wire.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/test-process/Cargo.toml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "crates/test-process/src/lib.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ]
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:sealed-member-tests"
+        }
+      ]
+    }
   ],
   "project_edges": [],
   "cost_models": {
