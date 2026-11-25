@@ -335,6 +335,45 @@ fn arguments() -> (out: Vec<String>)
         "-o".to_string(), "out".to_string(), "-Zchecksum-hash-algorithm=sha256".to_string()]
 }
 
+// Use distinct literal outputs so changing only one slot also fails the expectation.
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn compiler_directory_binds_both_outputs_and_preserves_the_other_arguments() {
+    let mut args = arguments();
+    args[10] = "{operation_state}/x.rlib".to_string();
+    args[7] = "--emit=link={operation_state}/x.rlib,dep-info={operation_state}/x.rlib.d".to_string();
+    proof {
+        reveal_strlit("{operation_state}/"); reveal_strlit(".rlib"); reveal_strlit("x.rlib");
+        reveal_strlit("{operation_state}/x.rlib"); reveal_strlit("/");
+        reveal_strlit("--emit=link="); reveal_strlit(",dep-info="); reveal_strlit(".d");
+        reveal_strlit("--emit=link={operation_state}/x.rlib,dep-info={operation_state}/x.rlib.d");
+        assert("{operation_state}/x.rlib"@.take("{operation_state}/"@.len() as int) =~= "{operation_state}/"@);
+        assert("{operation_state}/x.rlib"@.skip("{operation_state}/"@.len() as int) =~= "x.rlib"@);
+        assert("{operation_state}/x.rlib"@.skip("{operation_state}/x.rlib"@.len() - ".rlib"@.len()) =~= ".rlib"@);
+        vstd::utf8::is_ascii_chars_encode_utf8("x.rlib"@);
+        assert(vstd::utf8::encode_utf8("x.rlib"@) =~= seq![120u8,46u8,114u8,108u8,105u8,98u8]);
+        assert(!vstd::utf8::encode_utf8("x.rlib"@).contains(47u8));
+        assert(args[7]@ =~= "--emit=link="@ + args[10]@ + ",dep-info="@ + args[10]@ + ".d"@);
+        assert(policy::verifier_arguments(args@));
+        reveal_strlit("check"); reveal_strlit("check/x.rlib");
+        reveal_strlit("--emit=link=check/x.rlib,dep-info=check/x.rlib.d");
+        assert("check/x.rlib"@ =~= "check"@ + "/"@ + "x.rlib"@);
+        assert("--emit=link=check/x.rlib,dep-info=check/x.rlib.d"@ =~=
+            "--emit=link="@ + "check/x.rlib"@ + ",dep-info="@ + "check/x.rlib"@ + ".d"@);
+    }
+    policy::bind_compiler_directory(&mut args, "check");
+    expect_verifier_true(identifiers::equal_text(args[10].as_str(), "check/x.rlib"));
+    expect_verifier_true(identifiers::equal_text(args[7].as_str(),
+        "--emit=link=check/x.rlib,dep-info=check/x.rlib.d"));
+    expect_verifier_true(identifiers::equal_text(args[8].as_str(), "root"));
+    let mut other = arguments();
+    proof {
+        reveal_strlit("out");
+        assert("out"@.len() < "{operation_state}/"@.len());
+    }
+    policy::bind_compiler_directory(&mut other, "check");
+    expect_verifier_true(identifiers::equal_text(other[10].as_str(), "out"));
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn ordinary_operations_do_not_decode_their_business_output() {
     let ordinary = policy::admit_output(&None, &None, &Vec::new(), i32::MIN, true);

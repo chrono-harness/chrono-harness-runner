@@ -207,6 +207,41 @@ fn public_compiler_query_preserves_owner_paths_and_rejects_missing_originals() {
         bound[7],
         "--emit=link=bound/receipt.rlib,dep-info=bound/receipt.rlib.d"
     );
+    for (member, canonical, expected) in [
+        (
+            "{operation_state}/构建 output.rlib",
+            true,
+            Some("bound/构建 output.rlib"),
+        ),
+        ("{operation_state}/dir/name.rlib", true, None),
+        ("{operation_state}/item.d", true, None),
+        ("other/item.rlib", true, None),
+        ("{operation_state}/name.rlib", false, None),
+    ] {
+        let mut input = argv.clone();
+        input[10] = json!(member);
+        input[7] = json!(format!("--emit=link={member},dep-info={member}.d"));
+        if !canonical {
+            input[8] = json!("");
+        }
+        let mut expected_args = input.clone();
+        if let Some(target) = expected {
+            expected_args[10] = json!(target);
+            expected_args[7] = json!(format!("--emit=link={target},dep-info={target}.d"));
+        }
+        let query = json!({"operation":"bind","argv":input,"directory":"bound"});
+        let mut reply = Vec::new();
+        serve(
+            "compiler-output-v1",
+            query.to_string().as_bytes(),
+            &mut reply,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&reply).unwrap(),
+            expected_args
+        );
+    }
     let request = json!({"operation":"check","contract":{"version":"fixture","commit":"fixture"},
         "stdout":[0,255],"argv":bound,"exit":0,"process_failed":false,"dependency":null,"limit":4096,"artifact":null});
     assert!(
