@@ -9,6 +9,38 @@ verus! {
 pub fn observable_socket(observe_sockets: bool, is_socket: bool) -> (allowed: bool)
     ensures allowed == (observe_sockets && is_socket),
 { observe_sockets && is_socket }
+/// Any Git output byte identifies protected source. A staged deletion is checked
+/// only after Git successfully reports that the index contains no matching path.
+pub fn protected_git_source<S, E, F>(
+    state: S, index: Result<Vec<u8>, E>, deleted: &F,
+) -> (out: (S, Result<bool, E>))
+    where F: Fn(S) -> (S, Result<Vec<u8>, E>),
+    requires deleted.requires((state,)),
+    ensures match index {
+        Err(error) => out == (state, Err::<bool, E>(error)),
+        Ok(paths) if paths.len() > 0 => out == (state, Ok::<bool, E>(true)),
+        Ok(_) => exists|observed: (S, Result<Vec<u8>, E>)|
+            #[trigger] deleted.ensures((state,), observed) && out.0 == observed.0 &&
+            out.1 == match observed.1 {
+                Ok(paths) => Ok(paths.len() > 0),
+                Err(error) => Err(error),
+            },
+    },
+{
+    match index {
+        Err(error) => (state, Err(error)),
+        Ok(paths) if !paths.is_empty() => (state, Ok(true)),
+        Ok(_) => {
+            let observed = deleted(state);
+            assert(deleted.ensures((state,), observed));
+            match observed.1 {
+                Ok(paths) => (observed.0, Ok(!paths.is_empty())),
+                Err(error) => (observed.0, Err(error)),
+            }
+        }
+    }
+}
+
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -136,29 +168,28 @@ pub fn source_safe(root: &Path, relative: &str) -> Result<(), String> {
     let index = reader.git(
         root,
         &["--literal-pathspecs", "ls-files", "-z", "--", relative],
-    )?;
-    // The index contains every HEAD path except staged deletions (including
-    // rename sources). Git compares an unborn index against the empty tree;
-    // a named HEAD tree would reject legitimate pre-first-commit outputs.
-    if !index.is_empty()
-        || !reader
-            .git(
-                root,
-                &[
-                    "--literal-pathspecs",
-                    "diff",
-                    "--cached",
-                    "--name-only",
-                    "-z",
-                    "--no-renames",
-                    "--ignore-submodules=none",
-                    "--diff-filter=D",
-                    "--",
-                    relative,
-                ],
-            )?
-            .is_empty()
-    {
+    );
+    // A staged deletion can still be committed in HEAD. Git also supports the
+    // empty HEAD of an unborn repository with this form of diff.
+    let (_, protected) = protected_git_source((), index, &|()| {
+        let deleted = reader.git(
+            root,
+            &[
+                "--literal-pathspecs",
+                "diff",
+                "--cached",
+                "--name-only",
+                "-z",
+                "--no-renames",
+                "--ignore-submodules=none",
+                "--diff-filter=D",
+                "--",
+                relative,
+            ],
+        );
+        ((), deleted)
+    });
+    if protected? {
         return Err(format!(
             "retained output contains committed/index source: {relative}"
         ));
