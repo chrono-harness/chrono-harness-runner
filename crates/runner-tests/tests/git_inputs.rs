@@ -191,7 +191,8 @@ fn shallow_boundary_observations_keep_each_reply_from_its_original_read() {
         serde_json::from_str::<Value>(&line).unwrap()
     };
     let oid = "a".repeat(40);
-    let header = json!({"mode":"config","config":".chrono-harness/config.json","base":oid,"candidate":oid});
+    let header =
+        json!({"mode":"config","config":".chrono-harness/config.json","base":oid,"candidate":oid});
     assert_eq!(exchange(header), json!({"Ok":{"bound":true}}));
     assert!(
         exchange(json!({"op":"observation"}))["Ok"]
@@ -204,7 +205,11 @@ fn shallow_boundary_observations_keep_each_reply_from_its_original_read() {
     for (state, contents, boundaries) in [
         ("absent", None, json!([])),
         ("present", Some(String::new()), json!([])),
-        ("present", Some(format!("{oid}\n{oid}\n")), json!([oid, oid])),
+        (
+            "present",
+            Some(format!("{oid}\n{oid}\n")),
+            json!([oid, oid]),
+        ),
     ] {
         if let Some(text) = contents {
             fs::write(&path, text).unwrap();

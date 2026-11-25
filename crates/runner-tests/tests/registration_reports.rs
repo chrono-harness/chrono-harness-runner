@@ -779,7 +779,10 @@ fn full_report_executable_list_distinguishes_observed_and_configured() {
             sha256(&fs::read(entry["path"].as_str().unwrap()).unwrap())
         );
     }
-    assert_eq!(executables[0]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        executables[0]["version"],
+        fixture_registries()["config"]["runner"]["version"]
+    );
     assert!(executables[1]["version"].is_null());
     assert!(
         report["unresolved"]["/executables/1/version"]
