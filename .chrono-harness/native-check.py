@@ -1,4 +1,4 @@
-"""Own the disposable directories used by this repository's native check."""
+"""Finish the 32-hex runs allocated by the former runner-local producer."""
 import argparse
 from contextlib import contextmanager
 import fcntl
@@ -7,9 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import time
-import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 BUSINESS = Path("target/native-checks")
@@ -25,12 +23,10 @@ def directory(path):
         os.close(fd)
 
 
-def business_root(create):
+def business_root():
     path = ROOT / BUSINESS
     if path.resolve() != path:
         raise ValueError(f"native check requires a physical business directory: {path}")
-    if create:
-        path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return path
 
 
@@ -64,7 +60,7 @@ def remove_if_idle(path, cutoff, protected):
 
 
 def maintain(seconds):
-    root = business_root(False)
+    root = business_root()
     if not root.exists():
         return
     with directory(root) as gate:
@@ -77,38 +73,10 @@ def maintain(seconds):
                     print(f"removed {path}", flush=True)
 
 
-def run():
-    root = business_root(True)
-    scratch = root / ("check-" + uuid.uuid4().hex)
-    with directory(root) as gate:
-        fcntl.flock(gate, fcntl.LOCK_EX)
-        scratch.mkdir(mode=0o700)
-        with directory(scratch) as lease:
-            fcntl.flock(lease, fcntl.LOCK_SH)
-            fcntl.flock(gate, fcntl.LOCK_UN)
-            print(f"native check directory: {scratch}", file=sys.stderr, flush=True)
-            result = subprocess.run(
-                ["/bin/bash", ".chrono-harness/native-check.sh", str(scratch)],
-                cwd=ROOT, pass_fds=(lease,),
-            )
-            if result.returncode:
-                os.utime(lease)
-                return result.returncode if result.returncode > 0 else 128 - result.returncode
-        fcntl.flock(gate, fcntl.LOCK_EX)
-        if scratch.exists():
-            remove_if_idle(scratch, float("inf"), tracked_runs())
-    return 0
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    actions = parser.add_subparsers(dest="action", required=True)
-    actions.add_parser("run")
-    cleanup = actions.add_parser("maintain")
-    cleanup.add_argument("--keep-seconds", type=int, default=86400)
+    parser.add_argument("seconds", type=int)
     args = parser.parse_args()
-    if args.action == "run":
-        sys.exit(run())
-    if args.keep_seconds < 1:
-        parser.error("--keep-seconds must be positive")
-    maintain(args.keep_seconds)
+    if args.seconds < 1:
+        parser.error("retention must be positive")
+    maintain(args.seconds)

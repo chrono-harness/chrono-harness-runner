@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-scratch=${1:?missing leased native check directory}
+scratch=${CHRONO_NATIVE_SCRATCH:?missing leased native check directory}
 export TMPDIR="$scratch"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 python3 -B .chrono-harness/test-native-check.py

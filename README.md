@@ -35,7 +35,7 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 
 ## 验证
 
-在仓库根运行 `mise exec -- ./check.sh` 执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。本地入口需要 Python 3.8+ 和支持 BSD flock 的本地文件系统。每次检查在本工作树的 `target/native-checks/` 下独占一个目录；标准错误会输出路径。原生编译和 Verus 结束并释放租约后，成功目录立即清理。自选 `CARGO_TARGET_DIR` 由调用者管理，应放在本工具的专用目录以外。
+在仓库根运行 `mise exec -- ./check.sh` 执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。本地入口需要 Python 3.8+ 和支持 BSD flock 的本地文件系统。宿主调用固定版本的 chrono-host-bootstrap native-scratch。每次检查在本工作树的 `target/native-checks/` 下独占一个目录；标准错误会输出路径。原生编译和 Verus 结束并释放租约后，成功目录立即清理。自选 `CARGO_TARGET_DIR` 由调用者管理，应放在本工具的专用目录以外。
 
 失败和中断的可重建目录默认保留 24 小时。需要保存的诊断应在窗口内复制到其他存储，读回并核对摘要。失败从进程返回时计时，中断按目录最后一次修改时间计时。检查进程及继承租约的子进程仍在使用时，维护跳过该目录。长期检出在该用户的 crontab 加一条每小时的任务，将路径替换为仓库的绝对路径。
 
@@ -43,7 +43,7 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 17 * * * * cd "/absolute/path/to/chrono-harness-runner" && ./check.sh --maintain
 ```
 
-机器在线、任务已安装、目录已到期且读者释放后，下一次成功维护回收整次检查的目录。维护使用系统 Python 和 Git。较早版本生成的 `target/check.*` 没有租约，只在核实旧检查已经退出后按实际归属回收。
+机器在线、任务已安装、目录已到期且读者释放后，下一次成功维护回收整次检查的目录。现有 crontab 可继续使用。第一次新版检查会在 target/native-check-bootstrap 创建指向工作树外已安装程序的链接，供定时维护使用。新目录由共享工具依据标记和目录身份清理。旧版检查在专属业务目录分配的 32 位小写十六进制目录由既有 Python 维护逻辑核对租约、时间和 Git 跟踪后回收。较早版本生成的 `target/check.*` 没有租约，只在核实旧检查已经退出后按实际归属回收。
 
 [本仓 Cargo 工作区](Cargo.toml) 使用一份根 Cargo.lock 管理 runner、测试、进程替身及三个证明包。证明包登记 `chrono-identifiers`、`chrono-verifier` 及其余各根对应的 Cargo 库目标。生产 runner、Cargo 的原生测试及 Verus 均使用这两个包的同一份源码。runner 保留从固定 Git 端点取数的适配器；验证器包负责根据已经观察到的数据作判断。
 
