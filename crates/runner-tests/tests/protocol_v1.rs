@@ -370,6 +370,10 @@ fn initial_transport_has_one_endpoint_and_preserves_real_response_failures() {
     for (name, mut case) in [
         ("pass", value!({})),
         (
+            "empty",
+            value!({"kind":"raw", "consume_request":true, "stdout":b""}),
+        ),
+        (
             "invalid-json",
             value!({"kind":"raw", "consume_request":true, "stdout":b"invalid json\n"}),
         ),
@@ -395,7 +399,17 @@ fn initial_transport_has_one_endpoint_and_preserves_real_response_failures() {
             assert_eq!(response.protocol, "chrono-initial-judge/v1");
         } else {
             let failure = result.unwrap_err();
-            assert!(failure.process.is_some(), "{failure:?}");
+            assert!(failure.message.starts_with("E_PROTOCOL: "), "{failure:?}");
+            let process = failure.process.unwrap();
+            if name == "empty" || name == "invalid-json" {
+                assert_eq!(process.exit_code, 0);
+                let expected = if name == "empty" {
+                    &b""[..]
+                } else {
+                    &b"invalid json\n"[..]
+                };
+                assert_eq!(process.stdout_bytes, expected);
+            }
         }
         let mut value = serde_json::to_value(&request).unwrap();
         value["base"] = value!({"commit":"f".repeat(40),"root":dir.path(),"tree":"e".repeat(40)});
