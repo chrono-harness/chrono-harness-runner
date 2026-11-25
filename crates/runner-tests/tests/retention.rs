@@ -8561,6 +8561,21 @@ fn archived_check_requires_its_slot_and_every_sealed_input_before_release() {
     ) {
         return;
     }
+    check_slot_release(None);
+}
+
+#[test]
+fn final_local_check_expires_only_after_its_last_consumer_and_reader() {
+    if isolated_capability_test("final_local_check_expires_only_after_its_last_consumer_and_reader")
+    {
+        for case in ["successful", "retry", "failed", "delivery", "recovery"] {
+            check_slot_release(Some(case));
+        }
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+fn check_slot_release(local_case: Option<&str>) {
     let host = deadline_host();
     let root = host.path();
     let archive = tempfile::tempdir().unwrap();
@@ -8587,12 +8602,15 @@ fn archived_check_requires_its_slot_and_every_sealed_input_before_release() {
     child.complete_sealed(json!({"exit_code":0})).unwrap();
     inv.reference("shared-input", std::slice::from_ref(&child_id))
         .unwrap();
+    let exit_code = u8::from(local_case == Some("failed"));
+    let delivery = (local_case == Some("delivery")).then_some("handoff");
+    let recovery = (local_case == Some("recovery")).then_some("unfinished");
     let raw = serde_json::to_vec(&json!({"schema":"chrono-check-report/v2","retained_report":report,
         "request":{"host_root":fs::canonicalize(root).unwrap(),"request_id":"checked",
         "protocol":"chrono-ci-judge/v2","config_path":".chrono-harness/ci/check.json","config_sha256":"a".repeat(64),
         "base":null,"candidate":"c".repeat(40),"initial":true},"publication":{"schema":"chrono-report-publication/v1",
         "slot":slot,"previous_sha256":null,"snapshot_failure":null,"originals":[member],
-        "native_delivery":null,"recovery_root":null,"exit_code":0}})).unwrap();
+        "native_delivery":delivery,"recovery_root":recovery,"exit_code":exit_code}})).unwrap();
     let digest = chrono_harness::sha256(&raw);
     let pointer = serde_json::to_vec(
         &json!({"schema":"chrono-check-reference/v1","original":{"path":report,"sha256":digest}}),
@@ -8607,7 +8625,7 @@ fn archived_check_requires_its_slot_and_every_sealed_input_before_release() {
         .unwrap();
     let id = publication.id().to_owned();
     publication
-        .complete_sealed(json!({"request_id":"checked","exit_code":0}))
+        .complete_sealed(json!({"request_id":"checked","exit_code":exit_code}))
         .unwrap();
     inv.dependencies(&id, std::slice::from_ref(&child_id))
         .unwrap();
@@ -8620,9 +8638,83 @@ fn archived_check_requires_its_slot_and_every_sealed_input_before_release() {
         .find(|o| o["id"] == id)
         .unwrap()
         .clone();
+    let maintain = json!({"operation":"maintain","expire_local_check_slots":[slot]});
+    // A real publisher retains the same slot gate throughout its generation change.
+    let pending_publisher = if local_case == Some("successful") {
+        retained_artifacts::retention::reference_report(
+            root,
+            slot,
+            &report,
+            std::slice::from_ref(&input),
+            None,
+        )
+        .unwrap()
+    } else {
+        None
+    };
+    let observe = || {
+        let response = consumer_call(root, maintain.clone());
+        assert_eq!(response.exit_code, 0, "{}", response.stderr);
+        let sweep: Value = serde_json::from_str(&response.stdout).unwrap();
+        sweep["local_check_slots"][slot].clone()
+    };
+    if local_case.is_some() {
+        if pending_publisher.is_some() {
+            assert_eq!(observe()["status"], "not-established");
+            drop(pending_publisher);
+        }
+        assert_eq!(observe()["status"], "retained");
+        inv.reference("pending-handoff", std::slice::from_ref(&id))
+            .unwrap();
+    }
     output["lifetime"] = json!({"created_at":1,"deadline":2});
     output["expires"] = json!(2);
     retention_state::replace_output(root, &output);
+    if local_case.is_some() {
+        assert!(root.join(slot).exists());
+        assert_eq!(observe()["status"], "retained");
+        inv.reference("pending-handoff", &[]).unwrap();
+        if matches!(local_case, Some("failed" | "delivery" | "recovery")) {
+            let status = observe();
+            assert_ne!(status["status"], "released", "{local_case:?}: {status}");
+            assert!(root.join(slot).is_file());
+            assert_eq!(ledger(root)["roots"][&role], json!([id]));
+            return;
+        }
+        if local_case == Some("retry") {
+            let slot_id = chrono_harness::artifact_disposal::identity(&root.join(slot)).unwrap();
+            fs::remove_file(root.join(slot)).unwrap();
+            assert_eq!(observe()["status"], "missing-generation");
+            assert_eq!(ledger(root)["roots"][&role], json!([id]));
+            // Reproduce a crash after the verified pointer was unlinked but before the
+            // root update. Only that persisted generation can complete the retirement.
+            output["expiring_slot"] = json!({"path":slot,"identity":slot_id});
+            retention_state::replace_output(root, &output);
+            let retry = observe();
+            assert_eq!(retry["status"], "released", "{retry}");
+            assert!(ledger(root)["roots"].get(&role).is_none());
+            return;
+        }
+        let reader = inv.consume(&child_id).unwrap();
+        let busy = observe();
+        assert_eq!(busy["status"], "not-established", "{busy}");
+        assert!(root.join(slot).is_file());
+        drop(reader);
+        fs::write(root.join(slot), br#"{"schema":"chrono-check-reference/v1","original":{"path":"other","sha256":"changed"}}"#).unwrap();
+        let replaced = observe();
+        assert_eq!(replaced["status"], "different-generation", "{replaced}");
+        assert!(root.join(slot).exists());
+        fs::write(root.join(slot), &pointer).unwrap();
+        let released = observe();
+        assert_eq!(released["status"], "released", "{released}");
+        assert!(!root.join(slot).exists());
+        assert!(ledger(root)["roots"].get(&role).is_none());
+        assert_eq!(observe()["status"], "unoccupied");
+        assert_eq!(maintain_fixture_to(root, 1), 1);
+        assert!(!root.join(&report).exists());
+        assert_eq!(fs::read(root.join(&member)).unwrap(), b"judge output");
+        return;
+    }
     let mut request = json!({"operation":"release-preserved","original":original_identity(root,&id,&report),
         "roles":[role],"survivor_root":survivor,"survivor_path":report,"sha256":digest,"length":raw.len(),
         "reason":"The maintainer now reads this check and its inputs from the archive","current_consumers_released":true});

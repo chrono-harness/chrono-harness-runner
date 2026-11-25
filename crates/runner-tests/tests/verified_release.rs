@@ -43,6 +43,17 @@ proof fn two_creation_ticks_can_fill_the_storage_bound() {
     assert(policy::temporary_bytes_by_age(live) == 6);
 }
 
+// Independently constrain the production decision on both sides of the deadline.
+#[cfg(verus_keep_ghost)]
+fn final_successful_slot_has_a_finite_local_consumer(deadline: u64, at: u64) {
+    let successful = policy::local_slot_expired(deadline, at, true, true);
+    let failed = policy::local_slot_expired(deadline, at, false, true);
+    let pending = policy::local_slot_expired(deadline, at, true, false);
+    let both = policy::local_slot_expired(deadline, at, false, false);
+    assert(successful == (at >= deadline));
+    assert(!failed && !pending && !both);
+}
+
 /// Even if every generation disappears on its next tick, the current
 /// generation alone can exceed any proposed capacity without a size bound.
 proof fn one_tick_disposal_allows_arbitrary_volume(limit: nat) {

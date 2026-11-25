@@ -6,6 +6,12 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 verus! {
+/// Releasing a local slot is an opt-in terminal-success operation.
+pub fn local_slot_expired(deadline: u64, observed: u64, successful: bool, sole_consumer: bool) -> (release: bool)
+    ensures release == (deadline <= observed && successful && sole_consumer),
+{
+    deadline <= observed && successful && sole_consumer
+}
 /// The publisher still owns the fixed pointer while any publication obligation is outstanding.
 pub fn archived_slot_ready(valid_publication: bool, same_slot: bool, published_exit: u8,
     recorded_exit: u64, snapshot_failed: bool, pending_recovery: bool, pending_delivery: bool,

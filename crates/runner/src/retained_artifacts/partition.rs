@@ -1592,6 +1592,186 @@ impl Inventory {
     pub fn maintain_explicit(&self) -> Result<Value, String> {
         self.maintain_explicit_reporting_at(now()?, None)
     }
+    /// Explicitly selected fixed pointers cease to be consumers at the original
+    /// creation deadline. Merely changing a maintenance request never changes
+    /// the policy digest already bound to existing originals.
+    pub(crate) fn maintain_local_check_slots(&self, slots: &[String]) -> Result<Value, String> {
+        if self.policy.max_lifetime_seconds.is_none()
+            || !crate::verified_release::unique_selection(slots, self.policy.max_related_outputs)
+            || slots.len() > self.policy.max_nodes_per_round
+        {
+            return Err("expiring local check slots require a finite creation deadline and a bounded, unique selection".into());
+        }
+        for slot in slots {
+            crate::units::artifact_path(slot)?;
+        }
+        let observed = now()?;
+        let mut decisions = BTreeMap::new();
+        for slot in slots {
+            let outcome = self.with_round_budget(|| self.expire_local_check_slot(slot, observed));
+            decisions.insert(
+                slot,
+                match outcome {
+                    Ok(status) => json!({"status":status}),
+                    Err(error) => json!({"status":"not-established","reason":error}),
+                },
+            );
+        }
+        let mut sweep = self.maintain_explicit_reporting_at(observed, None)?;
+        sweep["local_check_slots"] = json!(decisions);
+        Ok(sweep)
+    }
+
+    fn expire_local_check_slot(&self, slot: &str, observed: u64) -> Result<&'static str, String> {
+        let role = current_report_role(slot);
+        if self.read_role(&role)?.is_none_or(|r| r.ids.is_empty()) {
+            return Ok("unoccupied");
+        }
+        let publisher = self.address_gate_wait("slot", slot, &[], None)?;
+        // The publication gate excludes a concurrent slot replacement while the
+        // addressed role, its report and its known inputs are checked together.
+        let gate =
+            self.addressed_gate(&[], &[], std::slice::from_ref(&role), None, false, false)?;
+        let mut ledger = self.load(&gate)?;
+        let ids = ledger.roots.get(&role).map(Vec::as_slice).unwrap_or(&[]);
+        let [id] = ids else {
+            return Ok("no-single-generation");
+        };
+        let index = ledger
+            .outputs
+            .iter()
+            .position(|o| &o.id == id)
+            .ok_or("current local report declaration missing")?;
+        let output = &ledger.outputs[index];
+        let Some(lifetime) = &output.lifetime else {
+            return Ok("no-creation-deadline");
+        };
+        let terminal = output.producer == "check-original"
+            && !output.tree
+            && output.phase == "released"
+            && output.manifest.sealed
+            && output.outcome["exit_code"].as_u64() == Some(0);
+        let sole_consumer = !ledger
+            .roots
+            .iter()
+            .any(|(other, members)| other != &role && members.contains(id));
+        if !crate::scoped_report::local_slot_expired(
+            lifetime.deadline,
+            observed,
+            terminal,
+            sole_consumer,
+        ) {
+            return Ok("retained");
+        }
+        let deadline = lifetime.deadline;
+        let identities: Vec<_> = ledger
+            .outputs
+            .iter()
+            .map(|o| OriginalIdentity {
+                id: o.id.clone(),
+                path: o.path.clone(),
+                identity: o.identity.clone(),
+            })
+            .collect();
+        let leases = self.original_leases(&ledger, &identities, true)?;
+        let path = no_symlink_parents(&self.root, slot)?;
+        let limit = self.policy.max_bytes_per_round.min(64 * 1024 * 1024);
+        let (report, raw) = crate::retained_artifacts::retention_command::bounded_json(
+            &self.root,
+            &output.path,
+            limit,
+        )?;
+        let digest = sha256(&raw);
+        let request: crate::Request =
+            serde_json::from_value(report["request"].clone()).map_err(|e| e.to_string())?;
+        let inputs = crate::scoped_report::archived_inputs(&report["publication"], slot, 0)?;
+        if output.sha256.as_ref() != Some(&digest)
+            || output.length != Some(raw.len() as u64)
+            || report["schema"] != crate::scoped_report::SCHEMA
+            || report["retained_report"] != output.path
+            || request.scope.is_some()
+            || request.host_root != self.root
+            || output.outcome["request_id"] != request.request_id
+            || ledger
+                .outputs
+                .iter()
+                .any(|o| o.phase != "released" || !o.manifest.sealed)
+        {
+            return Ok("different-publication");
+        }
+        let members: BTreeSet<_> = ledger
+            .outputs
+            .iter()
+            .flat_map(|o| o.manifest.entries.iter().map(|entry| entry.path.as_str()))
+            .collect();
+        if inputs.iter().any(|p| !members.contains(p.as_str())) {
+            return Ok("unresolved-inputs");
+        }
+        let owner = self.removal_gate_wait(&[slot.to_owned()], false)?;
+        match fs::symlink_metadata(&path) {
+            Ok(_) => {
+                let signature = identity(&path)?;
+                let (_, pointer) = crate::retained_artifacts::retention_command::bounded_json(
+                    &self.root,
+                    slot,
+                    65536.min(limit.saturating_sub(raw.len() as u64)),
+                )?;
+                let reference: crate::units::ReportReference = decode(&pointer)?;
+                if reference.schema != crate::units::REPORT_REFERENCE
+                    || reference.original.path != output.path
+                    || reference.original.sha256 != digest
+                    || identity(&path)? != signature
+                {
+                    return Ok("different-generation");
+                }
+                crate::artifact_disposal::source_safe(&self.root, slot)?;
+                let intent = ArchivedSlot {
+                    path: slot.into(),
+                    identity: signature.clone(),
+                };
+                if let Some(previous) = &output.expiring_slot {
+                    if previous != &intent {
+                        return Ok("different-generation");
+                    }
+                } else {
+                    // Persist only the identity, never another copy of the report.
+                    ledger.outputs[index].expiring_slot = Some(intent);
+                    self.save(&ledger, &gate)?;
+                }
+                crate::artifact_disposal::dispose_entry(&self.root, slot, &signature, || {
+                    publisher.stable()?;
+                    self.stable(&owner)?;
+                    self.stable(&gate)
+                })?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if !output
+                    .expiring_slot
+                    .as_ref()
+                    .is_some_and(|pending| pending.path == slot)
+                {
+                    return Ok("missing-generation");
+                }
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+        // If a prior attempt unlinked the pointer but failed before committing
+        // the role change, the persisted exact generation authorizes the retry.
+        fs::File::open(path.parent().ok_or("report slot parent")?)
+            .and_then(|dir| dir.sync_all())
+            .map_err(|e| e.to_string())?;
+        self.expire_archived_slot_address(&owner, slot, deadline)?;
+        for lease in &leases {
+            lease.stable()?;
+        }
+        self.stable(&gate)?;
+        // Keep the intent with the retired object until ordinary disposal: a crash
+        // between the object and role writes must still recognize the missing slot.
+        self.reference_locked(&mut ledger, &role, &[])?;
+        self.save(&ledger, &gate)?;
+        Ok("released")
+    }
+
     /// Stream every declared member and its unabridged original round to the
     /// actual maintain report. The compact sweep's sample ceiling is unchanged.
     pub fn maintain_explicit_observed(
@@ -1912,7 +2092,10 @@ impl Inventory {
             "retired_capabilities":record.retired_leases,"metadata_expires":record.metadata_expires})
     }
     pub(super) fn removal_gate(&self, paths: &[String]) -> Result<Gate, String> {
-        let (leases, directories) = self.path_gates(paths, true, PathAccess::Transfer)?;
+        self.removal_gate_wait(paths, true)
+    }
+    fn removal_gate_wait(&self, paths: &[String], wait: bool) -> Result<Gate, String> {
+        let (leases, directories) = self.path_gates(paths, wait, PathAccess::Transfer)?;
         let targets = paths
             .iter()
             .map(|path| Ok((path.clone(), self.path_directory(path)?)))
