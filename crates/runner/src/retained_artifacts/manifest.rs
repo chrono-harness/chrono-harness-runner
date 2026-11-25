@@ -6,6 +6,34 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 verus! {
+pub enum SealError {
+    DirectoryCapacity,
+    TreeCapacity,
+    Observation(String),
+}
+
+impl SealError {
+    pub(crate) fn into_message(self) -> (message: String)
+        ensures message@ == match self {
+            Self::DirectoryCapacity => "directory identity capacity; preserve original"@,
+            Self::TreeCapacity => "tree identity manifest capacity; preserve original"@,
+            Self::Observation(error) => error@,
+        },
+    {
+        match self {
+            Self::DirectoryCapacity => "directory identity capacity; preserve original".to_owned(),
+            Self::TreeCapacity => "tree identity manifest capacity; preserve original".to_owned(),
+            Self::Observation(error) => error,
+        }
+    }
+
+    pub(crate) fn permits_overflow(&self, tree: bool) -> (permitted: bool)
+        ensures permitted == (tree && matches!(self, Self::DirectoryCapacity | Self::TreeCapacity)),
+    {
+        tree && matches!(self, Self::DirectoryCapacity | Self::TreeCapacity)
+    }
+}
+
 /// Last colon strictly before the supplied endpoint, or -1 when absent.
 pub open spec fn previous_colon(stamp: Seq<u8>, end: int) -> int
     decreases end,
@@ -115,6 +143,20 @@ pub fn sealed_member_matches(identity: &[u8], observed_identity: &[u8], director
 }
 
 #[cfg(not(verus_keep_ghost))]
+impl From<String> for SealError {
+    fn from(message: String) -> Self {
+        Self::Observation(message)
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
+impl From<&str> for SealError {
+    fn from(message: &str) -> Self {
+        Self::Observation(message.to_owned())
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::artifact_disposal::{entry_path, identity};
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
@@ -185,7 +227,7 @@ pub(super) fn observe(root: &Path, path: &str) -> Result<Entry, String> {
 impl Manifest {
     /// Each step consumes one declared child after a finite directory snapshot.
     /// Snapshot names and positions survive interruption in owner metadata.
-    pub fn step(&mut self, root: &Path, path: &str, limit: usize) -> Result<(), String> {
+    pub fn step(&mut self, root: &Path, path: &str, limit: usize) -> Result<(), SealError> {
         if self.sealed {
             return Ok(());
         }
@@ -220,7 +262,7 @@ impl Manifest {
             let mut names = Vec::new();
             for item in fs::read_dir(physical).map_err(|e| e.to_string())? {
                 if names.len() >= limit {
-                    return Err("directory identity capacity; preserve original".into());
+                    return Err(SealError::DirectoryCapacity);
                 }
                 let name = item
                     .map_err(|e| e.to_string())?
@@ -249,7 +291,7 @@ impl Manifest {
             }
             Some(name) => {
                 if self.entries.len() >= limit {
-                    return Err("tree identity manifest capacity; preserve original".into());
+                    return Err(SealError::TreeCapacity);
                 }
                 let entry = observe(root, &format!("{}/{name}", cursor.entry.path))?;
                 let bytes = self
