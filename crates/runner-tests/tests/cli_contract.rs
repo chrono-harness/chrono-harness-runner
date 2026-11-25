@@ -1687,6 +1687,42 @@ fn retained_reference_cli_registers_process_evidence_before_judge_spawn() {
     )
     .unwrap();
     assert_eq!(reference["schema"], "chrono-check-reference/v1");
+    // A consumer can recheck the retained acquisition without inheriting the
+    // producer's selector. Its own ambient value has no declared role here.
+    std::os::unix::fs::symlink(
+        std::env::current_exe().unwrap(),
+        dir.path().join("chrono-harness"),
+    )
+    .unwrap();
+    let mut consumer = Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
+        .arg("check-invocation-v1")
+        .current_dir(dir.path())
+        .env(selector, "ci")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    serde_json::to_writer(
+        consumer.stdin.take().unwrap(),
+        &json!({
+            "mode": "scoped-request",
+            "request": report["request"],
+            "config": config,
+            "admit_entry": true,
+        }),
+    )
+    .unwrap();
+    let checked = consumer.wait_with_output().unwrap();
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&checked.stdout).unwrap(),
+        Value::Null
+    );
     let judge = &report["judge"];
     for (field, digest) in [
         ("stdout_original", judge["stdout_sha256"].as_str().unwrap()),
