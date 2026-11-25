@@ -1581,7 +1581,16 @@ fn retained_reference_cli_registers_process_evidence_before_judge_spawn() {
     )
     .unwrap();
     fs::write(dir.path().join("cli-case.json"), b"{}").unwrap();
-    let config = retained_cli_config();
+    let mut config = retained_cli_config();
+    let selector = chrono_harness::prepared::SOURCE;
+    config["environment"]["inherit"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|name| name != selector);
+    config["canonical_check"]["inputs"]["inherit_environment"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!(selector));
     let judge = env!("CARGO_BIN_EXE_chrono-test-cli-child");
     fs::write(
         dir.path().join(".chrono-harness/config.json"),

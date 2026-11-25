@@ -252,14 +252,11 @@ pub fn declaration(config: &Value) -> Result<Canonical, String> {
             return Err("initial profile must be a separate host policy".into());
         }
     }
-    let inherit: Vec<String> = serde_json::from_value(config["environment"]["inherit"].clone())
-        .map_err(|e| e.to_string())?;
-    if !inherit.iter().any(|s| s == SOURCE) || config["environment"]["values"].get(SOURCE).is_some()
-    {
+    credential_environment(config)?;
+    let inherited = preparation_keys(config, &c.inputs)?;
+    if !inherited.contains(SOURCE) || config["environment"]["values"].get(SOURCE).is_some() {
         return Err("short check must inherit CHRONO_CHECK_SOURCE without a fixed override".into());
     }
-    credential_environment(config)?;
-    preparation_keys(config, &c.inputs)?;
     if !config["artifacts"]
         .as_array()
         .ok_or("artifacts missing")?
