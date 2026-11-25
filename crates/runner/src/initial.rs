@@ -136,19 +136,21 @@ pub fn invoke(
     if let Some(message) = p.failure.clone() {
         return Err(TransportFailure::with_process(message, p));
     }
-    let response = decode::<Response>(&p.stdout_bytes).and_then(|r| {
-        wire::validate_response_at(
-            &req.candidate.root,
-            PROTOCOL,
-            &req.request_id,
-            &req.judge_id,
-            &r,
-            p.exit_code,
-            None,
-            req,
-        )?;
-        Ok(r)
-    });
+    let response = decode::<Response>(&p.stdout_bytes)
+        .map_err(|message| format!("E_PROTOCOL: {message}"))
+        .and_then(|r| {
+            wire::validate_response_at(
+                &req.candidate.root,
+                PROTOCOL,
+                &req.request_id,
+                &req.judge_id,
+                &r,
+                p.exit_code,
+                None,
+                req,
+            )?;
+            Ok(r)
+        });
     match response {
         Ok(r) => Ok((r, p)),
         Err(message) => Err(TransportFailure::with_process(message, p)),
