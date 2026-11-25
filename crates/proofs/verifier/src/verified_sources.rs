@@ -611,6 +611,24 @@ pub fn compiler_dependency_paths(input: &[u8], output: &[u8]) -> (parsed: Option
     parsed
 }
 
+/// Read the literal compiler target and its ordered source list from the same first rule.
+pub fn compiler_dependency_header(input: &[u8]) -> (header: Option<(Vec<u8>, Vec<Vec<u8>>)>)
+    ensures match header {
+        Some((stem, paths)) => header_word(input@) == Some(stem@)
+            && compiler_paths(input@, stem@) == Some(dependency_values(paths@)),
+        None => match header_word(input@) {
+            None => true,
+            Some(stem) => compiler_paths(input@, stem).is_none(),
+        },
+    },
+{
+    let stem = compiler_header_stem(input)?;
+    let paths = compiler_dependency_paths(input, stem.as_slice())?;
+    Some((stem, paths))
+}
+
+#[cfg_attr(not(verus_keep_ghost), derive(serde::Deserialize))]
+#[cfg_attr(not(verus_keep_ghost), serde(deny_unknown_fields))]
 pub struct SourceBinding {
     pub path: Vec<u8>,
     pub sha256: Vec<u8>,

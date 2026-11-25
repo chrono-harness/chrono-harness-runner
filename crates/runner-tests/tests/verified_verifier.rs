@@ -1529,16 +1529,43 @@ fn dependency_content_requires_every_checksum_and_final_newline() {
     assert(!policy::sources::prefix_at(input@.skip(17).take(32), 0, vstd::utf8::encode_utf8("# env-dep:"@)));
     expect_verifier_true(matched);
 
+    let targets = vec![vec![111u8, 46, 100], vec![111u8]];
+    reveal_with_fuel(policy::sources::cargo_target_rules, 3);
+    reveal_with_fuel(policy::sources::dependency_escape, 5);
+    assert(targets[0]@ =~= seq![111u8, 46, 100]);
+    assert(targets[1]@ =~= seq![111u8]);
+    assert(policy::sources::cargo_target_rules(targets@, sources@)
+        + policy::sources::phony_rules(sources@) =~= input@.take(17));
+    expect_verifier_true(policy::sources::matches_cargo_dependency(&input, &targets, &sources));
+
+    let reversed = vec![vec![111u8], vec![111u8, 46, 100]];
+    let incomplete = vec![vec![111u8, 46, 100]];
+    assert(reversed[0]@ =~= seq![111u8]);
+    assert(reversed[1]@ =~= seq![111u8, 46, 100]);
+    assert(incomplete[0]@ =~= seq![111u8, 46, 100]);
+    let ghost reversed_header = policy::sources::cargo_target_rules(reversed@, sources@)
+        + policy::sources::phony_rules(sources@);
+    let ghost incomplete_header = policy::sources::cargo_target_rules(incomplete@, sources@)
+        + policy::sources::phony_rules(sources@);
+    assert(reversed_header[1] == 58 && input@[1] == 46);
+    assert(incomplete_header[8] == 97 && input@[8] == 111);
+    assert(!policy::sources::prefix_at(input@, 0, reversed_header));
+    assert(!policy::sources::prefix_at(input@, 0, incomplete_header));
+    expect_verifier_true(!policy::sources::matches_cargo_dependency(&input, &reversed, &sources));
+    expect_verifier_true(!policy::sources::matches_cargo_dependency(&input, &incomplete, &sources));
+
     let missing = policy::sources::copy_range(&input, 0, 17);
     let missing_checksum = policy::sources::matches_dependency_content(missing.as_slice(), &output, &sources);
     assert(missing@.skip(17) =~= Seq::<u8>::empty());
     expect_verifier_true(!missing_checksum);
+    expect_verifier_true(!policy::sources::matches_cargo_dependency(&missing, &targets, &sources));
 
     let truncated = policy::sources::copy_range(&input, 0, 49);
     let no_final_lf = policy::sources::matches_dependency_content(truncated.as_slice(), &output, &sources);
     assert(truncated@.skip(17) =~= seq![35u8, 32u8, 99u8, 104u8, 101u8, 99u8, 107u8, 115u8, 117u8, 109u8, 58u8, 115u8, 104u8, 97u8, 50u8, 53u8, 54u8, 61u8, 102u8, 32u8, 102u8, 105u8, 108u8, 101u8, 95u8, 108u8, 101u8, 110u8, 58u8, 49u8, 32u8, 97u8]);
     proof { policy::sources::next_byte_at(truncated@.skip(17), 0, 32, 10u8); }
     expect_verifier_true(!no_final_lf);
+    expect_verifier_true(!policy::sources::matches_cargo_dependency(&truncated, &targets, &sources));
 
     let empty: Vec<policy::sources::SourceBinding> = Vec::new();
     let no_sources = policy::sources::matches_dependency_content(&input, &output, &empty);
@@ -1669,16 +1696,24 @@ fn original_compiler_header_preserves_literal_spaces_and_stops_at_the_first_line
     assert(input@ =~= seq![97u8, 32, 98, 46, 100, 58, 32, 120, 10]);
     assert(policy::sources::header_word(seq![97u8, 32, 98, 46, 100, 58, 32, 120, 10])
         == Some(seq![97u8, 32, 98])) by (compute);
-    let decoded = policy::sources::compiler_header_stem(&input).unwrap();
+    assert(policy::sources::compiler_paths(seq![97u8, 32, 98, 46, 100, 58, 32, 120, 10], seq![97u8, 32, 98])
+        == Some(seq![seq![120u8]])) by (compute);
+    let (decoded, paths) = policy::sources::compiler_dependency_header(&input).unwrap();
     expect_verifier_true(decoded.len() == 3 && decoded[0] == 97 && decoded[1] == 32 && decoded[2] == 98);
+    expect_verifier_true(paths.len() == 1 && paths[0].len() == 1 && paths[0][0] == 120);
+    let unterminated = [97u8, 46, 100, 58, 32, 120];
+    assert(unterminated@ =~= seq![97u8, 46, 100, 58, 32, 120]);
+    assert(policy::sources::header_word(seq![97u8, 46, 100, 58, 32, 120]) == Some(seq![97u8])) by (compute);
+    assert(policy::sources::compiler_paths(seq![97u8, 46, 100, 58, 32, 120], seq![97u8]).is_none()) by (compute);
+    expect_verifier_true(policy::sources::compiler_dependency_header(&unterminated).is_none());
     let empty = [46u8, 100, 58, 32, 120, 10];
     assert(empty@ =~= seq![46u8, 100, 58, 32, 120, 10]);
     assert(policy::sources::header_word(seq![46u8, 100, 58, 32, 120, 10]).is_none()) by (compute);
-    expect_verifier_true(policy::sources::compiler_header_stem(&empty).is_none());
+    expect_verifier_true(policy::sources::compiler_dependency_header(&empty).is_none());
     let next_line = [10u8, 97, 46, 100, 58, 32, 120, 10];
     assert(next_line@ =~= seq![10u8, 97, 46, 100, 58, 32, 120, 10]);
     assert(policy::sources::header_word(seq![10u8, 97, 46, 100, 58, 32, 120, 10]).is_none()) by (compute);
-    expect_verifier_true(policy::sources::compiler_header_stem(&next_line).is_none());
+    expect_verifier_true(policy::sources::compiler_dependency_header(&next_line).is_none());
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]

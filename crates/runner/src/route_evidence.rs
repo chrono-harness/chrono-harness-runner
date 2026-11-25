@@ -43,7 +43,7 @@ enum Compiler {
     DependencyMatches {
         dependency: Vec<u8>,
         targets: Vec<Vec<u8>>,
-        sources: Vec<BoundSource>,
+        sources: Vec<verifier::sources::SourceBinding>,
     },
     Bind {
         argv: Vec<String>,
@@ -69,14 +69,6 @@ enum Compiler {
         limit: usize,
         artifact: Option<Result<verifier::CompiledArtifact, String>>,
     },
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BoundSource {
-    path: Vec<u8>,
-    sha256: Vec<u8>,
-    length: u64,
 }
 
 pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<(), String> {
@@ -136,12 +128,7 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     serde_json::to_writer(output, &normalized).map_err(|e| e.to_string())
                 }
                 Compiler::DependencyHeader { dependency } => {
-                    let header =
-                        verifier::sources::compiler_header_stem(&dependency).and_then(|stem| {
-                            let paths =
-                                verifier::sources::compiler_dependency_paths(&dependency, &stem)?;
-                            Some((stem, paths))
-                        });
+                    let header = verifier::sources::compiler_dependency_header(&dependency);
                     serde_json::to_writer(output, &header).map_err(|e| e.to_string())
                 }
                 Compiler::DependencyPaths { dependency, stem } => {
@@ -154,18 +141,10 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     targets,
                     sources,
                 } => {
-                    let bindings = sources
-                        .into_iter()
-                        .map(|source| verifier::sources::SourceBinding {
-                            path: source.path,
-                            sha256: source.sha256,
-                            length: source.length,
-                        })
-                        .collect();
                     let matched = verifier::sources::matches_cargo_dependency(
                         &dependency,
                         &targets,
-                        &bindings,
+                        &sources,
                     );
                     serde_json::to_writer(output, &matched).map_err(|e| e.to_string())
                 }
