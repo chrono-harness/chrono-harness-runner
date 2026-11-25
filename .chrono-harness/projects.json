@@ -4,7 +4,9 @@
     "runner",
     "identifiers",
     "resource-limits",
-    "resource-limits-tests"
+    "resource-limits-tests",
+    "sealed-member",
+    "sealed-member-tests"
   ],
   "projects": [],
   "scripts": [
@@ -96,6 +98,62 @@
             "crates/runner-tests/tests/verified_limits.rs",
             "-o",
             "{operation_state}/verify.resource-limits-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      }
+    },
+    {
+      "id": "sealed-member",
+      "path": "crates/runner/src/retained_artifacts/manifest.rs",
+      "actions": {
+        "execute": {
+          "operation": "verify.sealed-member",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link={operation_state}/verify.sealed-member.rlib,dep-info={operation_state}/verify.sealed-member.rlib.d",
+            "crates/runner/src/retained_artifacts/manifest.rs",
+            "-o",
+            "{operation_state}/verify.sealed-member.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      }
+    },
+    {
+      "id": "sealed-member-tests",
+      "path": "crates/runner-tests/tests/verified_sealed_member.rs",
+      "actions": {
+        "execute": {
+          "operation": "verify.sealed-member-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link={operation_state}/verify.sealed-member-tests.rlib,dep-info={operation_state}/verify.sealed-member-tests.rlib.d",
+            "crates/runner-tests/tests/verified_sealed_member.rs",
+            "-o",
+            "{operation_state}/verify.sealed-member-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {

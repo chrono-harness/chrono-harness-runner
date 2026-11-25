@@ -11,17 +11,17 @@
     {"path": ".github/ISSUE_TEMPLATE/enhancement.yml", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": ".github/ISSUE_TEMPLATE/question.yml", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": ".github/PULL_REQUEST_TEMPLATE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
-    {"path": ".config/mise/conf.d/chrono-harness.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
+    {"path": ".config/mise/conf.d/chrono-harness.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
     {"path": ".chrono-harness/pr.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".chrono-harness/USAGE.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
     {"path": ".chrono-harness/template-answers.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".chrono-harness/.gitignore", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".chrono-harness/FILEMAP.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
-    {"path": ".chrono-harness/check.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
-    {"path": ".chrono-harness/projects.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
+    {"path": ".chrono-harness/FILEMAP.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
+    {"path": ".chrono-harness/check.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
+    {"path": ".chrono-harness/projects.json", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:identifiers"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
     {"path": ".github/roadmap.cjs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
     {"path": ".github/workflows/issue-roadmap.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": []},
-    {"path": ".github/workflows/check.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]},
+    {"path": ".github/workflows/check.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]},
     {"path": ".github/workflows/release.yml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": ".gitignore", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "README.md", "owner": "runner", "surface": "documentation", "cost": "unmeasured", "edges": []},
@@ -65,7 +65,8 @@
     {"path": "crates/runner-tests/tests/verified_limits.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}], "verification": {"role": "program", "roots": [{"path": "crates/runner-tests/tests/verified_limits.rs", "operation": "verify.resource-limits-tests"}]}},
     {"path": "crates/runner-tests/tests/verified_identifiers.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/verified_paths.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner-tests/tests/verified_release.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}], "verification": {"role": "program", "roots": [{"path": "crates/runner-tests/tests/verified_release.rs", "operation": "runner.verify"}]}},
+    {"path": "crates/runner-tests/tests/verified_release.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
+    {"path": "crates/runner-tests/tests/verified_sealed_member.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}], "verification": {"role": "program", "roots": [{"path": "crates/runner-tests/tests/verified_sealed_member.rs", "operation": "verify.sealed-member-tests"}]}},
     {"path": "crates/runner-tests/tests/verified_status.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner-tests/tests/verified_verifier.rs", "owner": "runner", "surface": "test", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "Cargo.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
@@ -107,9 +108,9 @@
     {"path": "crates/runner/src/process_ownership.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/publication.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/retained_artifacts.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/manifest.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}], "verification": {"role": "program", "roots": [{"path": "crates/runner/src/retained_artifacts/verified_release.rs", "operation": "runner.verify"}, {"path": "crates/runner-tests/tests/verified_release.rs", "operation": "runner.verify"}]}},
+    {"path": "crates/runner/src/retained_artifacts/manifest.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}], "verification": {"role": "program", "roots": [{"path": "crates/runner/src/retained_artifacts/manifest.rs", "operation": "verify.sealed-member"}, {"path": "crates/runner-tests/tests/verified_sealed_member.rs", "operation": "verify.sealed-member-tests"}]}},
     {"path": "crates/runner/src/retained_artifacts/partition.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "crates/runner/src/retained_artifacts/retention.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}], "verification": {"role": "program", "roots": [{"path": "crates/runner/src/retained_artifacts/verified_release.rs", "operation": "runner.verify"}, {"path": "crates/runner-tests/tests/verified_release.rs", "operation": "runner.verify"}]}},
+    {"path": "crates/runner/src/retained_artifacts/retention.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/retained_artifacts/retention_command.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/retained_artifacts/session.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/runner/src/retained_artifacts/session/directory.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
@@ -138,7 +139,7 @@
     {"path": "crates/runner/src/wire.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/test-process/Cargo.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
     {"path": "crates/test-process/src/lib.rs", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}]},
-    {"path": "rust-toolchain.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}]}
+    {"path": "rust-toolchain.toml", "owner": "runner", "surface": "product", "cost": "unmeasured", "edges": [{"kind": "test-execution", "to": "test:runner"}, {"kind": "test-execution", "to": "test:resource-limits"}, {"kind": "test-execution", "to": "test:resource-limits-tests"}, {"kind": "test-execution", "to": "test:sealed-member"}, {"kind": "test-execution", "to": "test:sealed-member-tests"}]}
   ],
   "project_edges": [],
   "cost_models": {
@@ -165,6 +166,14 @@
     },
     {
       "test": "resource-limits-tests",
+      "cost": "unmeasured"
+    },
+    {
+      "test": "sealed-member",
+      "cost": "unmeasured"
+    },
+    {
+      "test": "sealed-member-tests",
       "cost": "unmeasured"
     }
   ],
@@ -193,6 +202,20 @@
     "test:resource-limits-tests": {
       "operations": [
         "verify.resource-limits-tests"
+      ],
+      "timeout_seconds": 1800,
+      "output_limit_bytes": 1048576
+    },
+    "test:sealed-member": {
+      "operations": [
+        "verify.sealed-member"
+      ],
+      "timeout_seconds": 1800,
+      "output_limit_bytes": 1048576
+    },
+    "test:sealed-member-tests": {
+      "operations": [
+        "verify.sealed-member-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576

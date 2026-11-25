@@ -57,8 +57,6 @@ use vstd::prelude::*;
 mod manifest;
 #[cfg(not(verus_keep_ghost))]
 use manifest::Manifest;
-#[cfg(verus_keep_ghost)]
-pub use manifest::previous_colon;
 pub use manifest::sealed_member_matches;
 #[path = "partition.rs"]
 pub(crate) mod partition;
