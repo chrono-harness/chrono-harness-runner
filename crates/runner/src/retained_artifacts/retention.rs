@@ -251,6 +251,8 @@ struct Output {
     outcome: Value,
     phase: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    expiring_slot: Option<ArchivedSlot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     observed_return: Option<Value>,
     expires: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -474,9 +476,9 @@ pub struct OriginalIdentity {
     pub path: String,
     pub identity: String,
 }
-/// Fixed pointer generation handed from the local report consumer to its archive.
+/// Physical identity of a fixed publication before its consumer is released.
 #[cfg(not(verus_keep_ghost))]
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ArchivedSlot {
     path: String,
@@ -1014,15 +1016,20 @@ impl Inventory {
         address: &str,
         paths: &[String],
     ) -> Result<Lease, String> {
+        self.address_gate_wait(kind, address, paths, Some(Duration::from_secs(5)))
+    }
+    fn address_gate_wait(
+        &self,
+        kind: &str,
+        address: &str,
+        paths: &[String],
+        wait: Option<Duration>,
+    ) -> Result<Lease, String> {
         let key = format!("{kind}-{}", sha256(address.as_bytes()));
         let directory = no_symlink_parents(&self.directory, &format!("transaction-gates/{key}"))?;
         fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        let gate = crate::ownership::DirectoryLease::acquire_local(
-            &directory,
-            true,
-            Some(Duration::from_secs(5)),
-        )?
-        .ok_or("addressed retention transaction busy")?;
+        let gate = crate::ownership::DirectoryLease::acquire_local(&directory, true, wait)?
+            .ok_or("addressed retention transaction busy")?;
         let path = self.directory.join(&key);
         let mut record = match self.transaction(&key)? {
             Some(record) if record.phase == "retiring" => {
@@ -1056,7 +1063,7 @@ impl Inventory {
             (!record.lease_id.is_empty()).then_some(record.lease_id.as_str()),
             record.lease_id.is_empty(),
             true,
-            Some(Duration::from_secs(5)),
+            wait,
         )?
         .ok_or("addressed retention transaction busy")?;
         record.lease_id = lease.id().into();
@@ -1507,6 +1514,7 @@ impl Inventory {
             lease_id: String::new(),
             outcome,
             phase: "reserving".into(),
+            expiring_slot: None,
             observed_return: None,
             expires,
             lifetime,

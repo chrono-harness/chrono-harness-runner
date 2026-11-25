@@ -18,9 +18,9 @@ pub(crate) mod commands;
 #[path = "../scoped_report.rs"]
 pub mod scoped_report;
 #[cfg(not(verus_keep_ghost))]
-pub use crate::scoped_report::archived_slot_ready;
+pub use crate::scoped_report::{archived_slot_ready, local_slot_expired};
 #[cfg(verus_keep_ghost)]
-pub use scoped_report::archived_slot_ready;
+pub use scoped_report::{archived_slot_ready, local_slot_expired};
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]

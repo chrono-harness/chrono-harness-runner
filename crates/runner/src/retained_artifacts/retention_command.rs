@@ -37,6 +37,8 @@ pub(super) struct Evidence {
 enum Request {
     Maintain {
         originals: Option<Vec<String>>,
+        #[serde(default)]
+        expire_local_check_slots: Vec<String>,
     },
     MigratePolicy {
         previous_policy: Evidence,
@@ -90,17 +92,28 @@ fn evidence(root: &Path, e: &Evidence) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 #[cfg(not(verus_keep_ghost))]
-fn bounded_json(root: &Path, path: &str, limit: u64) -> Result<(Value, Vec<u8>), String> {
+pub(super) fn bounded_json(
+    root: &Path,
+    path: &str,
+    limit: u64,
+) -> Result<(Value, Vec<u8>), String> {
     let path = no_symlink_parents(root, path)?;
-    let metadata = fs::symlink_metadata(&path)
-        .map_err(|e| format!("delivery input {}: {e}", path.display()))?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options
+        .open(&path)
+        .map_err(|e| format!("retention input {}: {e}", path.display()))?;
+    let metadata = file.metadata().map_err(|e| e.to_string())?;
     if !metadata.is_file() || !within_bound(metadata.len(), limit) {
         return Err("delivery input must be a bounded regular file".into());
     }
     let mut raw = Vec::new();
-    fs::File::open(&path)
-        .map_err(|e| format!("delivery input {}: {e}", path.display()))?
-        .take(limit + 1)
+    file.take(limit + 1)
         .read_to_end(&mut raw)
         .map_err(|e| e.to_string())?;
     if !within_bound(raw.len() as u64, limit) {
@@ -142,9 +155,16 @@ fn execute(root: &Path, request: Request) -> Result<Value, String> {
                 &receipt.sha256,
             )
         }
-        Request::Maintain { originals } => match originals {
-            Some(originals) => inventory.maintain_originals(&originals),
-            None => inventory.maintain_explicit(),
+        Request::Maintain {
+            originals,
+            expire_local_check_slots,
+        } => match originals {
+            Some(originals) if expire_local_check_slots.is_empty() => {
+                inventory.maintain_originals(&originals)
+            }
+            Some(_) => Err("a selected-original round cannot expire local report slots".into()),
+            None if expire_local_check_slots.is_empty() => inventory.maintain_explicit(),
+            None => inventory.maintain_local_check_slots(&expire_local_check_slots),
         },
         Request::ReleasePreserved {
             original,

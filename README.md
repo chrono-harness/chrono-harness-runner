@@ -27,6 +27,8 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 同一会话可以在创建 publication 时传入 `consumer_prefix`，将待复核的消费者与目录一起登记。`create-member` 在该目录的配额内建子目录；`complete` 的 `seal: true` 核对及封存最后的成员身份。
 
 
+开发机可在现有 `chrono-harness retention --host-root . --request PATH` 的 `maintain` 请求中选定成功的本地检查报告，例如 `{"operation":"maintain","expire_local_check_slots":[".chrono-harness/state/collection/check.json"]}`。宿主需启用有限的 `max_lifetime_seconds`，报告使用 `retained-reference/v2`。保留期限从原件创建时计算。定时维护在到期后核对当前代际、发布状态、持有者及读者，释放已结束的本地入口，普通回收随后清理无引用的原件。需要长期使用的结果应在窗口内转存；有外部交接义务的结果沿已有交接流程。每个槽位的处置由本轮 `local_check_slots` 报告，后续维护可重试。
+
 ## 使用
 
 在仓库根运行 `cargo build --locked --package chrono-harness`，再运行 `target/debug/chrono-harness --help`。日志和报告的位置由调用宿主选择。
