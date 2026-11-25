@@ -412,6 +412,46 @@ fn same_recovery_text(left: Option<&str>, right: Option<&str>) -> (same: bool)
     }
 }
 
+pub enum PublicationReadScope<T> {
+    Inputs(T),
+    Output(T),
+    RootInputs,
+    MissingOutput,
+}
+
+pub fn publication_read_scope<T>(path: Option<T>, inputs: bool) -> (scope: PublicationReadScope<T>)
+    ensures match path {
+        Some(p) => if inputs { scope == PublicationReadScope::Inputs(p) }
+                   else { scope == PublicationReadScope::Output(p) },
+        None => if inputs { scope == PublicationReadScope::<T>::RootInputs }
+                else { scope == PublicationReadScope::<T>::MissingOutput },
+    },
+{
+    match path {
+        Some(p) => if inputs { PublicationReadScope::Inputs(p) }
+                   else { PublicationReadScope::Output(p) },
+        None => if inputs { PublicationReadScope::RootInputs }
+                else { PublicationReadScope::MissingOutput },
+    }
+}
+
+pub enum ReportSettlement { Commit, Reject, Unmanaged }
+
+pub fn report_settlement(adopted: bool, held_original: Option<&str>, original: &str) -> (decision: ReportSettlement)
+    ensures match decision {
+        ReportSettlement::Commit => recovery_text(held_original) == Some(original@),
+        ReportSettlement::Unmanaged => !adopted && held_original.is_none(),
+        ReportSettlement::Reject => (adopted || held_original.is_some())
+            && recovery_text(held_original) != Some(original@),
+    },
+{
+    match held_original {
+        Some(held) => if identifiers::equal_text(held, original) { ReportSettlement::Commit }
+                      else { ReportSettlement::Reject },
+        None => if adopted { ReportSettlement::Reject } else { ReportSettlement::Unmanaged },
+    }
+}
+
 pub fn report_publication(schema: &str, exit_code: u8) -> (valid: bool)
     ensures valid == (schema@ == "chrono-report-publication/v1"@ && exit_code <= 2),
 {
