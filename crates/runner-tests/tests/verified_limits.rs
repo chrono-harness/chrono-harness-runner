@@ -24,6 +24,19 @@ fn expect_limit_true(actual: bool)
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn terminal_sizes_preserve_the_identity_of_empty_and_unequal_streams() {
+    let empty: [u8; 0] = [];
+    let one = [255u8];
+    let two = [0u8, 128];
+    let both = policy::CapturedStreams { stdout_bytes: &one, stderr_bytes: &two }.sizes();
+    expect_limit_true(both.stdout_size == 1 && both.stderr_size == 2);
+    let only_stdout = policy::CapturedStreams { stdout_bytes: &one, stderr_bytes: &empty }.sizes();
+    expect_limit_true(only_stdout.stdout_size == 1 && only_stdout.stderr_size == 0);
+    let only_stderr = policy::CapturedStreams { stdout_bytes: &empty, stderr_bytes: &two }.sizes();
+    expect_limit_true(only_stderr.stdout_size == 0 && only_stderr.stderr_size == 2);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn positive_timeout_accepts_the_complete_inclusive_output_boundary() {
     let minimum = policy::valid_execution_bounds(1, 1);
     let below_maximum = policy::valid_execution_bounds(30, 67_108_863);
