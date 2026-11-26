@@ -1649,7 +1649,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/process_ownership.rs",
+            "operation": "verify.process-ownership-exit"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/publication.rs",
@@ -2304,7 +2313,8 @@
         "verify.coverage-endpoints",
         "verify.coverage-endpoints-tests",
         "verify.roadmap-adapters",
-        "verify.check-workflow"
+        "verify.check-workflow",
+        "verify.process-ownership-exit"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576
