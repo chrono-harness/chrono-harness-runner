@@ -1,4 +1,5 @@
 {
+  "require_new_file_classification": true,
   "schema_version": 2,
   "files": [
     {
@@ -56,14 +57,22 @@
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "docs/licenses/trureturing-Apache-2.0.txt",
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "AGENTS.md",
@@ -71,49 +80,77 @@
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "CLAUDE.md",
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/ISSUE_TEMPLATE/bug.yml",
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/ISSUE_TEMPLATE/documentation.yml",
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/ISSUE_TEMPLATE/enhancement.yml",
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/ISSUE_TEMPLATE/question.yml",
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/PULL_REQUEST_TEMPLATE.md",
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".config/mise/conf.d/chrono-harness.toml",
@@ -163,7 +200,11 @@
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/template-answers.yml",
@@ -217,7 +258,11 @@
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/check.json",
@@ -378,7 +423,11 @@
       "owner": "runner",
       "surface": "documentation",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "check.sh",
