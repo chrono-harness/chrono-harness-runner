@@ -383,14 +383,42 @@
       "owner": "runner",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/roadmap.rs",
+            "operation": "verify.roadmap-adapters"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/issue-roadmap.yml",
       "owner": "runner",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/roadmap.rs",
+            "operation": "verify.roadmap-adapters"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/check.yml",
@@ -2154,6 +2182,43 @@
           "to": "test:shallow-reads-tests"
         }
       ]
+    },
+    {
+      "path": ".chrono-harness/ci/roadmap.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/roadmap.rs",
+            "operation": "verify.roadmap-adapters"
+          }
+        ]
+      }
+    },
+    {
+      "path": ".github/workflows/actions.lock",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     }
   ],
   "project_edges": [],
@@ -2207,7 +2272,8 @@
         "verify.registered-git-trace-tests",
         "verify.runner-release-tests",
         "verify.coverage-endpoints",
-        "verify.coverage-endpoints-tests"
+        "verify.coverage-endpoints-tests",
+        "verify.roadmap-adapters"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576
