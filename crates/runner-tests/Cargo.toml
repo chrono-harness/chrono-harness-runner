@@ -152,3 +152,7 @@ bench = false
 [[test]]
 name = "registration_reports"
 path = "tests/registration_reports.rs"
+
+[[test]]
+name = "release_observation"
+path = "tests/release_observation.rs"
