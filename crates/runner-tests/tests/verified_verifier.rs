@@ -527,6 +527,9 @@ fn any_library_clone_preserves_every_field(artifact: &policy::CompiledArtifact) 
 }
 
 impl policy::ArtifactRead for UnavailableSources {
+    open spec fn identity_observed(&self, path: Seq<u8>, value: Result<(Vec<u8>, u64), String>) -> bool {
+        match value { Err(e) => e@ == "original library read error\0é"@, _ => false }
+    }
     fn identity(&self, path: &[u8]) -> Result<(Vec<u8>, u64), String> {
         Err("original library read error\0é".to_string())
     }
@@ -636,8 +639,66 @@ fn successful_report_without_compiled_library_is_rejected() {
 }
 
 impl policy::sources::DependencyRead for UnavailableSources {
+    open spec fn read_observed(&self, path: Seq<u8>, bound: u64, value: Result<Vec<u8>, String>) -> bool {
+        match value { Err(e) => e@ == "original read error\0é"@, _ => false }
+    }
     fn read(&self, path: &[u8], limit: u64) -> Result<Vec<u8>, String> {
         Err("original read error\0é".to_string())
+    }
+}
+
+/// On the selected dep-info read, the caller can recover the original stream or its exact error.
+#[cfg(verus_keep_ghost)]
+fn dependency_observation_uses_the_selected_read<R: policy::sources::DependencyRead>(
+    reader: &R, contract: &Option<OutputContract>, args: &Vec<String>, limit: usize,
+    expected: &Result<Vec<u8>, String>,
+)
+    requires contract.is_some(), policy::verifier_arguments(args@), 0 < limit <= 67_108_864,
+        forall|v: Result<Vec<u8>, String>| #[trigger] reader.read_observed(
+            policy::sources::dep_info_path(args@[10]@), (limit + 1) as u64, v)
+            ==> v == *expected,
+{
+    let observed = policy::sources::observe_dependency(contract, args, 0, false, limit, reader);
+    assert(observed.is_some());
+    proof {
+        match expected {
+            Ok(bytes) if bytes.len() > limit => {
+                assert(observed.unwrap().is_err());
+                assert(observed.unwrap().unwrap_err()@ == "E_VERUS_SOURCES: compiler dependency exceeds its bound"@);
+            },
+            _ => assert(observed.unwrap() == *expected),
+        }
+    }
+}
+
+#[cfg(verus_keep_ghost)]
+fn library_observation_uses_the_selected_read<R: policy::ArtifactRead>(
+    reader: &R, contract: &Option<OutputContract>, args: &Vec<String>,
+    expected: &Result<(Vec<u8>, u64), String>,
+)
+    requires contract.is_some(), policy::verifier_arguments(args@),
+        forall|v: Result<(Vec<u8>, u64), String>| #[trigger] reader.identity_observed(
+            vstd::utf8::encode_utf8(args@[10]@), v) ==> v == *expected,
+{
+    let observed = policy::observe_artifact(contract, args, 0, false, reader);
+    assert(observed.is_some());
+    proof {
+        match expected {
+            Err(e) => { assert(observed.unwrap().is_err()); if let Err(actual) = observed.unwrap() { assert(actual == *e); } },
+            Ok((digest, length)) => {
+                if *length == 0 || !policy::identifiers::digest_format(digest@) {
+                    assert(observed.unwrap().is_err());
+                    if let Err(actual) = observed.unwrap() {
+                        assert(actual@ == "E_VERUS_ARTIFACT: empty library or invalid observed digest"@);
+                    }
+                } else {
+                    assert(observed.unwrap().is_ok());
+                    let file = observed.unwrap().unwrap();
+                    assert(file.path@ == vstd::utf8::encode_utf8(args@[10]@));
+                    assert(file.sha256 == *digest && file.length == *length);
+                }
+            },
+        }
     }
 }
 
