@@ -40,6 +40,10 @@ name = "cli_contract"
 path = "tests/cli_contract.rs"
 
 [[test]]
+name = "git_object_ids"
+path = "tests/git_object_ids.rs"
+
+[[test]]
 name = "protocol_v1"
 path = "tests/protocol_v1.rs"
 

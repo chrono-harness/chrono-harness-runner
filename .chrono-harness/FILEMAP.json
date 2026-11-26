@@ -676,6 +676,27 @@
       }
     },
     {
+      "path": "crates/runner-tests/tests/git_object_ids.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/git_object_ids.rs",
+            "operation": "verify.git-object-ids"
+          }
+        ]
+      }
+    },
+    {
       "path": "crates/runner-tests/tests/registered_git_inputs.rs",
       "owner": "runner",
       "surface": "test",
@@ -805,7 +826,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/git_object_ids.rs",
+            "operation": "verify.git-object-ids"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner-tests/tests/registry_snapshot.rs",
@@ -853,7 +883,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/git_object_ids.rs",
+            "operation": "verify.git-object-ids"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner-tests/tests/support/debug_events.rs",
@@ -1305,7 +1344,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/git_object_ids.rs",
+            "operation": "verify.git-object-ids"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/command_stream.rs",
@@ -1389,7 +1437,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/git_object_ids.rs",
+            "operation": "verify.git-object-ids"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/finding_registry.rs",
@@ -2048,6 +2105,10 @@
           {
             "path": "crates/runner-tests/tests/verified_shallow_reads.rs",
             "operation": "verify.shallow-reads-tests"
+          },
+          {
+            "path": "crates/runner-tests/tests/git_object_ids.rs",
+            "operation": "verify.git-object-ids"
           }
         ]
       }
@@ -2308,7 +2369,8 @@
         "verify.coverage-endpoints",
         "verify.coverage-endpoints-tests",
         "verify.roadmap-adapters",
-        "verify.check-workflow"
+        "verify.check-workflow",
+        "verify.git-object-ids"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576

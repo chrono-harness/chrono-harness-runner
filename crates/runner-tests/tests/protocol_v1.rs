@@ -4205,7 +4205,10 @@ fn registry_finding_uses_the_selected_fixed_git_blob_and_its_recorded_bytes() {
         let mut hash = Sha1::new();
         hash.update(format!("blob {}\0", data.len()));
         hash.update(data);
-        format!("{:x}", hash.finalize())
+        hash.finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     };
     let mut originals = Vec::new();
     for (endpoint, marker) in [(&request.base, "removed"), (&request.candidate, "added")] {
