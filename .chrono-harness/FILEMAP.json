@@ -34,10 +34,6 @@
         {
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
-        },
-        {
-          "kind": "test-execution",
-          "to": "test:registered-git-trace-tests"
         }
       ]
     },
@@ -152,10 +148,6 @@
         {
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
-        },
-        {
-          "kind": "test-execution",
-          "to": "test:registered-git-trace-tests"
         }
       ],
       "verification": {
@@ -228,10 +220,6 @@
         {
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
-        },
-        {
-          "kind": "test-execution",
-          "to": "test:registered-git-trace-tests"
         }
       ],
       "verification": {
@@ -276,10 +264,6 @@
         {
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
-        },
-        {
-          "kind": "test-execution",
-          "to": "test:registered-git-trace-tests"
         }
       ]
     },
@@ -320,10 +304,6 @@
         {
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
-        },
-        {
-          "kind": "test-execution",
-          "to": "test:registered-git-trace-tests"
         }
       ],
       "verification": {
@@ -378,10 +358,6 @@
         {
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
-        },
-        {
-          "kind": "test-execution",
-          "to": "test:registered-git-trace-tests"
         }
       ]
     },
@@ -521,10 +497,6 @@
         {
           "kind": "test-execution",
           "to": "test:runner"
-        },
-        {
-          "kind": "test-execution",
-          "to": "test:registered-git-trace-tests"
         }
       ],
       "verification": {
@@ -2013,10 +1985,6 @@
         {
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
-        },
-        {
-          "kind": "test-execution",
-          "to": "test:registered-git-trace-tests"
         }
       ]
     }
@@ -2063,16 +2031,13 @@
     {
       "test": "shallow-reads-tests",
       "cost": "unmeasured"
-    },
-    {
-      "test": "registered-git-trace-tests",
-      "cost": "unmeasured"
     }
   ],
   "execution_plans": {
     "test:runner": {
       "operations": [
-        "runner.verify"
+        "runner.verify",
+        "verify.registered-git-trace-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576
@@ -2122,13 +2087,6 @@
     "test:shallow-reads-tests": {
       "operations": [
         "verify.shallow-reads-tests"
-      ],
-      "timeout_seconds": 1800,
-      "output_limit_bytes": 1048576
-    },
-    "test:registered-git-trace-tests": {
-      "operations": [
-        "verify.registered-git-trace-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576
