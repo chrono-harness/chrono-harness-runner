@@ -439,8 +439,8 @@ fn declaration_query_checks_roots_and_preserves_reference_path_order() {
     use serde_json::{Value, json};
 
     let file = json!({"path":"pkg/a.rs","verification":{"role":"program","roots":[{"path":"root.rs","operation":"verify"}]}});
-    let query = |file: Value, operations: Value| {
-        let input = json!({"operation":"source-declarations","files":[file],"operations":operations,
+    let query = |files: Value, operations: Value| {
+        let input = json!({"operation":"source-declarations","files":files,"operations":operations,
             "reference_paths":["pkg/a.rs","./a.rs","two//parts","real"]});
         let mut output = Vec::new();
         serve(
@@ -451,19 +451,36 @@ fn declaration_query_checks_roots_and_preserves_reference_path_order() {
         serde_json::from_slice::<Vec<bool>>(&output).map_err(|e| e.to_string())
     };
     assert_eq!(
-        query(file.clone(), json!(["verify"])).unwrap(),
+        query(json!([file]), json!(["verify"])).unwrap(),
         vec![true, false, false, true]
     );
     assert!(
-        query(file.clone(), json!([]))
+        query(json!([file]), json!([]))
             .unwrap_err()
             .contains("pkg/a.rs: E_VERUS_COVERAGE: proof root operation is not registered")
     );
-    let mut invalid = file;
+    let mut invalid = file.clone();
     invalid["verification"]["roots"][0]["path"] = json!("./root.rs");
     assert!(
-        query(invalid, json!(["verify"]))
+        query(json!([invalid]), json!(["verify"]))
             .unwrap_err()
             .contains("pkg/a.rs: E_VERUS_COVERAGE: invalid file proof declaration")
+    );
+    let mut unregistered = file.clone();
+    unregistered["path"] = json!("second.rs");
+    unregistered["verification"]["roots"][0]["operation"] = json!("absent");
+    invalid["path"] = json!("invalid.rs");
+    invalid["verification"]["roots"][0]["operation"] = json!("also-absent");
+    assert_eq!(
+        query(json!([file, unregistered, invalid]), json!(["verify"])).unwrap_err(),
+        "second.rs: E_VERUS_COVERAGE: proof root operation is not registered"
+    );
+    assert_eq!(
+        query(json!([file, invalid, unregistered]), json!(["verify"])).unwrap_err(),
+        "invalid.rs: E_VERUS_COVERAGE: invalid file proof declaration"
+    );
+    assert_eq!(
+        query(json!([file, file]), json!(["verify"])).unwrap(),
+        [true, false, false, true]
     );
 }

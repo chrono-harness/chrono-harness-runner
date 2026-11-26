@@ -97,23 +97,12 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     operations,
                     reference_paths,
                 } => {
-                    for file in files {
-                        verifier::sources::validate_source_declaration(&file)
-                            .map_err(|error| format!("{}: {error}", file.path))?;
-                        if !verifier::sources::proof_roots_have_registered_operations(
-                            &file,
-                            &operations,
-                        ) {
-                            return Err(format!(
-                                "{}: E_VERUS_COVERAGE: proof root operation is not registered",
-                                file.path
-                            ));
-                        }
-                    }
-                    let canonical: Vec<bool> = reference_paths
-                        .iter()
-                        .map(|path| verifier::sources::canonical_source_name(path))
-                        .collect();
+                    let canonical = verifier::sources::source_declarations(
+                        &files,
+                        &operations,
+                        &reference_paths,
+                    )
+                    .map_err(|(path, error)| format!("{path}: {error}"))?;
                     serde_json::to_writer(output, &canonical).map_err(|error| error.to_string())
                 }
                 Compiler::ProofRows { contract, rows } => {
