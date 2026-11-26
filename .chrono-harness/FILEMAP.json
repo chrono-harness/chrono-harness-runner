@@ -454,7 +454,16 @@
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/check_workflow.rs",
+            "operation": "verify.check-workflow"
+          }
+        ]
+      }
     },
     {
       "path": ".github/workflows/release.yml",
@@ -2219,6 +2228,27 @@
         "role": "data",
         "roots": []
       }
+    },
+    {
+      "path": "crates/runner-tests/tests/check_workflow.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/check_workflow.rs",
+            "operation": "verify.check-workflow"
+          }
+        ]
+      }
     }
   ],
   "project_edges": [],
@@ -2273,7 +2303,8 @@
         "verify.runner-release-tests",
         "verify.coverage-endpoints",
         "verify.coverage-endpoints-tests",
-        "verify.roadmap-adapters"
+        "verify.roadmap-adapters",
+        "verify.check-workflow"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576
