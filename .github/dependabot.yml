@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - directory: /
+    groups:
+      github-actions:
+        patterns:
+        - '*'
+    package-ecosystem: github-actions
+    schedule:
+      interval: daily
+    target-branch: dev
+  - directory: /
+    groups:
+      cargo:
+        patterns:
+        - '*'
+    package-ecosystem: cargo
+    schedule:
+      interval: daily
+    target-branch: dev

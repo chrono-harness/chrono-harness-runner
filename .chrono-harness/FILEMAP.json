@@ -98,6 +98,28 @@
       }
     },
     {
+      "path": ".github/workflows/dependabot-auto-merge.yml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
+      "path": ".github/dependabot.yml",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".github/ISSUE_TEMPLATE/bug.yml",
       "owner": "runner",
       "surface": "documentation",
@@ -215,7 +237,11 @@
       "owner": "runner",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/.gitignore",
