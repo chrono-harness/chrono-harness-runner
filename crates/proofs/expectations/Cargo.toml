@@ -39,6 +39,11 @@ path = "../../runner/src/verified_limits.rs"
 crate-type = ["lib"]
 
 [[example]]
+name = "runner_shallow_reads"
+path = "../../runner/src/verified_shallow_reads.rs"
+crate-type = ["lib"]
+
+[[example]]
 name = "maintenance_signal"
 path = "../../runner/src/maintenance_signal.rs"
 crate-type = ["lib"]
@@ -76,6 +81,11 @@ crate-type = ["lib"]
 [[example]]
 name = "runner_limits_tests"
 path = "../../runner-tests/tests/verified_limits.rs"
+crate-type = ["lib"]
+
+[[example]]
+name = "runner_shallow_reads_tests"
+path = "../../runner-tests/tests/verified_shallow_reads.rs"
 crate-type = ["lib"]
 
 [[example]]

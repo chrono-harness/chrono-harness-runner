@@ -117,6 +117,8 @@ pub mod verified_paths;
 #[cfg(not(verus_keep_ghost))]
 pub mod verified_release;
 #[cfg(not(verus_keep_ghost))]
+pub mod verified_shallow_reads;
+#[cfg(not(verus_keep_ghost))]
 pub mod verified_status;
 #[cfg(not(verus_keep_ghost))]
 pub mod verified_verifier {
