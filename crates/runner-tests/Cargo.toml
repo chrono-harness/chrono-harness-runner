@@ -6,6 +6,10 @@ publish = false
 autotests = false
 
 [[test]]
+name = "source_coverage"
+path = "tests/source_coverage.rs"
+
+[[test]]
 name = "runtime_logging"
 path = "tests/runtime_logging.rs"
 
