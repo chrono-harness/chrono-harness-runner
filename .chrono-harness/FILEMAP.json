@@ -186,7 +186,11 @@
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/pr.json",
@@ -342,7 +346,11 @@
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".github/roadmap.cjs",
@@ -535,7 +543,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/registered_git.rs",
+            "operation": "verify.registered-git-trace-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner-tests/tests/registered_git_inputs.rs",
@@ -2064,7 +2081,8 @@
   "execution_plans": {
     "test:runner": {
       "operations": [
-        "runner.verify"
+        "runner.verify",
+        "verify.registered-git-trace-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576

@@ -1,10 +1,82 @@
+#![allow(unexpected_cfgs)]
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::{prelude::*, vpanic as panic};
+
+verus! {
+const DIFF: [u8; 4] = [100, 105, 102, 102];
+const SPACE: u8 = 32;
+const LF: u8 = 10;
+
+spec fn separator(byte: u8) -> bool { byte == SPACE || byte == LF }
+
+fn is_separator(byte: u8) -> (result: bool)
+    ensures result == separator(byte),
+{
+    byte == SPACE || byte == LF
+}
+
+spec fn diff_at(trace: Seq<u8>, i: int) -> bool {
+    0 <= i && i + 4 <= trace.len()
+        && (i == 0 || separator(trace[i - 1]))
+        && trace[i] == DIFF[0] && trace[i + 1] == DIFF[1] && trace[i + 2] == DIFF[2] && trace[i + 3] == DIFF[3]
+        && (i + 4 == trace.len() || separator(trace[i + 4]))
+}
+
+/// The fixture separates arguments with spaces and invocations with LF.
+fn trace_uses_diff(trace: &[u8]) -> (found: bool)
+    ensures found == (exists|i: int| #[trigger] diff_at(trace@, i)),
+{
+    let mut i = 0;
+    while i < trace.len()
+        invariant i <= trace.len(), forall|j: int| 0 <= j < i ==> !#[trigger] diff_at(trace@, j),
+        decreases trace.len() - i,
+    {
+        if trace.len() - i >= 4 && (i == 0 || is_separator(trace[i - 1]))
+            && trace[i] == DIFF[0] && trace[i + 1] == DIFF[1] && trace[i + 2] == DIFF[2] && trace[i + 3] == DIFF[3]
+            && (i + 4 == trace.len() || is_separator(trace[i + 4])) {
+            proof { assert(diff_at(trace@, i as int)); }
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+fn expect_trace(value: bool) requires value, { if !value { panic!(); } }
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn trace_distinguishes_diff_from_directory_and_command_substrings() {
+    let directory = [47, 100, 105, 102, 102, SPACE];
+    let hyphenated = [100, 105, 102, 102, 45, 120];
+    let middle = [120, SPACE, 100, 105, 102, 102, LF];
+    let only = [100, 105, 102, 102];
+    proof {
+        assert(forall|i: int| !#[trigger] diff_at(directory@, i));
+        assert(forall|i: int| !#[trigger] diff_at(hyphenated@, i));
+        assert(diff_at(middle@, 2));
+        assert(diff_at(only@, 0));
+    }
+    expect_trace(!trace_uses_diff(&directory));
+    expect_trace(!trace_uses_diff(&hyphenated));
+    expect_trace(trace_uses_diff(&middle));
+    expect_trace(trace_uses_diff(&only));
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(not(verus_keep_ghost))]
 #[path = "registered_git_inputs.rs"]
 mod git_inputs;
 
+#[cfg(not(verus_keep_ghost))]
 const CONFIG: &str = ".chrono-harness/config.json";
 
+#[cfg(not(verus_keep_ghost))]
 fn retained_input(root: &Path, path: &Path) -> Value {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
@@ -19,6 +91,7 @@ fn retained_input(root: &Path, path: &Path) -> Value {
     json!({"blob":blob,"sha256":digest,"length":bytes.len()})
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn error_processes(error: &str) -> Vec<Value> {
     let observed: Value =
         serde_json::from_str(error.trim().strip_prefix("E_CHECK: E_GIT_FACTS: ").unwrap()).unwrap();
@@ -30,12 +103,14 @@ fn error_processes(error: &str) -> Vec<Value> {
         .collect()
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct BoundHost {
     host: Host,
     program: PathBuf,
     trace: PathBuf,
     shadow: PathBuf,
 }
+#[cfg(not(verus_keep_ghost))]
 impl BoundHost {
     fn new(initial: bool, mode: &str) -> Self {
         let mut h = if initial { initial_host() } else { Host::new() };
@@ -172,6 +247,7 @@ impl BoundHost {
 
 // Retain each endpoint's own configuration. Adopting coverage must not rewrite
 // the old v3 config or require executing the previous judge binary.
+#[cfg(not(verus_keep_ghost))]
 fn run_with_endpoint_inputs(h: &BoundHost) -> (i32, Value) {
     let snapshot = |oid: &str| {
         let config: Value =
@@ -347,9 +423,11 @@ fn full_and_initial_bound_checks_reject_configuration_hidden_mode_changes() {
                 report["findings"]
             );
         }
-        assert!(h.trace().contains("ls-files --stage -z"));
+        let root = fs::canonicalize(h.host.root()).unwrap();
+        let trace = h.trace().replace(root.to_str().unwrap(), "<fixture>");
+        assert!(trace.contains("ls-files --stage -z"));
         assert!(
-            !h.trace().contains("diff"),
+            !trace_uses_diff(trace.as_bytes()),
             "raw identity must not delegate to filters"
         );
     }
