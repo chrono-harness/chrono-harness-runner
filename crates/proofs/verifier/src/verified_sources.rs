@@ -88,11 +88,31 @@ pub fn observe_dependency<I: DependencyRead>(
     }
 }
 
+pub open spec fn dependency_observation_error(
+    contract: &Option<super::OutputContract>, observed: &Option<Result<Vec<u8>, String>>, limit: usize,
+) -> Option<Seq<char>> {
+    match contract {
+        None => if observed.is_some() { Some("E_VERUS_SOURCES: ordinary operation has compiler source evidence"@) } else { None },
+        Some(_) => if limit == 0 || limit > 67_108_864 {
+            Some("E_VERUS_SOURCES: invalid dependency observation bound"@)
+        } else {
+            match observed {
+                Some(Ok(bytes)) => if bytes.len() > limit {
+                    Some("E_VERUS_SOURCES: compiler dependency exceeds its bound"@)
+                } else { None },
+                _ => Some("E_VERUS_SOURCES: missing or failed original dependency observation"@),
+            }
+        },
+    }
+}
+
 pub fn admit_dependency_observation(
     contract: &Option<super::OutputContract>, observed: &Option<Result<Vec<u8>, String>>,
     limit: usize,
 ) -> (out: Result<(), String>)
     ensures out.is_ok() == dependency_observed(contract, observed, limit),
+        match out { Ok(()) => dependency_observation_error(contract, observed, limit).is_none(),
+            Err(error) => dependency_observation_error(contract, observed, limit) == Some(error@) },
 {
     match contract {
         None => {

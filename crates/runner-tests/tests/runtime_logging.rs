@@ -242,17 +242,59 @@ fn public_compiler_query_preserves_owner_paths_and_rejects_missing_originals() {
             expected_args
         );
     }
-    let request = json!({"operation":"check","contract":{"version":"fixture","commit":"fixture"},
-        "stdout":[0,255],"argv":bound,"exit":0,"process_failed":false,"dependency":null,"limit":4096,"artifact":null});
-    assert!(
+    let proof = json!({
+        "verus":{"version":"fixture","commit":"fixture"},
+        "verification-results":{"success":true,"verified":1,"errors":0,"encountered-error":false,
+            "encountered-vir-error":false,"is-verifying-entire-crate":true}
+    });
+    let valid = json!({"operation":"check","contract":{"version":"fixture","commit":"fixture"},
+        "stdout":serde_json::to_vec(&proof).unwrap(),"argv":bound,"exit":0,"process_failed":false,
+        "dependency":{"Ok":[0,255]},"limit":2,
+        "artifact":{"Ok":{"path":b"bound/receipt.rlib".to_vec(),"sha256":vec![b'a';64],"length":1}}});
+    let check = |query: &Value| {
+        let mut result = Vec::new();
         serve(
             "compiler-output-v1",
-            request.to_string().as_bytes(),
-            Vec::new()
+            query.to_string().as_bytes(),
+            &mut result,
         )
-        .unwrap_err()
-        .contains("E_VERUS_RESULT")
+        .map(|()| result)
+    };
+    assert_eq!(check(&valid).unwrap(), b"null");
+    let mut q = valid.clone();
+    q["stdout"] = json!([0, 255]);
+    q["dependency"] = Value::Null;
+    q["artifact"] = Value::Null;
+    assert_eq!(
+        check(&q).unwrap_err(),
+        "E_VERUS_RESULT: missing or malformed typed report"
     );
+    q["process_failed"] = json!(true);
+    assert_eq!(
+        check(&q).unwrap_err(),
+        "E_VERUS_RESULT: process or verifier arguments rejected"
+    );
+    q["contract"]["commit"] = json!("");
+    assert_eq!(
+        check(&q).unwrap_err(),
+        "E_VERUS_CONTRACT: version and commit must be nonempty"
+    );
+    q = valid.clone();
+    q["dependency"] = Value::Null;
+    q["artifact"] = Value::Null;
+    assert_eq!(
+        check(&q).unwrap_err(),
+        "E_VERUS_SOURCES: missing or failed original dependency observation"
+    );
+    q["dependency"] = valid["dependency"].clone();
+    assert_eq!(
+        check(&q).unwrap_err(),
+        "E_VERUS_ARTIFACT: missing or failed original library observation"
+    );
+    q["contract"] = Value::Null;
+    q["stdout"] = json!([255]);
+    q["dependency"] = Value::Null;
+    assert_eq!(check(&q).unwrap(), b"null");
     let mut original = Vec::new();
     let invalid = json!({"operation":"observe","contract":{"version":"1","commit":"x"},
         "argv":[],"exit":1,"process_failed":true,"limit":128});

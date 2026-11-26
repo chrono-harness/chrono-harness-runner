@@ -156,11 +156,31 @@ pub open spec fn artifact_observed(
     }
 }
 
+pub open spec fn artifact_observation_error(
+    contract: &Option<OutputContract>, observed: &Option<Result<CompiledArtifact, String>>, args: Seq<String>,
+) -> Option<Seq<char>> {
+    if contract.is_none() {
+        if observed.is_some() { Some("E_VERUS_ARTIFACT: ordinary operation has compiler library evidence"@) }
+        else { None }
+    } else if !verifier_arguments(args) {
+        Some("E_VERUS_ARTIFACT: verifier arguments differ from the registered invocation"@)
+    } else {
+        match observed {
+            Some(Ok(a)) => if artifact_matches(a, args) { None } else {
+                Some("E_VERUS_ARTIFACT: library path, digest or length rejected"@)
+            },
+            _ => Some("E_VERUS_ARTIFACT: missing or failed original library observation"@),
+        }
+    }
+}
+
 pub fn admit_artifact_observation(
     contract: &Option<OutputContract>, observed: &Option<Result<CompiledArtifact, String>>,
     args: &Vec<String>,
 ) -> (out: Result<(), String>)
     ensures out.is_ok() == artifact_observed(contract, observed, args@),
+        match out { Ok(()) => artifact_observation_error(contract, observed, args@).is_none(),
+            Err(error) => artifact_observation_error(contract, observed, args@) == Some(error@) },
 {
     if contract.is_none() {
         return if observed.is_none() { Ok(()) }
@@ -402,6 +422,20 @@ pub fn admit_output(
     Ok(())
 }
 
+pub open spec fn observed_output_error(
+    contract: &Option<OutputContract>, decoded: &Option<CompilerReport>,
+    args: Seq<String>, exit: i32, failed: bool, dependency: &Option<Result<Vec<u8>, String>>,
+    limit: usize, artifact: &Option<Result<CompiledArtifact, String>>,
+) -> Option<Seq<char>> {
+    match output_error(contract, decoded, args, exit, failed) {
+        Some(error) => Some(error),
+        None => match sources::dependency_observation_error(contract, dependency, limit) {
+            Some(error) => Some(error),
+            None => artifact_observation_error(contract, artifact, args),
+        },
+    }
+}
+
 /// 本地与离线回执共同消费原报告及原依赖观察。
 pub fn admit_observed_output(
     contract: &Option<OutputContract>, decoded: &Option<CompilerReport>,
@@ -412,6 +446,10 @@ pub fn admit_observed_output(
     ensures out.is_ok() == (output_accepted(contract, decoded, args@, exit, process_failed)
         && sources::dependency_observed(contract, dependency, limit)
         && artifact_observed(contract, artifact, args@)),
+        match out {
+            Ok(()) => observed_output_error(contract, decoded, args@, exit, process_failed, dependency, limit, artifact).is_none(),
+            Err(error) => observed_output_error(contract, decoded, args@, exit, process_failed, dependency, limit, artifact) == Some(error@),
+        },
 {
     match admit_output(contract, decoded, args, exit, process_failed) {
         Err(error) => { return Err(error); },
@@ -447,6 +485,38 @@ pub trait CompilerReportRead {
     spec fn decoded(&self, bytes: Seq<u8>) -> Option<CompilerReport>;
     fn decode(&self, bytes: &[u8]) -> (out: Option<CompilerReport>)
         ensures out == self.decoded(bytes@);
+}
+
+pub open spec fn original_report<R: CompilerReportRead>(
+    contract: &Option<OutputContract>, stdout: Seq<u8>, reader: &R,
+) -> Option<CompilerReport> {
+    if contract.is_some() { reader.decoded(stdout) } else { None }
+}
+
+/// Decode the exact observed bytes once and return the admitted report to its consumer.
+pub fn admit_original_output<R: CompilerReportRead>(
+    contract: &Option<OutputContract>, stdout: &[u8], reader: &R,
+    args: &Vec<String>, exit: i32, failed: bool, dependency: &Option<Result<Vec<u8>, String>>,
+    limit: usize, artifact: &Option<Result<CompiledArtifact, String>>,
+) -> (out: Result<Option<CompilerReport>, String>)
+    ensures ({
+        let decoded = original_report(contract, stdout@, reader);
+        let error = observed_output_error(contract, &decoded, args@, exit, failed, dependency, limit, artifact);
+        &&& match out { Ok(report) => error.is_none() && report == decoded,
+            Err(message) => error == Some(message@) }
+        &&& out.is_ok() == (output_accepted(contract, &decoded, args@, exit, failed)
+            && sources::dependency_observed(contract, dependency, limit)
+            && artifact_observed(contract, artifact, args@))
+    }),
+{
+    let decoded = match contract {
+        Some(_) => reader.decode(stdout),
+        None => None,
+    };
+    match admit_observed_output(contract, &decoded, args, exit, failed, dependency, limit, artifact) {
+        Ok(()) => Ok(decoded),
+        Err(message) => Err(message),
+    }
 }
 
 pub struct ProofAdmission {
@@ -621,15 +691,11 @@ pub fn bind_operation_output<I: sources::CandidateSourceRead + CompilerReportRea
         || process.exit != 0 || process.failed {
         return Err("E_VERUS_RESULT: original operation, arguments or process rejected".to_string());
     }
-    let decoded = match method.output_contract {
-        None => None,
-        Some(_) => io.decode(process.stdout),
-    };
-    match admit_observed_output(method.output_contract, &decoded, &args,
+    let decoded = match admit_original_output(method.output_contract, process.stdout, io, &args,
         process.exit, process.failed, process.dependency, method.output_limit_bytes, process.artifact) {
+        Ok(report) => report,
         Err(error) => { return Err(error); },
-        Ok(()) => {},
-    }
+    };
     if method.output_contract.is_none() {
         assert(ordinary_process_bound(method, &process));
         assert(ordinary_output_accepted(operation@, methods@, &original));

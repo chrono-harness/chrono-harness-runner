@@ -594,6 +594,37 @@ fn any_accepted_compiler_receipt_has_the_same_library(
     }
 }
 
+/// Original byte identity and the observable precedence when report and evidence disagree.
+#[cfg(verus_keep_ghost)]
+fn accepted_original_is_the_decoding_of_its_own_stdout<R: policy::CompilerReportRead>(
+    reader: &R, bytes: &[u8], contract: &Option<OutputContract>, args: &Vec<String>,
+    exit: i32, failed: bool, dependency: &Option<Result<Vec<u8>, String>>, limit: usize,
+    artifact: &Option<Result<policy::CompiledArtifact, String>>,
+)
+    requires contract.is_some(),
+{
+    let result = policy::admit_original_output(contract, bytes, reader, args, exit, failed,
+        dependency, limit, artifact);
+    if let Ok(report) = result {
+        assert(report.is_some());
+        assert(report == reader.decoded(bytes@));
+        assert(exit == 0 && !failed);
+        assert(policy::report_accepted(&report.unwrap(), &contract.unwrap()));
+        assert(policy::sources::dependency_observed(contract, dependency, limit));
+        assert(policy::artifact_observed(contract, artifact, args@));
+    } else if let Err(error) = result {
+        proof {
+            if let Some(first) = policy::output_error(contract, &reader.decoded(bytes@), args@, exit, failed) {
+                assert(error@ == first);
+            } else if let Some(second) = policy::sources::dependency_observation_error(contract, dependency, limit) {
+                assert(error@ == second);
+            } else {
+                assert(policy::artifact_observation_error(contract, artifact, args@) == Some(error@));
+            }
+        }
+    }
+}
+
 /// 成功报告与 dep-info 不能替代实际编译库；当前尚无库观察。
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn successful_report_without_compiled_library_is_rejected() {
