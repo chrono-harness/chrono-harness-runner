@@ -71,6 +71,14 @@ enum Compiler {
     },
 }
 
+struct CompilerRowReader;
+
+impl verifier::CompilerRowRead for CompilerRowReader {
+    fn decode(&self, text: &str) -> Option<verifier::CompilerReport> {
+        serde_json::from_str(text).ok()
+    }
+}
+
 pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<(), String> {
     match operation {
         "observed-tool-v1" => {
@@ -106,14 +114,7 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     serde_json::to_writer(output, &canonical).map_err(|error| error.to_string())
                 }
                 Compiler::ProofRows { contract, rows } => {
-                    let normalized: Vec<Option<bool>> = rows
-                        .into_iter()
-                        .map(|row| {
-                            serde_json::from_str::<verifier::CompilerReport>(&row)
-                                .ok()
-                                .map(|report| verifier::accepts_report(&report, &contract))
-                        })
-                        .collect();
+                    let normalized = verifier::proof_rows(&rows, &contract, &CompilerRowReader);
                     serde_json::to_writer(output, &normalized).map_err(|e| e.to_string())
                 }
                 Compiler::DependencyHeader { dependency } => {

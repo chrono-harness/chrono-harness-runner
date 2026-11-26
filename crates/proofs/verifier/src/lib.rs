@@ -295,6 +295,50 @@ pub fn accepts_report(report: &CompilerReport, contract: &OutputContract) -> (ac
         && report.verification.verified > 0 && report.verification.is_verifying_entire_crate
 }
 
+/// The wire adapter supplies the typed Serde observation for this exact input line.
+pub trait CompilerRowRead {
+    spec fn decoded(&self, text: Seq<char>) -> Option<CompilerReport>;
+
+    fn decode(&self, text: &str) -> (report: Option<CompilerReport>)
+        ensures report == self.decoded(text@);
+}
+
+pub open spec fn proof_row_verdict(report: Option<CompilerReport>, contract: &OutputContract) -> Option<bool> {
+    match report {
+        None => None,
+        Some(report) => Some(report_accepted(&report, contract)),
+    }
+}
+
+/// Keep each compiler output line's position, including unparseable and duplicate lines.
+pub fn proof_rows<R: CompilerRowRead>(rows: &Vec<String>, contract: &OutputContract, reader: &R)
+    -> (verdicts: Vec<Option<bool>>)
+    ensures
+        verdicts.len() == rows.len(),
+        forall|i: int| 0 <= i < rows.len() ==> #[trigger] verdicts@[i]
+            == proof_row_verdict(reader.decoded(rows@[i]@), contract),
+{
+    let mut verdicts = Vec::with_capacity(rows.len());
+    let mut i = 0;
+    while i < rows.len()
+        invariant
+            0 <= i <= rows.len(),
+            verdicts.len() == i,
+            forall|j: int| 0 <= j < i ==> #[trigger] verdicts@[j]
+                == proof_row_verdict(reader.decoded(rows@[j]@), contract),
+        decreases rows.len() - i,
+    {
+        let observed = reader.decode(rows[i].as_str());
+        let verdict = match observed {
+            Some(report) => Some(accepts_report(&report, contract)),
+            None => None,
+        };
+        verdicts.push(verdict);
+        i += 1;
+    }
+    verdicts
+}
+
 pub open spec fn output_accepted(
     contract: &Option<OutputContract>, decoded: &Option<CompilerReport>,
     args: Seq<String>, exit: i32, process_failed: bool,

@@ -295,7 +295,7 @@ fn proof_rows_in_the_compiler_protocol_require_the_matching_whole_crate() {
     let mut different = report.clone();
     different["verus"]["commit"] = json!("other");
     let request = json!({"operation":"proof-rows","contract":{"version":"v","commit":"c"},
-        "rows":[report.to_string(), partial.to_string(), different.to_string(), "invalid"]});
+        "rows":[report.to_string(), "invalid", partial.to_string(), different.to_string(), report.to_string()]});
     let mut result = Vec::new();
     chrono_harness::route_evidence::serve(
         "compiler-output-v1",
@@ -304,7 +304,7 @@ fn proof_rows_in_the_compiler_protocol_require_the_matching_whole_crate() {
     )
     .unwrap();
     let rows: Value = serde_json::from_slice(&result).unwrap();
-    assert_eq!(rows, json!([true, false, false, null]));
+    assert_eq!(rows, json!([true, null, false, false, true]));
 }
 
 #[test]

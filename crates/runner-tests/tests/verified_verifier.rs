@@ -316,6 +316,30 @@ fn report(verification: Verification) -> (out: Option<CompilerReport>)
     }, verification })
 }
 
+/// For any compliant decoder, the input observations bind each output, including a repeated line.
+#[cfg(verus_keep_ghost)]
+fn batch_rows_distinguish_missing_and_rejected<R: policy::CompilerRowRead>(
+    reader: &R, contract: &OutputContract, valid: String, malformed: String, rejected: String,
+    accepted_report: CompilerReport, rejected_report: CompilerReport,
+)
+    requires
+        reader.decoded(valid@) == Some(accepted_report),
+        reader.decoded(malformed@).is_none(),
+        reader.decoded(rejected@) == Some(rejected_report),
+        policy::report_accepted(&accepted_report, contract),
+        !policy::report_accepted(&rejected_report, contract),
+{
+    let empty = policy::proof_rows(&Vec::new(), contract, reader);
+    expect_verifier_true(empty.is_empty());
+    let lines = vec![valid.clone(), malformed, rejected, valid];
+    let verdicts = policy::proof_rows(&lines, contract, reader);
+    expect_verifier_true(verdicts.len() == 4);
+    expect_verifier_true(matches!(verdicts[0], Some(true)));
+    expect_verifier_true(verdicts[1].is_none());
+    expect_verifier_true(matches!(verdicts[2], Some(false)));
+    expect_verifier_true(matches!(verdicts[3], Some(true)));
+}
+
 fn arguments() -> (out: Vec<String>)
     ensures policy::verifier_arguments(out@),
         out[7]@ == "--emit=link=out,dep-info=out.d"@,
@@ -917,8 +941,14 @@ fn declaration_batch_preserves_every_reference_path_position() {
         reveal_strlit("r"); reveal_strlit("./r");
         vstd::string::is_ascii_spec_bytes("r");
         vstd::string::is_ascii_spec_bytes("./r");
-        reveal_with_fuel(policy::sources::path_scan, 7);
-        reveal_with_fuel(policy::sources::joined_components, 4);
+        assert(policy::sources::canonical_source_path(vstd::utf8::encode_utf8("r"@))) by {
+            reveal_with_fuel(policy::sources::path_scan, 7);
+            reveal_with_fuel(policy::sources::joined_components, 4);
+        }
+        assert(!policy::sources::canonical_source_path(vstd::utf8::encode_utf8("./r"@))) by {
+            reveal_with_fuel(policy::sources::path_scan, 7);
+            reveal_with_fuel(policy::sources::joined_components, 4);
+        }
     }
     let paths = vec!["r".to_string(), "./r".to_string(), "r".to_string()];
     let files = Vec::new();
