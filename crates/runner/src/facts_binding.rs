@@ -146,24 +146,25 @@ impl BlobObject {
         format!("{} blob {}\n", self.oid, self.length)
     }
     fn matches(&self, bytes: &[u8]) -> bool {
-        use sha2::Digest;
         crate::verified_status::git_blob_matches(
             &self.oid,
             self.length,
             bytes,
             |length, bytes| {
                 let header = format!("blob {length}\0");
+                use sha1::Digest;
                 let mut hash = sha1::Sha1::new();
                 hash.update(header.as_bytes());
                 hash.update(bytes);
-                format!("{:x}", hash.finalize())
+                crate::checkout::object_id_text(&hash.finalize())
             },
             |length, bytes| {
                 let header = format!("blob {length}\0");
+                use sha2::Digest;
                 let mut hash = sha2::Sha256::new();
                 hash.update(header.as_bytes());
                 hash.update(bytes);
-                format!("{:x}", hash.finalize())
+                crate::checkout::object_id_text(&hash.finalize())
             },
         )
     }
