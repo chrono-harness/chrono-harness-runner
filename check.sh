@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# The cron entry has no mise environment. Bind the installed executable before
+# Maintenance can run outside mise. Bind the installed executable before
 # the first new allocation so the same entry can still perform the final sweep.
 bootstrap=target/native-check-bootstrap
 if [[ $# == 0 ]]; then

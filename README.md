@@ -31,7 +31,7 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 同一会话可以在创建 publication 时传入 `consumer_prefix`，将待复核的消费者与目录一起登记。`create-member` 在该目录的配额内建子目录；`complete` 的 `seal: true` 核对及封存最后的成员身份。
 
 
-开发机可在现有 `chrono-harness retention --host-root . --request PATH` 的 `maintain` 请求中选定成功的本地检查报告，例如 `{"operation":"maintain","expire_local_check_slots":[".chrono-harness/state/collection/check.json"]}`。宿主需启用有限的 `max_lifetime_seconds`，报告使用 `retained-reference/v2`。保留期限从原件创建时计算。定时维护在到期后核对当前代际、发布状态、持有者及读者，释放已结束的本地入口，普通回收随后清理无引用的原件。需要长期使用的结果应在窗口内转存；有外部交接义务的结果沿已有交接流程。每个槽位的处置由本轮 `local_check_slots` 报告，后续维护可重试。
+开发机可在现有 `chrono-harness retention --host-root . --request PATH` 的 `maintain` 请求中选定成功的本地检查报告，例如 `{"operation":"maintain","expire_local_check_slots":[".chrono-harness/state/collection/check.json"]}`。宿主需启用有限的 `max_lifetime_seconds`，报告使用 `retained-reference/v2`。保留期限从原件创建时计算。维护在到期后核对当前代际、发布状态、持有者及读者，释放已结束的本地入口，普通回收随后清理无引用的原件。需要长期使用的结果应在窗口内转存；有外部交接义务的结果沿已有交接流程。每个槽位的处置由本轮 `local_check_slots` 报告，后续维护可重试。
 
 ## 使用
 
@@ -41,13 +41,11 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 
 在仓库根运行 `mise exec -- ./check.sh` 执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。本地入口需要 Python 3.8+ 和支持 BSD flock 的本地文件系统。宿主调用固定版本的 chrono-host-bootstrap native-scratch。每次检查在本工作树的 `target/native-checks/` 下独占一个目录；标准错误会输出路径。原生编译和 Verus 结束并释放租约后，成功目录立即清理。自选 `CARGO_TARGET_DIR` 由调用者管理，应放在本工具的专用目录以外。
 
-失败和中断的可重建目录默认保留 24 小时。需要保存的诊断应在窗口内复制到其他存储，读回并核对摘要。失败从进程返回时计时，中断按目录最后一次修改时间计时。检查进程及继承租约的子进程仍在使用时，维护跳过该目录。长期检出在该用户的 crontab 加一条每小时的任务，将路径替换为仓库的绝对路径。
+失败和中断的可重建目录默认保留 24 小时。需要保存的诊断应在窗口内复制到其他存储，读回并核对摘要。失败从进程返回时计时，中断按目录最后一次修改时间计时。检查进程及继承租约的子进程仍在使用时，维护跳过该目录。在仓库根运行 `./check.sh --maintain`，可回收已经到期且租约已释放的目录。
 
-```cron
-17 * * * * cd "/absolute/path/to/chrono-harness-runner" && ./check.sh --maintain
-```
+采用自动维护的宿主将这一命令登记为独占维护轮次中的一项操作。业务事件唤醒协调者，协调者处理已排队的事件后退出。空闲期间跨过 24 小时窗口的目录会保留到下次事件或显式维护。宿主接线见[示例仓的 macOS 和 Linux 事件服务](https://github.com/chrono-harness/chrono-harness-example/pull/232)。
 
-机器在线、任务已安装、目录已到期且读者释放后，下一次成功维护回收整次检查的目录。现有 crontab 可继续使用。第一次新版检查会在 target/native-check-bootstrap 创建指向工作树外已安装程序的链接，供定时维护使用。新目录由共享工具依据标记和目录身份清理。旧版检查在专属业务目录分配的 32 位小写十六进制目录由既有 Python 维护逻辑核对租约、时间和 Git 跟踪后回收。较早版本生成的 `target/check.*` 没有租约，只在核实旧检查已经退出后按实际归属回收。
+第一次检查在 `target/native-check-bootstrap` 创建指向工作树外已安装程序的链接，供后续维护使用。新目录由共享工具依据标记和目录身份清理。旧版检查在专属业务目录分配的 32 位小写十六进制目录由既有 Python 维护逻辑核对租约、时间和 Git 跟踪后回收。较早版本生成的 `target/check.*` 没有租约，只在核实旧检查已经退出后按实际归属回收。
 
 [本仓 Cargo 工作区](Cargo.toml) 使用一份根 Cargo.lock 管理 runner、测试、进程替身及三个证明包。证明包登记 `chrono-identifiers`、`chrono-verifier` 及其余各根对应的 Cargo 库目标。生产 runner、Cargo 的原生测试及 Verus 均使用这两个包的同一份源码。runner 保留从固定 Git 端点取数的适配器；验证器包负责根据已经观察到的数据作判断。
 
