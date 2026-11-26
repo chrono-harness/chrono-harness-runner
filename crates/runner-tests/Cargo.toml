@@ -102,6 +102,10 @@ name = "verified_limits"
 path = "tests/verified_limits.rs"
 
 [[test]]
+name = "verified_shallow_reads"
+path = "tests/verified_shallow_reads.rs"
+
+[[test]]
 name = "verified_cli"
 path = "tests/verified_cli.rs"
 

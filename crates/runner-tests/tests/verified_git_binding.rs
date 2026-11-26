@@ -21,44 +21,6 @@ fn expect_true(value: bool)
 { if !value { panic!(); } }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
-fn shallow_status_and_reply_distinguish_present_empty_absent_and_read_error() {
-    let (state, result) = policy::shallow_file_reply(Ok::<u8,(bool,u8)>(19), 0);
-    expect_true(policy::matches_expected(state, Some("present")));
-    match result { Ok(rows) => expect_true(rows == 19), Err(_) => panic!() }
-    let (state, result) = policy::shallow_file_reply(Ok::<u8,(bool,u8)>(0), 0);
-    expect_true(policy::matches_expected(state, Some("present")));
-    match result { Ok(rows) => expect_true(rows == 0), Err(_) => panic!() }
-    let (state, result) = policy::shallow_file_reply(Err((true, 43u8)), 0u8);
-    expect_true(policy::matches_expected(state, Some("absent")));
-    match result { Ok(rows) => expect_true(rows == 0), Err(_) => panic!() }
-    let (state, result) = policy::shallow_file_reply(Err((false, 43u8)), 0u8);
-    expect_true(policy::matches_expected(state, Some("error")));
-    match result { Err(code) => expect_true(code == 43), Ok(_) => panic!() }
-}
-
-#[cfg_attr(not(verus_keep_ghost), test)]
-fn only_bound_shallow_reads_appear_in_their_original_order() {
-    let mut rows: Vec<u8> = Vec::new();
-    expect_true(policy::observed_shallow_reads(&rows).is_none());
-    policy::retain_shallow_read(&mut rows, false, || -> u8 { 11 });
-    expect_true(policy::observed_shallow_reads(&rows).is_none());
-    policy::retain_shallow_read(&mut rows, true, || -> (result: u8)
-        ensures result == 7u8
-    { 7 });
-    policy::retain_shallow_read(&mut rows, false, || -> u8 { 19 });
-    policy::retain_shallow_read(&mut rows, true, || -> (result: u8)
-        ensures result == 3u8
-    { 3 });
-    match policy::observed_shallow_reads(&rows) {
-        Some(actual) => {
-            expect_true(actual.len() == 2);
-            expect_true(actual[0] == 7 && actual[1] == 3);
-        },
-        None => panic!(),
-    }
-}
-
-#[cfg_attr(not(verus_keep_ghost), test)]
 fn request_header_selector_and_profile_precedence() {
     proof { reveal_strlit("local"); reveal_strlit("ci"); reveal_strlit("other");
         reveal_strlit("request"); reveal_strlit("wrong"); reveal_strlit("a"); reveal_strlit("b");

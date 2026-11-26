@@ -26,6 +26,14 @@
         {
           "kind": "test-execution",
           "to": "test:sealed-member-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
         }
       ]
     },
@@ -132,6 +140,14 @@
         {
           "kind": "test-execution",
           "to": "test:sealed-member-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
         }
       ]
     },
@@ -192,6 +208,14 @@
         {
           "kind": "test-execution",
           "to": "test:sealed-member-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
         }
       ]
     },
@@ -224,6 +248,14 @@
         {
           "kind": "test-execution",
           "to": "test:sealed-member-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
         }
       ]
     },
@@ -256,6 +288,14 @@
         {
           "kind": "test-execution",
           "to": "test:sealed-member-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
         }
       ]
     },
@@ -298,6 +338,14 @@
         {
           "kind": "test-execution",
           "to": "test:sealed-member-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
         }
       ]
     },
@@ -810,16 +858,7 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ],
-      "verification": {
-        "role": "program",
-        "roots": [
-          {
-            "path": "crates/runner-tests/tests/verified_git_binding.rs",
-            "operation": "runner.verify"
-          }
-        ]
-      }
+      ]
     },
     {
       "path": "crates/runner-tests/tests/verified_limits.rs",
@@ -842,6 +881,31 @@
           {
             "path": "crates/runner-tests/tests/verified_limits.rs",
             "operation": "verify.resource-limits-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/runner-tests/tests/verified_shallow_reads.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/verified_shallow_reads.rs",
+            "operation": "verify.shallow-reads-tests"
           }
         ]
       }
@@ -1658,16 +1722,7 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ],
-      "verification": {
-        "role": "program",
-        "roots": [
-          {
-            "path": "crates/runner/src/verified_git_binding.rs",
-            "operation": "runner.verify"
-          }
-        ]
-      }
+      ]
     },
     {
       "path": "crates/runner/src/verified_limits.rs",
@@ -1703,6 +1758,39 @@
       }
     },
     {
+      "path": "crates/runner/src/verified_shallow_reads.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_shallow_reads.rs",
+            "operation": "verify.shallow-reads"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_shallow_reads.rs",
+            "operation": "verify.shallow-reads-tests"
+          }
+        ]
+      }
+    },
+    {
       "path": "crates/proofs/identifiers/src/lib.rs",
       "owner": "runner",
       "surface": "product",
@@ -1715,6 +1803,10 @@
         {
           "kind": "test-execution",
           "to": "test:identifiers"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
         }
       ],
       "verification": {
@@ -1723,6 +1815,10 @@
           {
             "path": "crates/proofs/identifiers/src/lib.rs",
             "operation": "verify.identifiers"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_shallow_reads.rs",
+            "operation": "verify.shallow-reads-tests"
           }
         ]
       }
@@ -1860,6 +1956,14 @@
         {
           "kind": "test-execution",
           "to": "test:sealed-member-tests"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:shallow-reads-tests"
         }
       ]
     }
@@ -1897,6 +2001,14 @@
     },
     {
       "test": "sealed-member-tests",
+      "cost": "unmeasured"
+    },
+    {
+      "test": "shallow-reads",
+      "cost": "unmeasured"
+    },
+    {
+      "test": "shallow-reads-tests",
       "cost": "unmeasured"
     }
   ],
@@ -1939,6 +2051,20 @@
     "test:sealed-member-tests": {
       "operations": [
         "verify.sealed-member-tests"
+      ],
+      "timeout_seconds": 1800,
+      "output_limit_bytes": 1048576
+    },
+    "test:shallow-reads": {
+      "operations": [
+        "verify.shallow-reads"
+      ],
+      "timeout_seconds": 1800,
+      "output_limit_bytes": 1048576
+    },
+    "test:shallow-reads-tests": {
+      "operations": [
+        "verify.shallow-reads-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576

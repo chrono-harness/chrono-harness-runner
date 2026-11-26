@@ -1,7 +1,7 @@
 //! Invocation-scoped JSON lines connection to one policy-bound Git reader.
 #[path = "git_facts_output.rs"]
 mod output;
-use crate::{facts, verified_git_binding, wire};
+use crate::{facts, verified_shallow_reads, wire};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -443,9 +443,9 @@ impl Session {
                 let read = fs::read_to_string(&path)
                     .map(|text| json!(text.lines().collect::<Vec<_>>()))
                     .map_err(|error| (error.kind() == std::io::ErrorKind::NotFound, error));
-                let (state, response) = verified_git_binding::shallow_file_reply(read, json!([]));
+                let (state, response) = verified_shallow_reads::shallow_file_reply(read, json!([]));
                 let response = response.map_err(|error| format!("E_HISTORY_MISSING: {error}"));
-                verified_git_binding::retain_shallow_read(
+                verified_shallow_reads::retain_shallow_read(
                     &mut self.shallow_reads,
                     self.reader.is_bound(),
                     || json!({"path": path, "state": state, "response": response}),
@@ -489,7 +489,7 @@ impl Session {
             Operation::Observation => {
                 let mut observed = self.reader.observation();
                 if let Some(records) =
-                    verified_git_binding::observed_shallow_reads(&self.shallow_reads)
+                    verified_shallow_reads::observed_shallow_reads(&self.shallow_reads)
                 {
                     observed["shallow_reads"] = json!(records);
                 }

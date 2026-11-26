@@ -52,7 +52,7 @@ jobs:
             check_change "$target/debug/chrono-harness"
             jq '{status: .response.status, results: .response.results}' .chrono-harness/state/check.json
           fi
-          if jq -e 'any(.response.results[]; (.id == "verify.resource-limits" or .id == "verify.resource-limits-tests" or .id == "verify.sealed-member" or .id == "verify.sealed-member-tests") and .status == "passed")' .chrono-harness/state/check.json >/dev/null ||
+          if jq -e 'any(.response.results[]; (.id == "verify.shallow-reads" or .id == "verify.shallow-reads-tests" or .id == "verify.resource-limits" or .id == "verify.resource-limits-tests" or .id == "verify.sealed-member" or .id == "verify.sealed-member-tests") and .status == "passed")' .chrono-harness/state/check.json >/dev/null ||
              ! git diff --quiet "$base" "$candidate" -- crates/runner/src/prepared.rs crates/runner/src/verified_git_binding.rs crates/runner-tests/tests/verified_git_binding.rs \
                 crates/runner/src/retained_artifacts/session/publication.rs crates/runner/src/retained_artifacts/verified_release.rs crates/runner-tests/tests/verified_release.rs; then
             echo 'RUNNER_CHECK_RECEIPTS=true' >> "$GITHUB_ENV"

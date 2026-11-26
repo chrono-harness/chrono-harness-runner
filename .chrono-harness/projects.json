@@ -6,7 +6,9 @@
     "resource-limits",
     "resource-limits-tests",
     "sealed-member",
-    "sealed-member-tests"
+    "sealed-member-tests",
+    "shallow-reads",
+    "shallow-reads-tests"
   ],
   "projects": [],
   "scripts": [
@@ -154,6 +156,62 @@
             "crates/runner-tests/tests/verified_sealed_member.rs",
             "-o",
             "{operation_state}/verify.sealed-member-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      }
+    },
+    {
+      "id": "shallow-reads",
+      "path": "crates/runner/src/verified_shallow_reads.rs",
+      "actions": {
+        "execute": {
+          "operation": "verify.shallow-reads",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link={operation_state}/verify.shallow-reads.rlib,dep-info={operation_state}/verify.shallow-reads.rlib.d",
+            "crates/runner/src/verified_shallow_reads.rs",
+            "-o",
+            "{operation_state}/verify.shallow-reads.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      }
+    },
+    {
+      "id": "shallow-reads-tests",
+      "path": "crates/runner-tests/tests/verified_shallow_reads.rs",
+      "actions": {
+        "execute": {
+          "operation": "verify.shallow-reads-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link={operation_state}/verify.shallow-reads-tests.rlib,dep-info={operation_state}/verify.shallow-reads-tests.rlib.d",
+            "crates/runner-tests/tests/verified_shallow_reads.rs",
+            "-o",
+            "{operation_state}/verify.shallow-reads-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
