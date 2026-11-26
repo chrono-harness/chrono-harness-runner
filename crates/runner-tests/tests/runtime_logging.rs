@@ -419,6 +419,8 @@ fn observed_command_forwards_binary_streams_and_original_terminal_evidence() {
     assert_eq!(result["stderr_complete"], false);
     assert_eq!(result["exit_signal"], 9);
     assert_eq!(result["stdout_sha256"], sha256(&[255]));
+    assert_eq!(result["stdout_size"], 1);
+    assert_eq!(result["stderr_size"], 2);
     assert!(raw.is_empty());
     let result = serve(request.as_slice(), Vec::new(), |_, _, _, _, _| {
         Err("prelaunch error".into())

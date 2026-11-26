@@ -1,4 +1,5 @@
 //! Binary stdout/stderr frames share the original bounded readers and their real acquisition deadline.
+use crate::verified_limits::{CapturedStreams, StreamSizes};
 use crate::{CommandSpec, ProcessForward, ProcessResult, run_process_observed_forwarded_for};
 use serde::Deserialize;
 use serde_json::json;
@@ -97,12 +98,25 @@ pub fn serve(
             },
         },
     )?;
+    let ProcessResult {
+        stdout_bytes,
+        stderr_bytes,
+        ..
+    } = &observed;
+    let StreamSizes {
+        stdout_size,
+        stderr_size,
+    } = CapturedStreams {
+        stdout_bytes,
+        stderr_bytes,
+    }
+    .sizes();
     let terminal = json!({
         "argv":observed.argv,"cwd":observed.cwd,"launcher_pid":observed.launcher_pid,"child_pid":observed.child_pid,
         "executable":observed.executable,"sha256":observed.sha256,"environment_digest":observed.environment_digest,
         "exit_signal":observed.exit_signal,"exit_code":observed.exit_code,"failure":observed.failure,
         "stdout_complete":observed.stdout_complete,"stderr_complete":observed.stderr_complete,
-        "stdout_size":observed.stdout_bytes.len(),"stderr_size":observed.stderr_bytes.len(),
+        "stdout_size":stdout_size,"stderr_size":stderr_size,
         "stdout_sha256":observed.stdout_sha256,"stderr_sha256":observed.stderr_sha256
     });
     frame(

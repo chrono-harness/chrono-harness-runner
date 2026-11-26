@@ -6,6 +6,29 @@ use vstd::prelude::*;
 
 verus! {
 
+pub struct CapturedStreams<'a> {
+    pub stdout_bytes: &'a [u8],
+    pub stderr_bytes: &'a [u8],
+}
+
+pub struct StreamSizes {
+    pub stdout_size: usize,
+    pub stderr_size: usize,
+}
+
+impl<'a> CapturedStreams<'a> {
+    pub fn sizes(&self) -> (sizes: StreamSizes)
+        ensures
+            sizes.stdout_size == self.stdout_bytes.len(),
+            sizes.stderr_size == self.stderr_bytes.len(),
+    {
+        StreamSizes {
+            stdout_size: self.stdout_bytes.len(),
+            stderr_size: self.stderr_bytes.len(),
+        }
+    }
+}
+
 pub const MAX_OUTPUT_BYTES: usize = 67_108_864;
 
 pub open spec fn output_limit(bytes: usize) -> bool {
