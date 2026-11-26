@@ -35,9 +35,9 @@ serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 sha1.workspace = true
 libc.workspace = true
-serde_jcs = "=0.2.0"
+serde_jcs = "=0.4.0"
 tempfile.workspace = true
-miniz_oxide = "=0.8.9"
+miniz_oxide = "=0.9.1"
 verus_builtin_macros.workspace = true
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
