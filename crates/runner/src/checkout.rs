@@ -1,4 +1,54 @@
 //! Compare an explicit Git tree/index inventory with literal filesystem objects.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub open spec fn hex_ascii(n: int) -> int {
+    if n < 10 { 48 + n } else { 87 + n }
+}
+
+fn hex_digit(n: u8) -> (digit: u8)
+    requires n < 16,
+    ensures digit as int == hex_ascii(n as int),
+{
+    if n < 10 { 48 + n } else { 87 + n }
+}
+
+/// Encode each Git digest byte as two lowercase ASCII digits, including leading zeros.
+pub fn object_id_ascii(bytes: &[u8]) -> (text: Vec<u8>)
+    requires bytes.len() <= usize::MAX / 2,
+    ensures text.len() == bytes.len() * 2,
+        forall|i: int| 0 <= i < bytes.len() ==>
+            text@[2 * i] as int == hex_ascii(#[trigger] bytes@[i] as int / 16)
+            && text@[2 * i + 1] as int == hex_ascii(bytes@[i] as int % 16),
+{
+    let mut text = Vec::with_capacity(bytes.len() * 2);
+    let mut i = 0usize;
+    while i < bytes.len()
+        invariant i <= bytes.len(), bytes.len() <= usize::MAX / 2,
+            text.len() == i * 2,
+            forall|j: int| 0 <= j < i ==>
+                text@[2 * j] as int == hex_ascii(#[trigger] bytes@[j] as int / 16)
+                && text@[2 * j + 1] as int == hex_ascii(bytes@[j] as int % 16),
+        decreases bytes.len() - i,
+    {
+        let byte = bytes[i];
+        text.push(hex_digit(byte / 16));
+        text.push(hex_digit(byte % 16));
+        i += 1;
+    }
+    text
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn object_id_text(bytes: &[u8]) -> String {
+    String::from_utf8(object_id_ascii(bytes)).expect("hexadecimal digits are ASCII")
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     facts::{Entry, Tree},
     relative_path,
@@ -11,8 +61,11 @@ use crate::{
         record_checkout_physical_observations,
     },
 };
+#[cfg(not(verus_keep_ghost))]
 use sha1::Sha1;
-use sha2::{Digest, Sha256};
+#[cfg(not(verus_keep_ghost))]
+use sha2::Sha256;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     fs,
     io::{self, Read},
@@ -23,6 +76,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(not(verus_keep_ghost))]
 fn rows(raw: &[u8]) -> Result<Vec<&str>, String> {
     git_inventory_termination(raw)?;
     Ok(git_inventory_records(git_inventory_text(
@@ -30,12 +84,14 @@ fn rows(raw: &[u8]) -> Result<Vec<&str>, String> {
     )?))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn tree(raw: &[u8]) -> Result<Tree, String> {
     parse_git_tree_rows(&rows(raw)?)
         .map_err(|error| error.render(|path| format!("invalid relative path: {path:?}")))
 }
 
 /// Index stages are compared as data; Git filters/configuration never decide equality.
+#[cfg(not(verus_keep_ghost))]
 pub fn changes(root: &Path, expected: &Tree, index: &[u8]) -> Result<Vec<String>, String> {
     let inventory = parse_git_index_rows(&rows(index)?)
         .map_err(|error| error.render(|path| format!("invalid relative path: {path:?}")))?;
@@ -54,6 +110,7 @@ pub fn changes(root: &Path, expected: &Tree, index: &[u8]) -> Result<Vec<String>
     Ok(checkout_changed_paths(&changed))
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn physical(root: &Path, path: &str) -> Result<Option<PathBuf>, String> {
     relative_path(path)?;
     checkout_physical_path(
@@ -76,9 +133,15 @@ fn physical(root: &Path, path: &str) -> Result<Option<PathBuf>, String> {
     .map_err(|error| format!("checkout path {path}: {error}"))
 }
 
-fn hash<D: Digest>(size: u64, source: &mut impl Read) -> Result<String, String> {
-    let mut digest = D::new();
-    digest.update(format!("blob {size}\0").as_bytes());
+#[cfg(not(verus_keep_ghost))]
+fn hash<D: Default, O: AsRef<[u8]>>(
+    size: u64,
+    source: &mut impl Read,
+    update: impl Fn(&mut D, &[u8]),
+    finalize: impl Fn(D) -> O,
+) -> Result<String, String> {
+    let mut digest = D::default();
+    update(&mut digest, format!("blob {size}\0").as_bytes());
     let mut buffer = [0u8; 65536];
     checkout_hash_stream(
         size,
@@ -91,22 +154,38 @@ fn hash<D: Digest>(size: u64, source: &mut impl Read) -> Result<String, String> 
         },
         AsRef::<[u8]>::as_ref,
         |mut digest: D, bytes: &[u8]| {
-            digest.update(bytes);
+            update(&mut digest, bytes);
             digest
         },
-        |digest: D| {
-            digest
-                .finalize()
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect()
+        |digest: D| object_id_text(finalize(digest).as_ref()),
+    )
+}
+#[cfg(not(verus_keep_ghost))]
+fn object_hash(oid: &str, size: u64, source: &mut impl Read) -> Result<String, String> {
+    checkout_object_hash(
+        oid,
+        size,
+        source,
+        |size, source| {
+            hash(
+                size,
+                source,
+                |h: &mut Sha1, b| sha1::Digest::update(h, b),
+                sha1::Digest::finalize,
+            )
+        },
+        |size, source| {
+            hash(
+                size,
+                source,
+                |h: &mut Sha256, b| sha2::Digest::update(h, b),
+                sha2::Digest::finalize,
+            )
         },
     )
 }
-fn object_hash(oid: &str, size: u64, source: &mut impl Read) -> Result<String, String> {
-    checkout_object_hash(oid, size, source, hash::<Sha1>, hash::<Sha256>)
-}
 
+#[cfg(not(verus_keep_ghost))]
 fn entry_metadata(metadata: fs::Metadata) -> CheckoutEntryMetadata {
     CheckoutEntryMetadata {
         symbolic: metadata.is_symlink(),
@@ -116,6 +195,7 @@ fn entry_metadata(metadata: fs::Metadata) -> CheckoutEntryMetadata {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn matches_entry(root: &Path, name: &str, entry: &Entry) -> Result<bool, String> {
     checkout_entry_matches(
         entry.kind.as_str(),

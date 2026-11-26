@@ -12,6 +12,10 @@ updates:
   - directory: /
     groups:
       cargo:
+        exclude-patterns:
+        - libc
+        - sha1
+        - serde_jcs
         patterns:
         - '*'
     package-ecosystem: cargo
