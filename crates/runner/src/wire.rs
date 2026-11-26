@@ -1,18 +1,26 @@
 //! Shared chrono-judge/v1 wire types and transport. No host admissibility policy.
+#[cfg(not(verus_keep_ghost))]
 use crate::process_error::{ErrorRecord, Failure, ReceivedError};
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     CommandSpec, ProcessResult, decode, no_symlink_parents, no_symlink_parents_detailed,
     run_process_observed_detailed, sha256,
 };
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::{collections::BTreeMap, fs, path::PathBuf};
+#[cfg(not(verus_keep_ghost))]
 pub const PROTOCOL: &str = "chrono-judge/v1";
+#[cfg(not(verus_keep_ghost))]
 /// 运行共用判官协议入口，具体求值由调用方负责。
 pub fn judge_main(name: &str, version: &str, judge: impl FnOnce(&Request) -> Response) -> u8 {
     crate::logged_text_main(name, |args| judge_entry(name, version, args, judge))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn judge_entry(
     name: &str,
     version: &str,
@@ -63,6 +71,7 @@ pub(crate) fn judge_entry(
     .1
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Prepared {
@@ -71,6 +80,7 @@ struct Prepared {
     outputs: BTreeMap<String, Value>,
     result: Result<Value, String>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Decision {
@@ -81,10 +91,12 @@ struct Decision {
     outputs: BTreeMap<String, Value>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn protocol_limits(req: &Request) -> Result<Value, String> {
     let config = crate::load_selected_config(&req.candidate.root, &req.config_path)?;
     Ok(config["protocol"].clone())
 }
+#[cfg(not(verus_keep_ghost))]
 fn run_data(
     req: &Request,
     limits: &Value,
@@ -120,6 +132,7 @@ fn run_data(
     Ok(process.stdout_bytes)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn sealed_data(req: &Request, command: [&str; 2]) -> Result<Vec<u8>, String> {
     req.validate()?;
     let limits = protocol_limits(req)?;
@@ -127,6 +140,7 @@ fn sealed_data(req: &Request, command: [&str; 2]) -> Result<Vec<u8>, String> {
     run_data(req, &limits, command, &canonical(&payload)?)
 }
 
+#[cfg(not(verus_keep_ghost))]
 /// The installed evaluator owns its findings. The caller chooses the admission error code.
 pub(crate) fn single_judge(
     req: &Request,
@@ -186,6 +200,7 @@ pub(crate) fn single_judge(
     response
 }
 
+#[cfg(not(verus_keep_ghost))]
 /// An installed input producer can use the same admission and bounds outside the native judge entry.
 pub(crate) fn prepare_command(
     command: [&str; 2],
@@ -220,6 +235,7 @@ pub(crate) fn prepare_command(
         .and_then(|_| output.flush())
         .map_err(|e| e.to_string())
 }
+#[cfg(not(verus_keep_ghost))]
 /// Two installed data commands form a judge. Request admission, both limits and response publication stay in the runner.
 pub(crate) fn judge_pipeline(
     req: &Request,
@@ -268,16 +284,21 @@ pub(crate) fn judge_pipeline(
     response
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn canonical<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
-    serde_jcs::to_vec(value).map_err(|e| e.to_string())
+    crate::canonical_request::canonical(value)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn digest<T: Serialize>(value: &T) -> Result<String, String> {
     Ok(sha256(&canonical(value)?))
 }
+#[cfg(not(verus_keep_ghost))]
 pub use crate::verified_identifiers::valid_digest_text as is_digest;
+#[cfg(not(verus_keep_ghost))]
 pub use crate::verified_status::{
     Checkout, Delta, Evidence, Finding, IndexFlag, WireStatus as Status, append_finding,
 };
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Response {
@@ -289,6 +310,7 @@ pub struct Response {
     pub evidence: Vec<Evidence>,
     pub outputs: BTreeMap<String, Value>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Endpoint {
@@ -296,6 +318,7 @@ pub struct Endpoint {
     pub tree: String,
     pub root: PathBuf,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Registries {
@@ -303,12 +326,14 @@ pub struct Registries {
     pub candidate: PathBuf,
     pub digest: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Context {
     pub path: PathBuf,
     pub sha256: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Executable {
@@ -316,6 +341,7 @@ pub struct Executable {
     pub sha256: String,
     pub version: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
@@ -341,6 +367,7 @@ pub struct Request {
     pub checkout: Checkout,
     pub runner: Executable,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Request {
     fn identity(&self) -> Result<String, String> {
         Ok(sha256(&self.canonical_projection(None)?))
@@ -419,10 +446,7 @@ impl Request {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.validate_header()?;
-        if self.request_id != self.identity()? {
-            return Err("E_PROTOCOL: request identity/mode".into());
-        }
-        Ok(())
+        check_request_identity(&self.request_id, self.identity())
     }
     fn validate_header(&self) -> Result<(), String> {
         if !crate::verified_identifiers::valid_request_header(
@@ -448,12 +472,14 @@ impl Request {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 /// An invocation-owned request whose seal and original stdin were produced
 /// together. Neither its request nor its bytes can be mutated by the caller.
 pub(crate) struct PreparedRequest {
     request: Request,
     stdin: Vec<u8>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl PreparedRequest {
     pub(crate) fn new(mut request: Request) -> Result<Self, String> {
         request.seal()?;
@@ -464,6 +490,7 @@ impl PreparedRequest {
         &self.request
     }
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Binding {
@@ -477,6 +504,7 @@ pub struct Binding {
     pub modes: Vec<String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 /// Installed judges are digest-pinned by the calling transport. Only the final
 /// entry under the host's binary directory may link to an external image.
 pub(crate) fn judge_executable(
@@ -514,6 +542,7 @@ pub(crate) fn judge_executable(
     Ok((target, true))
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Binding {
     pub(crate) fn required_digest(&self) -> Result<&str, &'static str> {
         self.sha256
@@ -572,6 +601,7 @@ impl Binding {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn run_judge(
     root: &std::path::Path,
     binding: &Binding,
@@ -620,6 +650,7 @@ pub(crate) fn run_judge(
     Ok(process)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_response(req: &Request, r: &Response, exit: i32) -> Result<(), String> {
     validate_response_at(
         &req.candidate.root,
@@ -632,6 +663,7 @@ pub fn validate_response(req: &Request, r: &Response, exit: i32) -> Result<(), S
         req,
     )
 }
+#[cfg(not(verus_keep_ghost))]
 /// Shared response contract; the request protocol owns admissible finding references.
 pub(crate) fn validate_response_at(
     root: &std::path::Path,
@@ -672,6 +704,7 @@ pub(crate) fn validate_response_at(
     )
     .1
 }
+#[cfg(not(verus_keep_ghost))]
 fn validate_request_pointers(request: &impl Serialize, r: &Response) -> Result<(), String> {
     // Build the JSON view only when a finding names an actual protocol field.
     let document = std::cell::LazyCell::new(|| serde_json::to_value(request));
@@ -690,6 +723,7 @@ fn validate_request_pointers(request: &impl Serialize, r: &Response) -> Result<(
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 /// Offline collection uses only the bound stdin and response. Evidence files
 /// can already have been removed from the original checkout.
 pub(crate) fn validate_recorded_findings(
@@ -702,12 +736,14 @@ pub(crate) fn validate_recorded_findings(
     validate_request_pointers(request, response)
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Debug)]
 pub struct TransportFailure {
     pub message: String,
     pub process: Option<ProcessResult>,
     error: Failure,
 }
+#[cfg(not(verus_keep_ghost))]
 impl From<String> for TransportFailure {
     fn from(message: String) -> Self {
         let error = Failure::new("E_JUDGE_TRANSPORT", message.clone());
@@ -718,6 +754,7 @@ impl From<String> for TransportFailure {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl From<crate::ProcessFailure> for TransportFailure {
     fn from(source: crate::ProcessFailure) -> Self {
         Self {
@@ -727,16 +764,19 @@ impl From<crate::ProcessFailure> for TransportFailure {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl std::fmt::Display for TransportFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl std::error::Error for TransportFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.error)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 /// Versioned runner report extension; never a judge-v1 request/response field.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -744,11 +784,13 @@ pub struct TransportDiagnostic {
     pub schema: TransportDiagnosticSchema,
     pub error: ErrorRecord,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TransportDiagnosticSchema {
     #[serde(rename = "chrono-runner-transport-failure/v1")]
     V1,
 }
+#[cfg(not(verus_keep_ghost))]
 impl TransportFailure {
     fn from_process_error(message: String, process: &ProcessResult) -> Self {
         let mut failure = Self::from(message);
@@ -793,11 +835,13 @@ impl TransportFailure {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl From<&str> for TransportFailure {
     fn from(message: &str) -> Self {
         message.to_string().into()
     }
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn invoke(
     req: &Request,
     b: &Binding,
@@ -807,6 +851,7 @@ pub fn invoke(
 ) -> Result<(Response, ProcessResult), String> {
     invoke_detailed(req, b, env, timeout, limit).map_err(|e| e.message)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn invoke_detailed(
     req: &Request,
     b: &Binding,
@@ -820,6 +865,7 @@ pub fn invoke_detailed(
     })()
     .map_err(|failure: TransportFailure| failure.context(req))
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn invoke_prepared(
     req: &PreparedRequest,
     b: &Binding,
@@ -833,6 +879,7 @@ pub(crate) fn invoke_prepared(
     })()
     .map_err(|failure: TransportFailure| failure.context(&req.request))
 }
+#[cfg(not(verus_keep_ghost))]
 fn invoke_bytes(
     req: &Request,
     b: &Binding,
@@ -871,4 +918,23 @@ fn invoke_bytes(
             p,
         )),
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// A persisted request is accepted only when its v1 projection recreates its original ID.
+pub(crate) fn check_request_identity(recorded: &String, computed: Result<String,String>) -> (result: Result<(),String>)
+    ensures match computed {
+        Err(error) => result == Err::<(),String>(error),
+        Ok(id) => result.is_ok() == (recorded@ == id@),
+    },
+{
+    let calculated = computed?;
+    if String::eq(recorded, &calculated) { Ok(()) }
+    else { Err("E_PROTOCOL: request identity/mode".to_string()) }
+}
 }

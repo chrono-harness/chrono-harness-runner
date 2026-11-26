@@ -1348,7 +1348,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/source_coverage.rs",
+            "operation": "verify.coverage-endpoints-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/checkout.rs",
@@ -2220,7 +2229,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/source_coverage.rs",
+            "operation": "verify.coverage-endpoints-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/test-process/Cargo.toml",

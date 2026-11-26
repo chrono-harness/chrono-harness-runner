@@ -56,6 +56,7 @@ dependencies = [
  "miniz_oxide",
  "rustix",
  "serde",
+ "serde-content",
  "serde_jcs",
  "serde_json",
  "serde_yaml_ng",
@@ -334,9 +335,9 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "ryu-js"
-version = "0.2.2"
+version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6518fc26bced4d53678a22d6e423e9d8716377def84545fe328236e3af070e7f"
+checksum = "1f232fd0249f55adbe7f15bee58bbbd3d40708000b84e6482066d2ba599e08a9"
 
 [[package]]
 name = "serde"
@@ -346,6 +347,24 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-content"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3753ca04f350fa92d00b6146a3555e63c55388c9ef2e11e09bce2ff1c0b509c6"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "serde-transcode"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "655b0cffa180a1a71ed523dc0a9aa9a2711f5d172c2f066393e76f386e9bba3c"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -370,12 +389,13 @@ dependencies = [
 
 [[package]]
 name = "serde_jcs"
-version = "0.2.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3a60f3fda61525e439ef6d67422118f11e986566997d9021c56867ad814a0aa"
+checksum = "4966857b5b2e83ae3cee6ce41480b800b3bf7a74597cf4a1ee47c5d4d63ed002"
 dependencies = [
  "ryu-js",
  "serde",
+ "serde-transcode",
  "serde_json",
 ]
 
