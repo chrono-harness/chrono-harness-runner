@@ -1,6 +1,47 @@
 //! Unix runner-owned launch tree. Anonymous inherited descriptors carry ownership,
 //! never argv/environment policy. Each launcher reaps its own children on cancellation.
+#[cfg(all(not(verus_keep_ghost), target_os = "macos"))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+#[cfg(any(target_os = "macos", verus_keep_ghost))]
+verus! {
+/// The Darwin <sys/event.h> ABI emits EXIT before a child can be waited on;
+/// proc_reap later emits REAP to non-parent observers as well.
+const DARWIN_NOTE_REAP: u32 = 0x1000_0000;
+
+fn darwin_interest(child: bool, exit: u32) -> (interest: u32)
+    ensures interest == (if child { exit | 0x1000_0000u32 } else { exit }),
+{
+    if child { exit | DARWIN_NOTE_REAP } else { exit }
+}
+
+fn darwin_observation(flags: u32, exit: u32) -> (observed: (bool, bool))
+    ensures observed.0 == ((flags & exit) != 0),
+        observed.1 == ((flags & 0x1000_0000u32) != 0),
+{
+    ((flags & exit) != 0, (flags & DARWIN_NOTE_REAP) != 0)
+}
+
+#[cfg(verus_keep_ghost)]
+fn distinct_kernel_transitions() {
+    let exit = darwin_observation(0x8000_0000, 0x8000_0000);
+    let reap = darwin_observation(0x1000_0000, 0x8000_0000);
+    let both = darwin_observation(0x9000_0000, 0x8000_0000);
+    assert((0x8000_0000u32 & 0x1000_0000u32) == 0) by(bit_vector);
+    assert((0x8000_0000u32 & 0x8000_0000u32) != 0) by(bit_vector);
+    assert((0x1000_0000u32 & 0x8000_0000u32) == 0) by(bit_vector);
+    assert((0x1000_0000u32 & 0x1000_0000u32) != 0) by(bit_vector);
+    assert((0x9000_0000u32 & 0x8000_0000u32) != 0) by(bit_vector);
+    assert((0x9000_0000u32 & 0x1000_0000u32) != 0) by(bit_vector);
+    assert(exit == (true, false) && reap == (false, true) && both == (true, true));
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::ProcessFailure;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeMap,
     fs::File,
@@ -12,17 +53,24 @@ use std::{
     },
     time::{Duration, Instant},
 };
+#[cfg(not(verus_keep_ghost))]
 const TREE_FD: i32 = 198;
+#[cfg(not(verus_keep_ghost))]
 const CONTEXT_FD: i32 = 199;
 // V6 distinguishes kernel exit from reaping. Coupled nested engines must
 // agree on completion before an interrupted launcher can release its slot.
+#[cfg(not(verus_keep_ghost))]
 const MAGIC: u64 = 0x4348524f4e4f5036;
+#[cfg(not(verus_keep_ghost))]
 const OBSERVER_FD: i32 = 200;
 // Private copies must not alias the fixed inherited transport descriptors.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) const PRIVATE_FD_MIN: i32 = 202;
+#[cfg(not(verus_keep_ghost))]
 const CAPACITY: usize = 4096;
 
 #[repr(i32)]
+#[cfg(not(verus_keep_ghost))]
 enum LaunchStage {
     HandoffSend = 1,
     HandoffPoll,
@@ -34,6 +82,7 @@ enum LaunchStage {
     HandoffClock,
 }
 #[repr(i32)]
+#[cfg(not(verus_keep_ghost))]
 enum LaunchReason {
     Os = 1,
     Unavailable,
@@ -45,6 +94,7 @@ enum LaunchReason {
 // Stack-only child errors. The private diagnostic follows the unchanged two-u64
 // launch identity. No formatting, allocation or allocator-backed error may occur
 // between fork and exec, even when publishing this record fails.
+#[cfg(not(verus_keep_ghost))]
 struct LaunchFailure {
     stage: LaunchStage,
     reason: LaunchReason,
@@ -54,12 +104,15 @@ struct LaunchFailure {
 // The existing private handoff socket also carries wake hints after the child
 // has consumed its registration acknowledgement. Hints never establish exit.
 #[derive(Clone)]
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Wake(Arc<File>);
+#[cfg(not(verus_keep_ghost))]
 impl Wake {
     pub(crate) fn notify(&self) {
         notify(self.0.as_raw_fd());
     }
 }
+#[cfg(not(verus_keep_ghost))]
 fn notify(fd: i32) {
     let hint = 1u8;
     unsafe {
@@ -71,6 +124,7 @@ fn notify(fd: i32) {
         );
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl LaunchFailure {
     fn os(stage: LaunchStage, errno: i32) -> Self {
         Self {
@@ -129,6 +183,7 @@ impl LaunchFailure {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn handoff_clock() -> Result<u128, LaunchFailure> {
     let mut now: libc::timespec = unsafe { std::mem::zeroed() };
     if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) } < 0 {
@@ -138,6 +193,7 @@ fn handoff_clock() -> Result<u128, LaunchFailure> {
         .saturating_mul(1_000_000_000)
         .saturating_add(now.tv_nsec as u128))
 }
+#[cfg(not(verus_keep_ghost))]
 fn monotonic_ns() -> Option<u64> {
     // Match std::time::Instant, including Apple's suspend behavior. The
     // process-local representation of Instant itself cannot cross this mapping.
@@ -155,10 +211,12 @@ fn monotonic_ns() -> Option<u64> {
 }
 // The shared observer can run in a different process. Use the same monotonic
 // clock domain; an unavailable or unrepresentable reading supplies no evidence.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn terminal_deadline(timeout: Duration) -> Option<u64> {
     monotonic_ns()?.checked_add(timeout.as_nanos().try_into().ok()?)
 }
 #[repr(C)]
+#[cfg(not(verus_keep_ghost))]
 struct Slot {
     state: AtomicU8,
     cancelled: AtomicBool,
@@ -171,6 +229,7 @@ struct Slot {
     launcher_terminal: AtomicBool,
 }
 #[repr(C)]
+#[cfg(not(verus_keep_ghost))]
 struct Shared {
     magic: u64,
     next_generation: AtomicUsize,
@@ -180,6 +239,7 @@ struct Shared {
 }
 // One observer writes each packed counter/detail observation. Readers obtain
 // both in one load; a later receive failure cannot replace only the detail.
+#[cfg(not(verus_keep_ghost))]
 fn observe_receive_failure(observation: &AtomicU64, detail: i32) {
     let count = (observation.load(Ordering::Relaxed) >> 32).saturating_add(1);
     observation.store(
@@ -188,10 +248,12 @@ fn observe_receive_failure(observation: &AtomicU64, detail: i32) {
     );
 }
 #[derive(Clone, Copy)]
+#[cfg(not(verus_keep_ghost))]
 struct ReceiveSnapshot {
     errors: u64,
     incomplete: u64,
 }
+#[cfg(not(verus_keep_ghost))]
 impl ReceiveSnapshot {
     fn read(shared: &Shared) -> Self {
         Self {
@@ -225,6 +287,7 @@ impl ReceiveSnapshot {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 struct Tree {
     file: File,
     memory: NonNull<Shared>,
@@ -232,8 +295,11 @@ struct Tree {
     observer: Option<ExitObserver>,
 }
 // MAP_SHARED is synchronized exclusively by the atomic slot protocol.
+#[cfg(not(verus_keep_ghost))]
 unsafe impl Send for Tree {}
+#[cfg(not(verus_keep_ghost))]
 unsafe impl Sync for Tree {}
+#[cfg(not(verus_keep_ghost))]
 impl Drop for Tree {
     fn drop(&mut self) {
         if let Some(mut observer) = self.observer.take() {
@@ -244,6 +310,7 @@ impl Drop for Tree {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Tree {
     fn memory(&self) -> &Shared {
         unsafe { self.memory.as_ref() }
@@ -336,6 +403,7 @@ impl Tree {
         descendant(self.slots(), index, ancestor)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 fn descendant(slots: &[Slot; CAPACITY], mut index: usize, ancestor: usize) -> bool {
     for _ in 0..CAPACITY {
         if index == CAPACITY {
@@ -349,6 +417,7 @@ fn descendant(slots: &[Slot; CAPACITY], mut index: usize, ancestor: usize) -> bo
     false
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn high_descriptor(file: File) -> Result<File, ProcessFailure> {
     let fd = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD_CLOEXEC, PRIVATE_FD_MIN) };
     if fd < 0 {
@@ -356,6 +425,7 @@ fn high_descriptor(file: File) -> Result<File, ProcessFailure> {
     }
     Ok(unsafe { File::from_raw_fd(fd) })
 }
+#[cfg(not(verus_keep_ghost))]
 fn inherited() -> Result<Option<(Arc<Tree>, usize, usize)>, ProcessFailure> {
     static INHERITED: OnceLock<Result<Option<(Arc<Tree>, usize, usize)>, Arc<ProcessFailure>>> =
         OnceLock::new();
@@ -421,6 +491,7 @@ fn inherited() -> Result<Option<(Arc<Tree>, usize, usize)>, ProcessFailure> {
         .clone()
         .map_err(ProcessFailure::shared)
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Launch {
     tree: Arc<Tree>,
     receive_before: ReceiveSnapshot,
@@ -430,6 +501,7 @@ pub(crate) struct Launch {
     acknowledgement: File,
     acknowledgement_sender: Arc<File>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for Launch {
     fn drop(&mut self) {
         let slot = &self.tree.slots()[self.index];
@@ -443,6 +515,7 @@ impl Drop for Launch {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Launch {
     /// Read only this already registered launch identity; no process discovery
     /// or additional ownership/terminal observation is performed.
@@ -822,11 +895,13 @@ impl Launch {
 // The first engine owns one joined observer for its finite launch tree. Children
 // hand off a live identity before exec; the observer stays with the surviving
 // root even if an intermediate launcher is killed. No process discovery occurs.
+#[cfg(not(verus_keep_ghost))]
 struct ExitObserver {
     stop: Arc<AtomicBool>,
     wake: Arc<File>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl ExitObserver {
     fn join(&mut self) {
         self.stop.store(true, Ordering::Release);
@@ -1027,6 +1102,7 @@ impl ExitObserver {
         })
     }
 }
+#[cfg(not(verus_keep_ghost))]
 fn register_exit(
     observer: i32,
     acknowledgement: i32,
@@ -1141,8 +1217,10 @@ fn register_exit(
 }
 
 #[cfg(target_os = "macos")]
+#[cfg(not(verus_keep_ghost))]
 struct ExitIdentities(Vec<(File, usize, i16)>);
 #[cfg(target_os = "macos")]
+#[cfg(not(verus_keep_ghost))]
 impl ExitIdentities {
     fn new() -> Result<Self, ProcessFailure> {
         Ok(Self(Vec::new()))
@@ -1164,11 +1242,7 @@ impl ExitIdentities {
             } else {
                 libc::EV_ADD | libc::EV_ONESHOT
             },
-            fflags: if cookie % 2 == 0 {
-                libc::NOTE_EXIT | libc::NOTE_REAP
-            } else {
-                libc::NOTE_EXIT
-            },
+            fflags: darwin_interest(cookie % 2 == 0, libc::NOTE_EXIT),
             data: 0,
             udata: cookie as *mut libc::c_void,
         });
@@ -1229,10 +1303,11 @@ impl ExitIdentities {
                 if event.flags & libc::EV_ERROR != 0 {
                     continue;
                 }
-                if event.fflags & libc::NOTE_EXIT != 0 {
+                let (exited, reaped) = darwin_observation(event.fflags, libc::NOTE_EXIT);
+                if exited {
                     accept(event.udata as usize, false);
                 }
-                if event.fflags & libc::NOTE_REAP != 0 {
+                if reaped {
                     accept(event.udata as usize, true);
                 }
             }
@@ -1240,8 +1315,10 @@ impl ExitIdentities {
     }
 }
 #[cfg(target_os = "linux")]
+#[cfg(not(verus_keep_ghost))]
 struct ExitIdentities(Vec<(File, usize, i16)>);
 #[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(not(verus_keep_ghost))]
 impl ExitIdentities {
     fn wait(&self, registration: i32) {
         let mut pending: Vec<_> = std::iter::once(libc::pollfd {
@@ -1263,6 +1340,7 @@ impl ExitIdentities {
     }
 }
 #[cfg(target_os = "linux")]
+#[cfg(not(verus_keep_ghost))]
 impl ExitIdentities {
     fn new() -> Result<Self, ProcessFailure> {
         Ok(Self(Vec::new()))
