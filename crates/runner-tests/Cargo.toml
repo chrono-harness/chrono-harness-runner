@@ -159,6 +159,10 @@ name = "registration_reports"
 path = "tests/registration_reports.rs"
 
 [[test]]
+name = "check_workflow"
+path = "tests/check_workflow.rs"
+
+[[test]]
 name = "release_observation"
 path = "tests/release_observation.rs"
 
