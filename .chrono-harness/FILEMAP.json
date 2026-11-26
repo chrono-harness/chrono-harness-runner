@@ -1213,7 +1213,11 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/proofs/identifiers/Cargo.toml",
