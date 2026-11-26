@@ -295,7 +295,9 @@ struct Tree {
     observer: Option<ExitObserver>,
 }
 // MAP_SHARED is synchronized exclusively by the atomic slot protocol.
+#[cfg(not(verus_keep_ghost))]
 unsafe impl Send for Tree {}
+#[cfg(not(verus_keep_ghost))]
 unsafe impl Sync for Tree {}
 #[cfg(not(verus_keep_ghost))]
 impl Drop for Tree {
