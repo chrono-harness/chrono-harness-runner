@@ -107,13 +107,27 @@ impl Clone for CompiledArtifact {
 
 /// 外部文件／SHA-256 接口返回点名普通文件的实际摘要与长度或原错误。
 pub trait ArtifactRead {
-    fn identity(&self, path: &[u8]) -> Result<(Vec<u8>, u64), String>;
+    spec fn identity_observed(&self, path: Seq<u8>, value: Result<(Vec<u8>, u64), String>) -> bool;
+    fn identity(&self, path: &[u8]) -> (value: Result<(Vec<u8>, u64), String>)
+        ensures self.identity_observed(path@, value);
 }
 
 pub open spec fn artifact_matches(artifact: &CompiledArtifact, args: Seq<String>) -> bool {
     verifier_arguments(args)
         && artifact.path@ == vstd::utf8::encode_utf8(args[10]@)
         && identifiers::digest_format(artifact.sha256@) && artifact.length > 0
+}
+
+pub open spec fn library_read_result(path: Seq<u8>, value: Result<(Vec<u8>, u64), String>,
+    out: Result<CompiledArtifact, String>) -> bool {
+    match value {
+        Err(error) => match out { Err(actual) => actual == error, _ => false },
+        Ok((digest, length)) => if length == 0 || !identifiers::digest_format(digest@) {
+            match out { Err(error) => error@ == "E_VERUS_ARTIFACT: empty library or invalid observed digest"@, _ => false }
+        } else {
+            match out { Ok(file) => file.path@ == path && file.sha256 == digest && file.length == length, _ => false }
+        },
+    }
 }
 
 /// 失败进程与非规范参数不读取库；原 IO 错误仍进入同一回执。
@@ -126,21 +140,39 @@ pub fn observe_artifact<I: ArtifactRead>(
             Some(Ok(artifact)) => exit == 0 && !process_failed && artifact_matches(&artifact, args@),
             _ => true,
         },
+        if contract.is_none() { observed.is_none() }
+        else if exit != 0 || process_failed || !verifier_arguments(args@) {
+            match observed { Some(Err(e)) => e@ == "E_VERUS_ARTIFACT: original compiler process was not successful"@, _ => false }
+        } else {
+            let path = vstd::utf8::encode_utf8(args@[10]@);
+            observed.is_some() && exists|raw: Result<(Vec<u8>, u64), String>|
+                #[trigger] io.identity_observed(path, raw) && library_read_result(path, raw, observed.unwrap())
+        },
 {
     if contract.is_none() { return None; }
     if exit != 0 || process_failed || !canonical_verifier_arguments(args) {
         return Some(Err("E_VERUS_ARTIFACT: original compiler process was not successful".to_string()));
     }
-    let (sha256, length) = match io.identity(args[10].as_str().as_bytes()) {
+    let raw = io.identity(args[10].as_str().as_bytes());
+    let ghost original = raw;
+    let ghost target = vstd::utf8::encode_utf8(args@[10]@);
+    let (sha256, length) = match raw {
         Ok(value) => value,
-        Err(error) => { return Some(Err(error)); },
+        Err(error) => {
+            assert(library_read_result(target, original, Err(error)));
+            return Some(Err(error));
+        },
     };
     if length == 0 || !identifiers::valid_digest(sha256.as_slice()) {
-        return Some(Err("E_VERUS_ARTIFACT: empty library or invalid observed digest".to_string()));
+        let error = "E_VERUS_ARTIFACT: empty library or invalid observed digest".to_string();
+        assert(library_read_result(target, original, Err(error)));
+        return Some(Err(error));
     }
     let mut path = Vec::new();
     append_bytes(&mut path, args[10].as_str().as_bytes());
-    Some(Ok(CompiledArtifact { path, sha256, length }))
+    let file = CompiledArtifact { path, sha256, length };
+    assert(library_read_result(target, original, Ok(file)));
+    Some(Ok(file))
 }
 
 pub open spec fn artifact_observed(

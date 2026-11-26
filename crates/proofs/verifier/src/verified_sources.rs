@@ -38,7 +38,10 @@ verus! {
 
 /// 仅获取指定路径的原字节；准入、路径选择和长度判断由下方实现负责。
 pub trait DependencyRead {
-    fn read(&self, path: &[u8], limit: u64) -> Result<Vec<u8>, String>;
+    /// A single OS observation may fail or vary across calls.
+    spec fn read_observed(&self, path: Seq<u8>, bound: u64, value: Result<Vec<u8>, String>) -> bool;
+    fn read(&self, path: &[u8], limit: u64) -> (value: Result<Vec<u8>, String>)
+        ensures self.read_observed(path@, limit, value);
 }
 
 pub open spec fn dependency_observed(
@@ -54,6 +57,18 @@ pub open spec fn dependency_observed(
     }
 }
 
+pub open spec fn dep_info_path(target: Seq<char>) -> Seq<u8> {
+    vstd::utf8::encode_utf8(target) + seq![46u8, 100u8]
+}
+
+pub open spec fn dependency_read_result(value: Result<Vec<u8>, String>, limit: usize,
+    out: Result<Vec<u8>, String>) -> bool {
+    match value {
+        Ok(bytes) if bytes.len() > limit => match out { Err(error) => error@ == "E_VERUS_SOURCES: compiler dependency exceeds its bound"@, _ => false },
+        _ => out == value,
+    }
+}
+
 /// 原进程已结束后才获取编译器输出；失败观察仍进入原回执，不替换原进程。
 pub fn observe_dependency<I: DependencyRead>(
     contract: &Option<super::OutputContract>, args: &Vec<String>,
@@ -65,6 +80,16 @@ pub fn observe_dependency<I: DependencyRead>(
                 && exit == 0 && !process_failed && 0 < limit <= 67_108_864
                 && bytes.len() <= limit,
             _ => true,
+        },
+        if contract.is_none() { observed.is_none() }
+        else if exit != 0 || process_failed || !super::verifier_arguments(args@) {
+            match observed { Some(Err(e)) => e@ == "E_VERUS_SOURCES: original compiler process was not successful"@, _ => false }
+        } else if limit == 0 || limit > 67_108_864 {
+            match observed { Some(Err(e)) => e@ == "E_VERUS_SOURCES: invalid dependency observation bound"@, _ => false }
+        } else {
+            observed.is_some() && exists|raw: Result<Vec<u8>, String>|
+                #[trigger] io.read_observed(dep_info_path(args@[10]@),
+                    (limit + 1) as u64, raw) && dependency_read_result(raw, limit, observed.unwrap())
         },
 {
     if contract.is_none() { return None; }
@@ -78,14 +103,19 @@ pub fn observe_dependency<I: DependencyRead>(
     append_bytes(&mut path, args[10].as_str().as_bytes());
     append_bytes(&mut path, &[46u8, 100u8]);
     let read = io.read(path.as_slice(), limit as u64 + 1);
-    match read {
+    let ghost original = read;
+    let out = match read {
         Err(error) => Some(Err(error)),
         Ok(bytes) => {
             if bytes.len() > limit {
                 Some(Err("E_VERUS_SOURCES: compiler dependency exceeds its bound".to_string()))
             } else { Some(Ok(bytes)) }
         },
-    }
+    };
+    assert(io.read_observed(dep_info_path(args@[10]@),
+        (limit + 1) as u64, original));
+    assert(dependency_read_result(original, limit, out.unwrap()));
+    out
 }
 
 pub open spec fn dependency_observation_error(
