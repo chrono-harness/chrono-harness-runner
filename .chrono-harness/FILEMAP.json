@@ -613,6 +613,22 @@
       }
     },
     {
+      "path": "crates/runner-tests/tests/fixtures/sealed-wire-request.json",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": "crates/runner-tests/tests/release_observation.rs",
       "owner": "runner",
       "surface": "test",
