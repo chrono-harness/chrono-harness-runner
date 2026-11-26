@@ -412,7 +412,11 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".gitignore",
@@ -507,7 +511,11 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/runner-tests/tests/checkout.rs",
@@ -532,6 +540,48 @@
           "to": "test:runner"
         }
       ]
+    },
+    {
+      "path": "crates/runner-tests/tests/release_observation.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/release_observation.rs",
+            "operation": "verify.runner-release-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/runner-tests/examples/release_observation.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/release_observation.rs",
+            "operation": "verify.runner-release-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner-tests/tests/registered_git.rs",
@@ -2082,7 +2132,8 @@
     "test:runner": {
       "operations": [
         "runner.verify",
-        "verify.registered-git-trace-tests"
+        "verify.registered-git-trace-tests",
+        "verify.runner-release-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576

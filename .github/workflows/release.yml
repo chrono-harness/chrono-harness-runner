@@ -52,8 +52,10 @@ jobs:
           cargo build --release --locked --package chrono-harness
           binary="$CARGO_TARGET_DIR/release/chrono-harness"
           version=${GITHUB_REF_NAME#v}
-          test "$("$binary" --version)" = "chrono-harness ${version%%-alpha.*}"
-          "$binary" --help | grep -F 'chrono-harness check' >/dev/null
+          observed=$("$binary" --version)
+          "$binary" --help > "$RUNNER_TEMP/runner-help"
+          cargo run --quiet --release --locked --package chrono-harness-tests \
+            --example release_observation -- "chrono-harness ${version%%-alpha.*}" "$observed" "$RUNNER_TEMP/runner-help"
           mkdir "$RUNNER_TEMP/dist"
           cp "$CARGO_TARGET_DIR/release/chrono-harness" "$RUNNER_TEMP/dist/chrono-harness-$PLATFORM"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
