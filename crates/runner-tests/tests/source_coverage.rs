@@ -61,3 +61,50 @@ fn a_rejected_request_never_invokes_the_reader() {
     assert_eq!(calls, 1);
     assert_eq!(result, Ok(Err("original reader failure")));
 }
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn coverage_authenticates_persisted_wire_bytes_before_reading_git() {
+    use chrono_harness::wire;
+    use serde_json::{Value, json, value::RawValue};
+
+    // This request ID was computed independently using RFC 8785's ECMAScript number
+    // spelling and UTF-16 key order. Its observations retain the original JSON text.
+    let stored = include_str!("fixtures/sealed-wire-request.json");
+    let request: wire::Request = serde_json::from_str(stored).unwrap();
+    request.validate().unwrap();
+    let raw: &RawValue = serde_json::from_str(stored).unwrap();
+    let canonical = request.canonical().unwrap();
+    assert_eq!(wire::canonical(&raw).unwrap(), canonical);
+    assert_eq!(wire::canonical(&request).unwrap(), canonical);
+
+    let outer = json!({
+        "previous": null,
+        "candidate": {"commit": "b".repeat(40), "filemap": {}, "projects": {}, "artifacts": []},
+        "affected": [], "scopes": [], "invocations": [],
+        "git": {"mode": "request", "request": serde_json::from_str::<Value>(stored).unwrap()}
+    });
+    // With no outer base, the endpoint check must reject the authenticated request
+    // before Git can be read. An incompatible request ID fails earlier in validation.
+    let bytes = serde_json::to_vec(&outer).unwrap();
+    assert_eq!(
+        policy::serve(std::path::Path::new("."), bytes.as_slice(), Vec::new()).unwrap_err(),
+        "E_GIT_FACTS: source coverage endpoints differ from request"
+    );
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn raw_observation_objects_retain_their_wire_type() {
+    use chrono_harness::wire;
+    use serde_json::value::RawValue;
+
+    let object: &RawValue =
+        serde_json::from_str(r#"{"$serde_json::private::Number":"4.50"}"#).unwrap();
+    let number: &RawValue = serde_json::from_str("4.50").unwrap();
+    assert_eq!(
+        wire::canonical(&[object]).unwrap(),
+        br#"[{"$serde_json::private::Number":"4.50"}]"#
+    );
+    assert_eq!(wire::canonical(&[number]).unwrap(), b"[4.5]");
+}

@@ -1,0 +1,58 @@
+{
+  "protocol": "chrono-judge/v1",
+  "request_id": "02dd5eb8a7b4f0b830f4ed0590508d8df148a394cbeed379d83979f144dd34bc",
+  "judge_id": "coverage",
+  "mode": "evaluate",
+  "base": {
+    "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tree": "cccccccccccccccccccccccccccccccccccccccc",
+    "root": "/base"
+  },
+  "candidate": {
+    "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tree": "dddddddddddddddddddddddddddddddddddddddd",
+    "root": "/candidate"
+  },
+  "delta": [],
+  "registries": {
+    "base": "/base",
+    "candidate": "/candidate",
+    "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "context": {
+    "path": "context.json",
+    "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "impact": {},
+  "prior_results": [],
+  "config_path": "check.json",
+  "checkout": {
+    "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tracked": [],
+    "untracked": [],
+    "index_flags": []
+  },
+  "runner": {
+    "path": "runner",
+    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "version": "0.1.0"
+  },
+  "observations": {
+    "raw": [
+      {
+        "$serde_json::private::Number": "4.50"
+      },
+      "9007199254740993",
+      9007199254740993
+    ],
+    "ordered": {
+      "￿": "non-BMP keys sort first",
+      "😀": [
+        "\u000f",
+        "4.50",
+        -0.0,
+        1e+21
+      ]
+    }
+  }
+}
