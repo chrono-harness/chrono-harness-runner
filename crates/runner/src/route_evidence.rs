@@ -71,11 +71,17 @@ enum Compiler {
     },
 }
 
-struct CompilerRowReader;
+pub(crate) struct CompilerReportReader;
 
-impl verifier::CompilerRowRead for CompilerRowReader {
+impl verifier::CompilerReportRead for CompilerReportReader {
+    fn decode(&self, bytes: &[u8]) -> Option<verifier::CompilerReport> {
+        serde_json::from_slice(bytes).ok()
+    }
+}
+
+impl verifier::CompilerRowRead for CompilerReportReader {
     fn decode(&self, text: &str) -> Option<verifier::CompilerReport> {
-        serde_json::from_str(text).ok()
+        verifier::CompilerReportRead::decode(self, text.as_bytes())
     }
 }
 
@@ -114,7 +120,7 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     serde_json::to_writer(output, &canonical).map_err(|error| error.to_string())
                 }
                 Compiler::ProofRows { contract, rows } => {
-                    let normalized = verifier::proof_rows(&rows, &contract, &CompilerRowReader);
+                    let normalized = verifier::proof_rows(&rows, &contract, &CompilerReportReader);
                     serde_json::to_writer(output, &normalized).map_err(|e| e.to_string())
                 }
                 Compiler::DependencyHeader { dependency } => {
@@ -185,12 +191,10 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     limit,
                     artifact,
                 } => {
-                    let decoded = contract
-                        .as_ref()
-                        .and_then(|_| serde_json::from_slice(&stdout).ok());
-                    verifier::admit_observed_output(
+                    verifier::admit_original_output(
                         &contract,
-                        &decoded,
+                        &stdout,
+                        &CompilerReportReader,
                         &argv,
                         exit,
                         process_failed,

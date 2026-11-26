@@ -102,6 +102,6 @@ impl CandidateSourceRead for Candidate<'_> {
 }
 impl verifier::CompilerReportRead for Candidate<'_> {
     fn decode(&self, bytes: &[u8]) -> Option<verifier::CompilerReport> {
-        serde_json::from_slice(bytes).ok()
+        verifier::CompilerReportRead::decode(&crate::route_evidence::CompilerReportReader, bytes)
     }
 }
