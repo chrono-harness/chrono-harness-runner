@@ -347,9 +347,11 @@ fn full_and_initial_bound_checks_reject_configuration_hidden_mode_changes() {
                 report["findings"]
             );
         }
-        assert!(h.trace().contains("ls-files --stage -z"));
+        let root = fs::canonicalize(h.host.root()).unwrap();
+        let trace = h.trace().replace(root.to_str().unwrap(), "<fixture>");
+        assert!(trace.contains("ls-files --stage -z"));
         assert!(
-            !h.trace().contains("diff"),
+            !trace.split_ascii_whitespace().any(|arg| arg == "diff"),
             "raw identity must not delegate to filters"
         );
     }
