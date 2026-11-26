@@ -889,6 +889,48 @@ fn source_declaration(role: policy::sources::SourceRole, roots: Vec<policy::sour
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn declaration_batch_validates_later_files_and_keeps_the_first_path_and_cause() {
+    use policy::sources::{SourceFile, source_declarations};
+    let first = SourceFile { path: "first".to_string(), verification: None };
+    let mut second = source_declaration(SourceRole::Data, vec![declared_source_root("r", "")]);
+    second.path = "second".to_string();
+    let files = vec![first, second];
+    let operations = Vec::new();
+    proof {
+        reveal_with_fuel(policy::sources::first_declaration_error, 3);
+        reveal(policy::sources::source_declaration_valid);
+        reveal(policy::sources::proof_roots_use_registered_operations);
+    }
+    let actual = source_declarations(&files, &operations, &Vec::new());
+    let expected = match actual {
+        Err((path, message)) => identifiers::equal_text(path, "second")
+            && identifiers::equal_text(message.as_str(), "E_VERUS_COVERAGE: invalid file proof declaration"),
+        Ok(_) => false,
+    };
+    expect_verifier_true(expected);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn declaration_batch_preserves_every_reference_path_position() {
+    use policy::sources::source_declarations;
+    proof {
+        reveal_strlit("r"); reveal_strlit("./r");
+        vstd::string::is_ascii_spec_bytes("r");
+        vstd::string::is_ascii_spec_bytes("./r");
+        reveal_with_fuel(policy::sources::path_scan, 7);
+        reveal_with_fuel(policy::sources::joined_components, 4);
+    }
+    let paths = vec!["r".to_string(), "./r".to_string(), "r".to_string()];
+    let files = Vec::new();
+    let actual = source_declarations(&files, &Vec::new(), &paths);
+    let expected = match actual {
+        Ok(valid) => valid.len() == 3 && valid[0] && !valid[1] && valid[2],
+        Err(_) => false,
+    };
+    expect_verifier_true(expected);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn explicit_program_specification_and_data_have_distinct_root_obligations() {
     proof { reveal(policy::sources::source_declaration_valid); }
     let unknown = policy::sources::SourceFile { path: "file".to_string(), verification: None };

@@ -1799,6 +1799,60 @@ pub open spec fn proof_roots_use_registered_operations(
 }
 
 /// 单个声明根必须指向现役 execution plan 的真实操作。
+/// The public declaration query reports the first failing file in input order.
+pub open spec fn first_declaration_error(
+    files: Seq<SourceFile>, operations: Seq<String>, index: int,
+) -> Option<(Seq<char>, Seq<char>)>
+    decreases files.len() - index,
+{
+    if index < 0 || index >= files.len() { None }
+    else if !source_declaration_valid(&files[index]) {
+        Some((files[index].path@, "E_VERUS_COVERAGE: invalid file proof declaration"@))
+    } else if !proof_roots_use_registered_operations(&files[index], operations) {
+        Some((files[index].path@, "E_VERUS_COVERAGE: proof root operation is not registered"@))
+    } else { first_declaration_error(files, operations, index + 1) }
+}
+
+pub fn source_declarations<'a>(
+    files: &'a Vec<SourceFile>, operations: &Vec<String>, reference_paths: &Vec<String>,
+) -> (result: Result<Vec<bool>, (&'a str, String)>)
+    ensures match result {
+        Err((path, message)) => first_declaration_error(files@, operations@, 0)
+            == Some((path@, message@)),
+        Ok(valid) => first_declaration_error(files@, operations@, 0).is_none()
+            && valid@.len() == reference_paths@.len()
+            && forall|i: int| 0 <= i < valid@.len() ==> valid@[i] ==
+                canonical_source_path(vstd::utf8::encode_utf8(reference_paths@[i]@)),
+    },
+{
+    let mut i = 0;
+    while i < files.len()
+        invariant i <= files.len(), first_declaration_error(files@, operations@, 0)
+            == first_declaration_error(files@, operations@, i as int),
+        decreases files.len() - i,
+    {
+        let file = &files[i];
+        if let Err(message) = validate_source_declaration(file) {
+            return Err((file.path.as_str(), message));
+        }
+        if !proof_roots_have_registered_operations(file, operations) {
+            return Err((file.path.as_str(), "E_VERUS_COVERAGE: proof root operation is not registered".to_string()));
+        }
+        i += 1;
+    }
+    let mut valid = Vec::new();
+    while valid.len() < reference_paths.len()
+        invariant valid.len() <= reference_paths.len(),
+            forall|j: int| 0 <= j < valid@.len() ==> valid@[j] ==
+                canonical_source_path(vstd::utf8::encode_utf8(reference_paths@[j]@)),
+        decreases reference_paths.len() - valid.len(),
+    {
+        let next = canonical_source_name(reference_paths[valid.len()].as_str());
+        valid.push(next);
+    }
+    Ok(valid)
+}
+
 pub open spec fn proof_root_operation_registered(
     root: &SourceProofRoot, operations: Seq<String>,
 ) -> bool {
