@@ -146,18 +146,18 @@ macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-pr/relea
 
 
 [tools."http:chrono-test-git"]
-version = "0.1.3-alpha.1"
+version = "0.1.3"
 bin = "chrono-test-git"
 [tools."http:chrono-test-git".platforms]
-linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.3-alpha.1/chrono-test-git-linux-x86_64", checksum = "sha256:32d984d956635b35df22d01c2935d91981fe59625c18814c4a721b051ece12ee" }
-macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.3-alpha.1/chrono-test-git-macos-aarch64", checksum = "sha256:c49dd9c4507f5a09ea428f204f91ff7d7de510996afdd732e0e9afdf0963f911" }
+linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.3/chrono-test-git-linux-x86_64", checksum = "sha256:32d984d956635b35df22d01c2935d91981fe59625c18814c4a721b051ece12ee" }
+macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.3/chrono-test-git-macos-aarch64", checksum = "sha256:c49dd9c4507f5a09ea428f204f91ff7d7de510996afdd732e0e9afdf0963f911" }
 
 [tools."http:chrono-test-git-profile"]
-version = "0.1.3-alpha.1"
+version = "0.1.3"
 bin = "chrono-test-git-profile"
 [tools."http:chrono-test-git-profile".platforms]
-linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.3-alpha.1/chrono-test-git-profile-linux-x86_64", checksum = "sha256:63abbd4054cf13dcbd5490c5d01a1781d8909dc7b49fb3ee14ee32adc75a9570" }
-macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.3-alpha.1/chrono-test-git-profile-macos-aarch64", checksum = "sha256:1236cbbf6c8261052139cd66afb6e1ee29cf74cda84f636e92c321e150619e63" }
+linux-x64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.3/chrono-test-git-profile-linux-x86_64", checksum = "sha256:63abbd4054cf13dcbd5490c5d01a1781d8909dc7b49fb3ee14ee32adc75a9570" }
+macos-arm64 = { url = "https://github.com/chrono-harness/chrono-harness-test-git/releases/download/v0.1.3/chrono-test-git-profile-macos-aarch64", checksum = "sha256:1236cbbf6c8261052139cd66afb6e1ee29cf74cda84f636e92c321e150619e63" }
 
 [tools."http:chrono-worktree"]
 version = "0.1.0-bootstrap.1"
