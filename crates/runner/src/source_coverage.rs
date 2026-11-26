@@ -1,17 +1,48 @@
 //! Fixed endpoints and verifier declarations supplied by the route planner.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Only an authenticated request naming both outer endpoints can reach the Git reader.
+pub fn bind_request_endpoints<E, F: FnOnce() -> E>(
+    previous: Option<&String>, candidate: &String, base: &String, head: &String, read: F,
+) -> (reply: Result<E, &'static str>)
+    requires read.requires(()),
+    ensures match reply {
+        Ok(value) => candidate@ == head@ && (previous matches Some(p) && p@ == base@)
+            && read.ensures((), value),
+        Err(error) => error@ == "E_GIT_FACTS: source coverage endpoints differ from request"@
+            && !(candidate@ == head@ && (previous matches Some(p) && p@ == base@)),
+    },
+{
+    if *candidate == *head && matches!(previous, Some(p) if *p == *base) {
+        Ok(read())
+    } else {
+        Err("E_GIT_FACTS: source coverage endpoints differ from request")
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     facts,
     verified_verifier::{OutputContract, ProofInvocation, source_pipeline, sources},
     wire,
 };
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeSet,
     io::{Read, Write},
     path::Path,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Endpoint {
@@ -20,6 +51,7 @@ struct Endpoint {
     projects: Value,
     artifacts: Vec<String>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Endpoint {
     fn view(&self) -> (&str, &Value, &Value, Vec<String>) {
         (
@@ -31,6 +63,7 @@ impl Endpoint {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(tag = "mode", rename_all = "kebab-case", deny_unknown_fields)]
 enum Git {
@@ -39,6 +72,7 @@ enum Git {
     Request { request: Box<wire::Request> },
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MethodScope {
@@ -46,6 +80,7 @@ struct MethodScope {
     owner: String,
     tool: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Invocation {
@@ -54,6 +89,7 @@ struct Invocation {
     output_contract: Option<OutputContract>,
     output_limit_bytes: usize,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Query {
@@ -65,6 +101,7 @@ struct Query {
     git: Git,
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn validate(q: &Query, cwd: &Path, observation: &mut Value) -> Result<(), String> {
     let registry: sources::SourceRegistry =
         serde_json::from_value(q.candidate.filemap.clone()).map_err(|e| e.to_string())?;
@@ -156,22 +193,29 @@ fn validate(q: &Query, cwd: &Path, observation: &mut Value) -> Result<(), String
     .1
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn serve(cwd: &Path, input: impl Read, mut output: impl Write) -> Result<(), String> {
     let q: Query = serde_json::from_reader(input).map_err(|e| e.to_string())?;
     facts::full_oid(&q.candidate.commit)?;
     if let Some(previous) = &q.previous {
         facts::full_oid(&previous.commit)?;
     }
-    if let Git::Request { request } = &q.git {
-        request.validate()?;
-        if request.candidate.commit != q.candidate.commit
-            || q.previous.as_ref().map(|p| &p.commit) != Some(&request.base.commit)
-        {
-            return Err("E_GIT_FACTS: source coverage endpoints differ from request".into());
-        }
-    }
     let mut observation = Value::Null;
-    let error = validate(&q, cwd, &mut observation).err();
+    let mut evaluate = || validate(&q, cwd, &mut observation);
+    let result = match &q.git {
+        Git::Request { request } => {
+            request.validate()?;
+            bind_request_endpoints(
+                q.previous.as_ref().map(|p| &p.commit),
+                &q.candidate.commit,
+                &request.base.commit,
+                &request.candidate.commit,
+                evaluate,
+            )?
+        }
+        _ => evaluate(),
+    };
+    let error = result.err();
     serde_json::to_writer(
         &mut output,
         &json!({

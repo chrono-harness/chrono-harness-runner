@@ -965,6 +965,27 @@
       ]
     },
     {
+      "path": "crates/runner-tests/tests/source_coverage.rs",
+      "owner": "runner",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/source_coverage.rs",
+            "operation": "verify.coverage-endpoints-tests"
+          }
+        ]
+      }
+    },
+    {
       "path": "crates/runner-tests/tests/verified_git_binding.rs",
       "owner": "runner",
       "surface": "test",
@@ -1766,7 +1787,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/source_coverage.rs",
+            "operation": "verify.coverage-endpoints"
+          },
+          {
+            "path": "crates/runner-tests/tests/source_coverage.rs",
+            "operation": "verify.coverage-endpoints-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/source_endpoints.rs",
@@ -2133,7 +2167,9 @@
       "operations": [
         "runner.verify",
         "verify.registered-git-trace-tests",
-        "verify.runner-release-tests"
+        "verify.runner-release-tests",
+        "verify.coverage-endpoints",
+        "verify.coverage-endpoints-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576
