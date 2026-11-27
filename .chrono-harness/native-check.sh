@@ -90,7 +90,10 @@ status=("$src/verified_status.rs" "$src/facts.rs" "$src/facts_binding.rs" "$src/
 maintenance=("$src/maintenance_signal.rs" "$src/artifact_disposal.rs")
 release=("$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs"
          "$src/retained_artifacts/manifest.rs" "$src/retained_artifacts/partition.rs"
-         "$src/retained_artifacts/retention_command.rs" "$src/scoped_report.rs")
+         "$src/retained_artifacts/retention_command.rs" "$src/scoped_report.rs"
+         "$src/prepared.rs" "$src/prepared_artifacts.rs" "$src/prepared_binding.rs" "$src/retained_artifacts.rs"
+         "$src/retained_artifacts/session/directory.rs" "$src/retained_artifacts/session/inventory.rs"
+         "$src/retained_artifacts/session/publication.rs")
 git_binding=("$src/verified_git_binding.rs" "$src/verified_paths.rs")
 cli=("$src/verified_cli.rs" "$src/diagnostic_session.rs" "$src/process_error.rs" "$src/publication.rs" "$src/short_console.rs")
 

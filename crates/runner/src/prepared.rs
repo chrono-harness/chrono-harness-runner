@@ -1,26 +1,51 @@
 //! Fixed check acquisition using registered producer actions and the existing transport.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub fn receipt_count(local: bool, collecting: bool) -> (required: usize)
+    ensures required == if local && collecting { 2usize } else { 1usize },
+{
+    if local && collecting { 2 } else { 1 }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     CommandSpec, ProcessResult, decode, facts, file_identity, no_symlink_parents, observation,
     relative_path, run_process_observed, sha256, short_console, units, wire,
 };
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[path = "prepared_binding.rs"]
 mod binding;
-pub use binding::validate_binding;
+#[cfg(not(verus_keep_ghost))]
+pub use binding::{receipt_producer, validate_binding};
+#[cfg(not(verus_keep_ghost))]
 #[path = "prepared_artifacts.rs"]
 mod artifacts;
+#[cfg(not(verus_keep_ghost))]
 pub use artifacts::*;
 
+#[cfg(not(verus_keep_ghost))]
 pub const SOURCE: &str = "CHRONO_CHECK_SOURCE";
+#[cfg(not(verus_keep_ghost))]
 pub const REQUEST: &str = "chrono-check-input-request/v1";
+#[cfg(not(verus_keep_ghost))]
 pub const RESPONSE: &str = "chrono-check-inputs/v1";
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Action {
@@ -28,6 +53,7 @@ pub struct Action {
     pub tool: String,
     pub argv: Vec<String>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Inputs {
@@ -37,6 +63,7 @@ pub struct Inputs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ci: Option<Action>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Canonical {
@@ -49,6 +76,7 @@ pub struct Canonical {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub participation: Option<Action>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Selection {
@@ -56,6 +84,7 @@ pub enum Selection {
     Unit { unit: String },
     Collect,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Selection {
     pub fn argv(&self) -> Vec<String> {
         match self {
@@ -72,6 +101,7 @@ impl Selection {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InputRequest {
@@ -91,12 +121,14 @@ pub struct InputRequest {
     // Local collection uses the CI collection owner after local endpoints were observed.
     pub prepared: Option<PreparedCheck>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileBinding {
     pub path: String,
     pub sha256: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Context {
@@ -105,6 +137,7 @@ pub struct Context {
     pub sha256: String,
     pub semantic_digest: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreparedCheck {
@@ -120,6 +153,7 @@ pub struct PreparedCheck {
     pub evidence: Value,
     pub originals: Vec<Original>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl InputRequest {
     pub fn profile_for(&self, initial: bool) -> Result<&str, String> {
         crate::verified_git_binding::select_request_profile(
@@ -220,6 +254,7 @@ impl InputRequest {
         Ok(())
     }
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn declaration(config: &Value) -> Result<Canonical, String> {
     if config["schema_version"] != 4 {
         return Err("short check requires config schema_version 4".into());
@@ -298,6 +333,7 @@ pub fn declaration(config: &Value) -> Result<Canonical, String> {
 }
 /// The declared lifecycle owner acquires protection before any check acquisition.
 /// A participating child keeps the same public spelling and original console result.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn participate(root: &Path, args: &[&str]) -> Result<Option<crate::CliOutput>, String> {
     const MARKER: &str = "CHRONO_WORKTREE_CHECK";
     let cfg = crate::load_selected_config(root, ".chrono-harness/config.json")?;
@@ -421,6 +457,7 @@ pub(crate) fn participate(root: &Path, args: &[&str]) -> Result<Option<crate::Cl
     }))
 }
 /// Acquisition credentials are declared in the existing environment policy and never forwarded to judges.
+#[cfg(not(verus_keep_ghost))]
 pub fn credential_environment(cfg: &Value) -> Result<BTreeSet<String>, String> {
     let names: Vec<String> = match cfg["environment"].get("credential_environment") {
         Some(v) => serde_json::from_value(v.clone()).map_err(|e| e.to_string())?,
@@ -442,6 +479,7 @@ pub fn credential_environment(cfg: &Value) -> Result<BTreeSet<String>, String> {
     }
     Ok(out)
 }
+#[cfg(not(verus_keep_ghost))]
 fn environment_hashes(env: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     env.iter()
         .map(|(k, v)| (k.clone(), sha256(v.as_bytes())))
@@ -450,12 +488,14 @@ fn environment_hashes(env: &BTreeMap<String, String>) -> BTreeMap<String, String
 /// Project a freshly observed process for an owner's receipt, without changing
 /// its original effective-environment digest or any process/stream evidence.
 /// The receipt owner must label this environment representation as `sha256`.
+#[cfg(not(verus_keep_ghost))]
 pub fn process_identities(mut process: ProcessResult) -> ProcessResult {
     process.environment = environment_hashes(&process.environment);
     process
 }
 /// Input producers also receive host-declared transport variables. Business
 /// processes and input snapshots use the product environment separately.
+#[cfg(not(verus_keep_ghost))]
 fn preparation_keys<'a>(cfg: &'a Value, inputs: &'a Inputs) -> Result<BTreeSet<&'a str>, String> {
     let mut keys = BTreeSet::new();
     for value in cfg["environment"]["inherit"]
@@ -478,6 +518,7 @@ fn preparation_keys<'a>(cfg: &'a Value, inputs: &'a Inputs) -> Result<BTreeSet<&
     }
     Ok(keys)
 }
+#[cfg(not(verus_keep_ghost))]
 fn environment(cfg: &Value, inputs: &Inputs) -> Result<(BTreeMap<String, String>, Value), String> {
     let mut env = BTreeMap::new();
     let mut observed = serde_json::Map::new();
@@ -501,6 +542,7 @@ fn environment(cfg: &Value, inputs: &Inputs) -> Result<(BTreeMap<String, String>
     }
     Ok((env, Value::Object(observed)))
 }
+#[cfg(not(verus_keep_ghost))]
 fn prelaunch_error(
     root: &Path,
     req: &InputRequest,
@@ -523,6 +565,7 @@ fn prelaunch_error(
         ),
     }
 }
+#[cfg(not(verus_keep_ghost))]
 fn invoke(
     root: &Path,
     cfg: &Value,
@@ -675,6 +718,7 @@ fn invoke(
     }
     Ok((p, original))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn retain(root: &Path, prefix: &str, v: &Value) -> Result<String, String> {
     retain_bytes(
         root,
@@ -682,6 +726,7 @@ pub fn retain(root: &Path, prefix: &str, v: &Value) -> Result<String, String> {
         &serde_json::to_vec(v).map_err(|e| e.to_string())?,
     )
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn retain_directory(root: &Path, directory: &str, prefix: &str) -> Result<PathBuf, String> {
     let dir = no_symlink_parents(root, directory)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -691,6 +736,7 @@ pub fn retain_directory(root: &Path, directory: &str, prefix: &str) -> Result<Pa
         .map_err(|e| e.to_string())?
         .keep())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn retain_bytes(root: &Path, prefix: &str, bytes: &[u8]) -> Result<String, String> {
     use std::io::Write;
     let dir = no_symlink_parents(root, ".chrono-harness/state/preparation")?;
@@ -726,6 +772,7 @@ pub fn retain_bytes(root: &Path, prefix: &str, bytes: &[u8]) -> Result<String, S
         .ok_or("evidence path UTF-8")?
         .into())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_result_identity(req: &InputRequest, p: &PreparedCheck) -> Result<(), String> {
     if p.schema != RESPONSE
         || p.request_sha256 != sha256(&serde_json::to_vec(req).map_err(|e| e.to_string())?)
@@ -747,6 +794,7 @@ pub fn validate_result_identity(req: &InputRequest, p: &PreparedCheck) -> Result
     }
     Ok(())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_result(req: &InputRequest, p: &PreparedCheck) -> Result<(), String> {
     validate_result_identity(req, p)?;
     validate_originals(&req.host_root, p, None)?;
@@ -780,6 +828,7 @@ pub fn validate_result(req: &InputRequest, p: &PreparedCheck) -> Result<(), Stri
 }
 /// Existing scoped unit inventory remains explicit in its nonempty unit policy.
 /// Standalone inventory requires the separate initial judge/profile binding.
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_initial_contract(root: &Path, req: &InputRequest) -> Result<(), String> {
     if req.initial_profile.is_some() {
         req.profile_for(true)?;
@@ -795,6 +844,7 @@ pub fn validate_initial_contract(root: &Path, req: &InputRequest) -> Result<(), 
     }
     Ok(())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn prepare(
     root: &Path,
     selection: Selection,
@@ -853,14 +903,12 @@ pub fn prepare(
             .ok_or("full independent scopes require registered execution units")?;
     }
     req.validate()?;
-    let action = if source == "local" {
-        &c.inputs.local
-    } else {
-        c.inputs.ci.as_ref().ok_or("CI input binding missing")?
-    };
+    let local = source == "local";
+    let action = receipt_producer(local, 0, &c.inputs.local, c.inputs.ci.as_ref())
+        .ok_or("CI input binding missing")?;
     let (mut p, first) = invoke(root, &cfg, action, &env, &req)?;
     let mut receipts = vec![first];
-    if source == "local" && matches!(req.selection, Selection::Collect) {
+    if receipt_count(local, req.selection == Selection::Collect) == 2 {
         req.prepared = Some(p);
         let (next, receipt) = invoke(
             root,

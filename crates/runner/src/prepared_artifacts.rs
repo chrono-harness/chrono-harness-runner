@@ -1,7 +1,25 @@
 //! Addressed short preparation originals and the selected native upload contract.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Oversized original bytes cannot reach the digest comparison.
+pub fn bounded_original<F>(length: usize, digest_matches: F) -> (valid: bool)
+    where F: FnOnce() -> bool,
+    requires length <= 67108864 ==> digest_matches.requires(()),
+    ensures if length > 67108864 { !valid } else { digest_matches.ensures((), valid) },
+{
+    length <= 67108864 && digest_matches()
+}
+}
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use std::io::{Read, Write};
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeArtifacts {
@@ -9,18 +27,21 @@ pub struct NativeArtifacts {
     pub config_sha256: String,
     pub directory: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Original {
     pub path: String,
     pub sha256: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactTransport {
     pub source_directory: String,
     pub directory: String,
 }
+#[cfg(not(verus_keep_ghost))]
 fn directory(path: &str) -> Result<(), String> {
     units::artifact_path(path)?;
     if !path.ends_with('/') {
@@ -29,6 +50,7 @@ fn directory(path: &str) -> Result<(), String> {
     Ok(())
 }
 /// Resolve the declared CI action's existing provider selection, never a host-wide upload fallback.
+#[cfg(not(verus_keep_ghost))]
 pub fn native_artifacts(
     root: &Path,
     cfg: &Value,
@@ -88,12 +110,14 @@ pub fn native_artifacts(
         directory: dir.into(),
     }))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn retention_directory(req: &InputRequest) -> String {
     req.native_artifacts
         .as_ref()
         .map(|a| format!("{}preparation/", a.directory))
         .unwrap_or_else(|| ".chrono-harness/state/preparation/".into())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn original(root: &Path, path: &str) -> Result<Original, String> {
     units::artifact_path(path)?;
     Ok(Original {
@@ -102,6 +126,7 @@ pub fn original(root: &Path, path: &str) -> Result<Original, String> {
     })
 }
 /// Reuse exact original bytes in the selected evidence owner; no recursive evidence duplication.
+#[cfg(not(verus_keep_ghost))]
 pub fn retain_original(
     root: &Path,
     dir: &str,
@@ -137,6 +162,7 @@ pub fn retain_original(
     }
     original(root, &path)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn original_path(
     o: &Original,
     transport: Option<&ArtifactTransport>,
@@ -156,6 +182,7 @@ pub fn original_path(
     };
     Ok(path)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn read_original(
     root: &Path,
     o: &Original,
@@ -175,11 +202,12 @@ pub fn read_original(
         .take(64 * 1024 * 1024 + 1)
         .read_to_end(&mut raw)
         .map_err(|e| e.to_string())?;
-    if raw.len() > 64 * 1024 * 1024 || sha256(&raw) != o.sha256 {
+    if !bounded_original(raw.len(), || sha256(&raw) == o.sha256) {
         return Err(format!("original evidence digest mismatch: {path}"));
     }
     Ok(raw)
 }
+#[cfg(not(verus_keep_ghost))]
 fn read_binding_original(
     root: &Path,
     original: &Original,
@@ -197,6 +225,7 @@ fn read_binding_original(
         read_original(root, original, transport)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_originals(
     root: &Path,
     p: &PreparedCheck,
@@ -204,6 +233,7 @@ pub fn validate_originals(
 ) -> Result<(), String> {
     validate_originals_with_artifacts(root, p, transport, None)
 }
+#[cfg(not(verus_keep_ghost))]
 fn validate_originals_with_artifacts(
     root: &Path,
     p: &PreparedCheck,
@@ -215,6 +245,7 @@ fn validate_originals_with_artifacts(
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn validate_originals_with_reader(
     p: &PreparedCheck,
     read: &mut impl FnMut(&Original) -> Result<Vec<u8>, String>,
@@ -267,6 +298,7 @@ fn validate_originals_with_reader(
     Ok(())
 }
 /// Offline native consumers retain original observation identities and resolve only addressed artifact paths.
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_portable_binding(
     root: &Path,
     binding: &Value,
@@ -274,6 +306,7 @@ pub fn validate_portable_binding(
 ) -> Result<(), String> {
     validate_retained_binding(root, binding, transport, None)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_retained_binding(
     root: &Path,
     binding: &Value,
@@ -288,6 +321,7 @@ pub fn validate_retained_binding(
 /// The preparation owner makes exactly the same typed reads during native
 /// acquisition and offline verification. The reader only supplies original
 /// bytes; it never discovers a closure or grants semantic acceptance.
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_portable_binding_with_reader(
     root: &Path,
     binding: &Value,
@@ -297,7 +331,7 @@ pub fn validate_portable_binding_with_reader(
     let mut read = |o: &Original| -> Result<Vec<u8>, String> {
         original_path(o, transport)?;
         let raw = read(o)?;
-        if raw.len() > 64 * 1024 * 1024 || sha256(&raw) != o.sha256 {
+        if !bounded_original(raw.len(), || sha256(&raw) == o.sha256) {
             return Err(format!(
                 "original evidence digest/limit mismatch: {}",
                 o.path
@@ -357,13 +391,7 @@ pub fn validate_portable_binding_with_reader(
     validate_originals_with_reader(&p, &mut read)?;
     let refs: Vec<Original> =
         serde_json::from_value(binding["receipts"].clone()).map_err(|e| e.to_string())?;
-    if refs.len()
-        != if req.source == "local" && req.selection == Selection::Collect {
-            2
-        } else {
-            1
-        }
-    {
+    if refs.len() != receipt_count(req.source == "local", req.selection == Selection::Collect) {
         return Err("short producer receipt count mismatch".into());
     }
     for (index, o) in refs.iter().enumerate() {
@@ -382,11 +410,13 @@ pub fn validate_portable_binding_with_reader(
         let result: PreparedCheck = decode(&process.stdout_bytes)?;
         validate_result_identity(&request, &result)?;
         let c = declaration(&cfg)?;
-        let expected = if req.source == "local" && index == 0 {
-            &c.inputs.local
-        } else {
-            c.inputs.ci.as_ref().ok_or("missing CI binding")?
-        };
+        let expected = receipt_producer(
+            req.source == "local",
+            index,
+            &c.inputs.local,
+            c.inputs.ci.as_ref(),
+        )
+        .ok_or("missing CI binding")?;
         if r["action"] != serde_json::to_value(expected).map_err(|e| e.to_string())?
             || request.native_artifacts != req.native_artifacts
             || process.stdout != String::from_utf8_lossy(&process.stdout_bytes)

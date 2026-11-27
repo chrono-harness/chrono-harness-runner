@@ -1,9 +1,37 @@
 //! Address only the named artifact, producer and consumer reference.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Resume only the returned publication and preserve its original sealing error.
+pub fn resume_sealed<T, E, F>(publication: Option<T>, seal: F) -> (resumed: Result<bool, E>)
+    where F: FnOnce(T) -> Result<(), E>,
+    requires publication.is_some() ==> seal.requires((publication.unwrap(),)),
+    ensures match publication {
+        None => resumed == Ok::<bool, E>(false),
+        Some(value) => exists|original: Result<(), E>| #[trigger] seal.ensures((value,), original)
+            && resumed == match original { Ok(()) => Ok::<bool, E>(true), Err(e) => Err(e) },
+    },
+{
+    match publication {
+        Some(value) => match seal(value) { Ok(()) => Ok(true), Err(error) => Err(error) },
+        None => Ok(false),
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use super::Session;
+#[cfg(not(verus_keep_ghost))]
 use crate::retained_artifacts::retention::{self, Inventory};
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub(super) enum Fact {
@@ -60,6 +88,7 @@ pub(super) enum Fact {
         outcome: Value,
     },
 }
+#[cfg(not(verus_keep_ghost))]
 impl Session<'_> {
     pub(super) fn inventory_fact(&mut self, request: Fact) -> Result<Value, String> {
         if let Fact::Adoption { producers } = request {
@@ -107,13 +136,9 @@ impl Session<'_> {
                 let publication = Inventory::adopted(self.root)?
                     .ok_or("adopted original inventory unavailable")?
                     .resume_unfinished_directory(&producer, &path)?;
-                match publication {
-                    Some(p) => {
-                        p.complete_sealed(outcome)?;
-                        Ok(json!(true))
-                    }
-                    None => Ok(json!(false)),
-                }
+                Ok(json!(
+                    resume_sealed(publication, |item| item.complete_sealed(outcome))?
+                ))
             }
             Fact::Published {
                 path,
