@@ -1,16 +1,46 @@
 //! Explicit native-platform selection for a separate Git facts policy.
+#[cfg(verus_keep_ghost)]
+use super::GitConfigSchema;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+impl GitConfigSchema {
+    pub fn admit_selector(&self) -> (out: Result<bool, &'static str>)
+        ensures out == match self {
+            Self::Direct => Ok::<bool, &str>(false),
+            Self::Unsupported => Err::<bool, &str>("unsupported Git config selector schema"),
+            _ => Ok::<bool, &str>(true),
+        },
+    {
+        match self {
+            Self::Unsupported => Err("unsupported Git config selector schema"),
+            _ => Ok(self.is_selector()),
+        }
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::verified_git_binding::{
     GitConfigSchema, admit_git_selector_target, admit_selector_binding, classify_git_config_schema,
 };
+#[cfg(not(verus_keep_ghost))]
 use crate::{json, no_symlink_parents, sha256};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json as value};
+#[cfg(not(verus_keep_ghost))]
 use std::{fs, path::Path};
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn config_schema(config: &Value) -> GitConfigSchema {
     classify_git_config_schema(config["schema"].as_str())
 }
 
 /// 标准 JSON 接口只转交对象借用和字段操作；投影分支及参数由 Verus 决定。
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn registry_selection_observation(mut observation: Value) -> Value {
     let _ = crate::verified_status::normalize_registry_selection_object(
         observation.as_object_mut(),
@@ -26,6 +56,7 @@ pub(crate) fn registry_selection_observation(mut observation: Value) -> Value {
     observation
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Selection {
     pub path: String,
     pub bytes: Vec<u8>,
@@ -34,6 +65,7 @@ pub(crate) struct Selection {
 }
 
 #[derive(Clone, Copy)]
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct RegistryTarget<'a> {
     pub path: &'a str,
     pub sha256: Option<&'a str>,
@@ -45,6 +77,7 @@ pub(crate) struct RegistryTarget<'a> {
 /// configuration).  The two paths are deliberately kept separate so a
 /// selector document is never represented as the selected policy document.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[cfg(not(verus_keep_ghost))]
 pub struct Identity {
     pub entry_path: String,
     pub effective_path: String,
@@ -53,6 +86,7 @@ pub struct Identity {
 
 /// A direct policy keeps its original semantics. A selector has one level only;
 /// all paths are host declarations, and unsupported platforms have no fallback.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn load(
     root: &Path,
     path: &str,
@@ -66,6 +100,7 @@ pub(crate) fn load(
 /// Resolve a selector from bytes belonging to a fixed endpoint.  The reader
 /// supplied by the caller is the only way to acquire the selected target, so
 /// historical endpoints cannot accidentally use the candidate working tree.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn resolve(
     path: &str,
     bytes: Vec<u8>,
@@ -77,6 +112,7 @@ pub(crate) fn resolve(
 /// A request-bound reader fixes the policy path, while an immutable endpoint
 /// supplies that path's original executable declaration as data. Only opening
 /// the candidate's execution binding reads the current executable bytes.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn resolve_target(
     path: &str,
     bytes: Vec<u8>,
@@ -190,6 +226,7 @@ pub(crate) fn resolve_target(
 /// Resolve a selector using an already captured registry value map.  This is
 /// used by registration consumers after the fixed snapshot has been built and
 /// verifies that the real selected target value is present under its own path.
+#[cfg(not(verus_keep_ghost))]
 pub fn identity(
     values: &std::collections::BTreeMap<String, Value>,
     path: &str,
@@ -236,14 +273,17 @@ pub fn identity(
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct CapturedRegistry<'a>(&'a std::collections::BTreeMap<String, Value>);
 
+#[cfg(not(verus_keep_ghost))]
 impl crate::verified_git_binding::RegistryMembership for CapturedRegistry<'_> {
     fn contains_path(&self, path: &str) -> bool {
         self.0.contains_key(path)
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn identity_targets(host: &Value, version3: bool) -> Result<Vec<&str>, String> {
     use crate::verified_git_binding::{
         admit_identity_configurations, admit_identity_object, admit_identity_program,
@@ -278,17 +318,21 @@ fn identity_targets(host: &Value, version3: bool) -> Result<Vec<&str>, String> {
     Ok(paths)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn host_path(path: &str, entry: Option<&str>) -> Result<(), String> {
     crate::verified_git_binding::admit_complete_selector_host_path(path, entry)
         .map_err(render_selector_path_error)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn render_selector_path_error(error: crate::verified_git_binding::SelectorPathError<'_>) -> String {
     error.render(|invalid| format!("invalid relative path: {invalid:?}"))
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct JsonSelectorRows<'a>(&'a [Value]);
 
+#[cfg(not(verus_keep_ghost))]
 impl<'a> crate::verified_git_binding::SelectorRows<'a> for JsonSelectorRows<'a> {
     fn len(&self) -> usize {
         self.0.len()
@@ -306,6 +350,7 @@ impl<'a> crate::verified_git_binding::SelectorRows<'a> for JsonSelectorRows<'a> 
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl<'a> crate::verified_git_binding::SelectorRegistryRows<'a> for JsonSelectorRows<'a> {
     fn len(&self) -> usize {
         self.0.len()
@@ -316,8 +361,10 @@ impl<'a> crate::verified_git_binding::SelectorRegistryRows<'a> for JsonSelectorR
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct JsonTargetRows<'a>(&'a [Value]);
 
+#[cfg(not(verus_keep_ghost))]
 impl crate::verified_git_binding::GitTargetRows for JsonTargetRows<'_> {
     fn len(&self) -> usize {
         self.0.len()
@@ -339,14 +386,17 @@ impl crate::verified_git_binding::GitTargetRows for JsonTargetRows<'_> {
 }
 
 #[derive(Default)]
+#[cfg(not(verus_keep_ghost))]
 struct SeenSelectorText<'a>(std::collections::BTreeSet<&'a str>);
 
+#[cfg(not(verus_keep_ghost))]
 impl<'a> crate::verified_git_binding::SelectorSeen<'a> for SeenSelectorText<'a> {
     fn record(&mut self, text: &'a str) -> bool {
         self.0.insert(text)
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Selection {
     pub fn unchanged(&self, root: &Path) -> Result<(), String> {
         let actual = fs::read(no_symlink_parents(root, &self.path)?).map_err(|e| e.to_string())?;
