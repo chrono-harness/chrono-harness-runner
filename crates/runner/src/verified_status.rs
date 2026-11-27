@@ -24,6 +24,14 @@ pub use crate::ownership::{physical_lease_entry, release_local_directory, reopen
 pub use ownership::{physical_lease_entry, release_local_directory, reopen_existing_lease};
 
 #[cfg(verus_keep_ghost)]
+#[path = "finding_registry.rs"]
+mod finding_registry;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::finding_registry::{BoundGitCommand, RecordedGitCommand};
+#[cfg(verus_keep_ghost)]
+pub use finding_registry::{BoundGitCommand, RecordedGitCommand};
+
+#[cfg(verus_keep_ghost)]
 #[path = "observation.rs"]
 mod process_observation;
 #[cfg(not(verus_keep_ghost))]

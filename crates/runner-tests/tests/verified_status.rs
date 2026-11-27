@@ -29,6 +29,54 @@ use vstd::vpanic as panic;
 verus! {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn registry_git_receipt_requires_the_bound_command_and_complete_success() {
+    use policy::{BoundGitCommand, RecordedGitCommand};
+    let direct = BoundGitCommand {
+        executable: "git", sha256: "digest", cwd: "root", stdin_sha256: Some("empty"),
+    };
+    let mut record = RecordedGitCommand {
+        executable: Some("git"), sha256: Some("digest"), cwd: Some("root"),
+        stdin_sha256: Some("empty"), successful_exit: true,
+        failure_is_null: true, stdout_complete: true,
+    };
+    proof {
+        reveal_strlit("git"); reveal_strlit("digest"); reveal_strlit("root");
+        reveal_strlit("empty"); reveal_strlit("x");
+    }
+    expect_status_true(direct.accepts(true, &record));
+    expect_status_true(!direct.accepts(false, &record));
+    record.executable = Some("x");
+    expect_status_true(!direct.accepts(true, &record));
+    record.executable = Some("git");
+    record.sha256 = None;
+    expect_status_true(!direct.accepts(true, &record));
+    record.sha256 = Some("digest");
+    record.cwd = Some("x");
+    expect_status_true(!direct.accepts(true, &record));
+    record.cwd = Some("root");
+    record.successful_exit = false;
+    expect_status_true(!direct.accepts(true, &record));
+    record.successful_exit = true;
+    record.failure_is_null = false;
+    expect_status_true(!direct.accepts(true, &record));
+    record.failure_is_null = true;
+    record.stdout_complete = false;
+    expect_status_true(!direct.accepts(true, &record));
+    record.stdout_complete = true;
+    record.stdin_sha256 = Some("x");
+    expect_status_true(!direct.accepts(true, &record));
+    let batch = BoundGitCommand {
+        executable: "git", sha256: "digest", cwd: "root", stdin_sha256: None,
+    };
+    expect_status_true(batch.accepts(true, &record));
+    record.stdin_sha256 = None;
+    expect_status_true(!direct.accepts(true, &record));
+    expect_status_true(batch.accepts(true, &record));
+    record.stdin_sha256 = Some("empty");
+    expect_status_true(direct.accepts(true, &record));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn retained_process_checks_keep_the_observed_result_and_original_digest_error() {
     let yes = || -> (out: bool) ensures out, { true };
     let no = || -> (out: bool) ensures !out, { false };

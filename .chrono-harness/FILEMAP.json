@@ -1689,7 +1689,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_status.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_status.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/facts_configs.rs",
