@@ -1,9 +1,61 @@
 //! Invocation-scoped JSON lines connection to one policy-bound Git reader.
+#[cfg(verus_keep_ghost)]
+use crate::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub(super) const FRAME_LIMIT: usize = 64 * 1024 * 1024;
+
+/// Strip the terminating LF only after admitting the complete bounded line.
+pub(super) fn complete_frame(mut bytes: Vec<u8>, limit: usize)
+    -> (out: Result<Option<Vec<u8>>, &'static str>)
+    ensures match out {
+        Ok(None) => bytes@.len() == 0,
+        Ok(Some(payload)) => bytes@.len() > 0 && bytes@.last() == 10
+            && bytes@.len() - 1 <= limit && payload@ == bytes@.drop_last(),
+        Err(error) => bytes@.len() > 0 && (bytes@.last() != 10 || bytes@.len() - 1 > limit)
+            && error@ == "E_PROTOCOL: invalid or oversized Git facts frame"@,
+    },
+{
+    match bytes.pop() {
+        None => Ok(None),
+        Some(10) if bytes.len() <= limit => Ok(Some(bytes)),
+        _ => Err("E_PROTOCOL: invalid or oversized Git facts frame"),
+    }
+}
+
+pub(super) fn require_checkout_head(observed: &str, endpoint: &str) -> (out: Result<(), &'static str>)
+    ensures out == if observed@ == endpoint@ { Ok::<(), &str>(()) }
+        else { Err::<(), &str>("E_SNAPSHOT_IDENTITY: capture requires the explicit checked-out commit") },
+{
+    if identifiers::equal_text(observed, endpoint) { Ok(()) }
+    else { Err("E_SNAPSHOT_IDENTITY: capture requires the explicit checked-out commit") }
+}
+
+pub(super) fn require_checkout_config(current: &[u8], committed: &[u8]) -> (out: Result<(), &'static str>)
+    ensures out == if current@ == committed@ { Ok::<(), &str>(()) }
+        else { Err::<(), &str>("E_SNAPSHOT_IDENTITY: config differs from the fixed commit") },
+{
+    if identifiers::equal_bytes(current, committed) { Ok(()) }
+    else { Err("E_SNAPSHOT_IDENTITY: config differs from the fixed commit") }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 #[path = "git_facts_output.rs"]
 mod output;
+#[cfg(not(verus_keep_ghost))]
 use crate::{facts, verified_shallow_reads, wire};
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeMap,
     fs,
@@ -11,6 +63,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(tag = "mode", rename_all = "kebab-case", deny_unknown_fields)]
 enum Open {
@@ -45,12 +98,14 @@ enum Open {
         request: Box<wire::Request>,
     },
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum Endpoint {
     Base,
     Candidate,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
@@ -142,6 +197,7 @@ enum Operation {
         path: String,
     },
 }
+#[cfg(not(verus_keep_ghost))]
 struct Session {
     root: PathBuf,
     config: String,
@@ -156,6 +212,7 @@ struct Session {
         Option<tempfile::TempDir>,
     )>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Session {
     fn open(cwd: &Path, open: Open) -> Result<(Self, Value), String> {
         let mut header = json!({});
@@ -297,16 +354,12 @@ impl Session {
         if checked_out {
             self.reader.verify_config(&self.root, commit)?;
             self.reader.verify_oid(&self.root, commit)?;
-            if facts::utf8(self.reader.git(&self.root, &["rev-parse", "HEAD"])?)?.trim() != commit {
-                return Err(
-                    "E_SNAPSHOT_IDENTITY: capture requires the explicit checked-out commit".into(),
-                );
-            }
+            let head = facts::utf8(self.reader.git(&self.root, &["rev-parse", "HEAD"])?)?;
+            require_checkout_head(head.trim(), commit)?;
             let path = crate::no_symlink_parents(&self.root, &self.config)?;
             let bytes = self.reader.blob(&self.root, commit, &self.config)?;
-            if fs::read(path).map_err(|error| error.to_string())? != bytes {
-                return Err("E_SNAPSHOT_IDENTITY: config differs from the fixed commit".into());
-            }
+            let current = fs::read(path).map_err(|error| error.to_string())?;
+            require_checkout_config(&current, &bytes)?;
         }
         self.registry_at(commit, &self.config)
     }
@@ -563,21 +616,16 @@ impl Session {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn frame(reader: &mut impl BufRead) -> Result<Option<Vec<u8>>, String> {
     let mut data = Vec::new();
-    const LIMIT: u64 = 64 * 1024 * 1024;
-    let size = reader
-        .take(LIMIT + 2)
+    reader
+        .take(FRAME_LIMIT as u64 + 2)
         .read_until(b'\n', &mut data)
         .map_err(|e| e.to_string())?;
-    if size == 0 {
-        return Ok(None);
-    }
-    if data.pop() != Some(b'\n') || data.len() as u64 > LIMIT {
-        return Err("E_PROTOCOL: invalid or oversized Git facts frame".into());
-    }
-    Ok(Some(data))
+    complete_frame(data, FRAME_LIMIT).map_err(Into::into)
 }
+#[cfg(not(verus_keep_ghost))]
 fn reply(output: &mut impl Write, result: Result<Value, String>) -> Result<(), String> {
     serde_json::to_writer(&mut *output, &result).map_err(|e| e.to_string())?;
     output
@@ -585,6 +633,7 @@ fn reply(output: &mut impl Write, result: Result<Value, String>) -> Result<(), S
         .and_then(|_| output.flush())
         .map_err(|e| e.to_string())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn serve(cwd: &Path, mut input: impl BufRead, mut out: impl Write) -> Result<(), String> {
     let first = frame(&mut input)?.ok_or("E_PROTOCOL: missing Git facts session header")?;
     let (mut session, header) =
