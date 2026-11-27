@@ -5,6 +5,8 @@ use chrono_harness::{verified_identifiers as identifiers, verus};
 extern crate chrono_identifiers as identifiers;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd::string::StringSliceAdditionalSpecFns;
 verus! {
 pub fn same_test(expected:&str, current:Option<&str>) -> (matches:bool)
     ensures matches == match current {Some(actual)=>expected@==actual@,None=>false},
@@ -13,6 +15,56 @@ pub fn same_test(expected:&str, current:Option<&str>) -> (matches:bool)
 pub fn release_custody(verified_child: bool, retired: bool) -> (release: bool)
     ensures release == (verified_child && retired),
 { verified_child && retired }
+
+pub const LIBTEST_PASS_PREFIX: &'static str = "test result: ok. 1 passed; 0 failed;";
+
+pub open spec fn libtest_pass_at(stdout: Seq<u8>, start: int) -> bool {
+    let prefix = LIBTEST_PASS_PREFIX.spec_bytes();
+    let end = start + prefix.len();
+    0 <= start && end <= stdout.len()
+        && (start == 0 || stdout[start - 1] == '\n' as u8)
+        && stdout.subrange(start, end) == prefix
+}
+
+/// The ASCII prefix and LF survive lossy UTF-8 decoding. Stripping a CR
+/// before LF also has no effect on whether a line begins with this prefix.
+pub fn isolated_test_passed(success: bool, stdout: &[u8]) -> (passed: bool)
+    ensures passed == (success && exists|start: int| libtest_pass_at(stdout@, start)),
+{
+    let prefix = LIBTEST_PASS_PREFIX.as_bytes();
+    proof {
+        reveal_strlit("test result: ok. 1 passed; 0 failed;");
+        vstd::utf8::encode_utf8_decode_utf8(LIBTEST_PASS_PREFIX@);
+        assert(prefix@.len() > 0);
+    }
+    if !success || stdout.len() < prefix.len() {
+        return false;
+    }
+    let last_start = stdout.len() - prefix.len();
+    let mut start = 0;
+    while start <= last_start
+        invariant
+            success,
+            prefix@ == LIBTEST_PASS_PREFIX.spec_bytes(),
+            prefix.len() > 0,
+            last_start + prefix.len() == stdout.len(),
+            forall|earlier: int| 0 <= earlier < start ==> !#[trigger] libtest_pass_at(stdout@, earlier),
+        decreases last_start + 1 - start,
+    {
+        if start == 0 || stdout[start - 1] == '\n' as u8 {
+            let (_, rest) = stdout.split_at(start);
+            let (candidate, _) = rest.split_at(prefix.len());
+            assert(candidate@ =~= stdout@.subrange(start as int, start + prefix.len()));
+            if identifiers::equal_bytes(candidate, prefix) {
+                assert(libtest_pass_at(stdout@, start as int));
+                return true;
+            }
+        }
+        assert(!libtest_pass_at(stdout@, start as int));
+        start += 1;
+    }
+    false
+}
 }
 // fork duplicates every thread's open descriptions until exec, even CLOEXEC
 // capabilities that the child never intentionally consumes. Tests asserting an
@@ -48,15 +100,11 @@ pub fn run_isolated_test(
         .envs(environment.iter().map(|(key, value)| (key, value)))
         .output()
         .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let one_passed = stdout
-        .lines()
-        .any(|line| line.starts_with("test result: ok. 1 passed; 0 failed;"));
     assert!(
-        output.status.success() && one_passed,
+        isolated_test_passed(output.status.success(), &output.stdout),
         "isolated capability test failed: {}; stdout: {}; stderr: {}",
         output.status,
-        stdout,
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     // Successful libtest capture normally hides nested observations. Forward only
