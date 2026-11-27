@@ -1517,6 +1517,18 @@ fn dag_blocks_dependents_and_continues_independent_branch() {
         v.after = after.iter().map(|s| s.to_string()).collect();
         v
     };
+    let lexical = [
+        binding("é", &[]),
+        binding("ab", &["a"]),
+        binding("a", &[]),
+        binding("e\u{301}", &[]),
+        binding("A", &[]),
+    ];
+    let ordered = chrono_harness::full::schedule(&lexical).unwrap();
+    assert_eq!(
+        ordered.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(),
+        ["A", "a", "ab", "e\u{301}", "é"]
+    );
     let plan = vec![
         binding("blocked", &["bad"]),
         binding("independent", &[]),

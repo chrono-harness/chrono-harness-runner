@@ -1,60 +1,115 @@
 //! Full-format orchestration: fixed facts, declared DAG, external processes and aggregation.
+#[cfg(verus_keep_ghost)]
+use super::judge_schedule::{
+    Declaration, Error, admitted, check_entry, declaration_index, first_parent, indexed,
+    referenced, schedule_result, walk,
+};
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_status::judge_schedule::{Declaration, Error, check_entry, first_parent, walk};
+use std::collections::BTreeMap;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub fn order_declarations(rows: &[Declaration], selector: &str, mode: &str) -> (out: Result<Vec<usize>, Error>)
+    ensures schedule_result(rows@, selector, mode, out),
+{
+    let mut pending = BTreeMap::new();
+    let mut i = 0;
+    while i < rows.len()
+        invariant i <= rows.len(), pending@.len() == i, indexed(rows@, pending@),
+            pending@ == declaration_index(rows@, i as int), admitted(rows@, i as int, selector, mode),
+        decreases rows.len() - i,
+    {
+        let row = &rows[i];
+        if let Some(e) = check_entry(row, &pending, selector, mode) {
+            assert(admitted(rows@, i as int, selector, mode));
+            return Err(e);
+        }
+        pending.insert(row.id, i);
+        i += 1;
+    }
+    if rows.is_empty() { return Err(Error::Empty); }
+    i = 0;
+    while i < rows.len()
+        invariant i <= rows.len(), pending@.len() == rows.len(), indexed(rows@, pending@),
+            pending@ == declaration_index(rows@, rows.len() as int),
+            admitted(rows@, rows.len() as int, selector, mode), referenced(rows@, pending@, i as int),
+        decreases rows.len() - i,
+    {
+        if let Some(j) = first_parent(&rows[i].after, &pending, false) {
+            return Err(Error::Missing(i, j));
+        }
+        i += 1;
+    }
+    walk(rows, pending)
+}
+
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     decode, facts, json, no_symlink_parents, sha256,
     wire::{self, Binding, Context, Endpoint, Executable, Registries, Request, Response, Status},
 };
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json as value};
+#[cfg(not(verus_keep_ghost))]
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
 };
 
+#[cfg(not(verus_keep_ghost))]
 pub fn schedule(bindings: &[Binding]) -> Result<Vec<Binding>, String> {
     schedule_mode(bindings, "every-delta", "evaluate")
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn schedule_mode(
     bindings: &[Binding],
     selector: &str,
     mode: &str,
 ) -> Result<Vec<Binding>, String> {
-    let mut pending = BTreeMap::new();
+    use crate::verified_status::judge_schedule::{self, Declaration, Error};
+    // Intern the original strings once. BTreeMap's UTF-8 key order defines the rank
+    // for both declarations and references, including undeclared predecessor names.
+    let mut ids = BTreeMap::new();
     for b in bindings {
-        if b.id.is_empty() || pending.insert(b.id.clone(), b.clone()).is_some() {
-            return Err("duplicate/empty judge ID".into());
-        }
-        if b.selector != selector || b.modes != [mode] {
-            return Err("unsupported judge transport selection/mode".into());
-        }
-        if b.after.iter().collect::<BTreeSet<_>>().len() != b.after.len() {
-            return Err("duplicate predecessor".into());
+        ids.insert(b.id.as_str(), 0);
+        for parent in &b.after {
+            ids.insert(parent.as_str(), 0);
         }
     }
-    if pending.is_empty() {
-        return Err("no configured judges".into());
+    for (rank, slot) in ids.values_mut().enumerate() {
+        *slot = rank;
     }
-    for b in bindings {
-        for id in &b.after {
-            if !pending.contains_key(id) {
-                return Err(format!("missing predecessor {id}"));
-            }
-        }
+    let rows: Vec<_> = bindings
+        .iter()
+        .map(|b| Declaration {
+            id: ids[b.id.as_str()],
+            empty: b.id.is_empty(),
+            selector: &b.selector,
+            modes: &b.modes,
+            after: b.after.iter().map(|p| ids[p.as_str()]).collect(),
+        })
+        .collect();
+    match judge_schedule::schedule(&rows, selector, mode) {
+        Ok(order) => Ok(order.into_iter().map(|i| bindings[i].clone()).collect()),
+        Err(Error::Id) => Err("duplicate/empty judge ID".into()),
+        Err(Error::Transport) => Err("unsupported judge transport selection/mode".into()),
+        Err(Error::DuplicatePredecessor) => Err("duplicate predecessor".into()),
+        Err(Error::Empty) => Err("no configured judges".into()),
+        Err(Error::Missing(i, j)) => Err(format!("missing predecessor {}", bindings[i].after[j])),
+        Err(Error::Cycle) => Err("judge dependency cycle".into()),
     }
-    let mut ordered = vec![];
-    let mut done = BTreeSet::new();
-    while !pending.is_empty() {
-        let id = pending
-            .iter()
-            .find(|(_, b)| b.after.iter().all(|id| done.contains(id)))
-            .map(|(id, _)| id.clone())
-            .ok_or("judge dependency cycle")?;
-        ordered.push(pending.remove(&id).ok_or("missing scheduled judge")?);
-        done.insert(id);
-    }
-    Ok(ordered)
 }
 /// The single original stdin construction rule. History never contains requests.
+#[cfg(not(verus_keep_ghost))]
 pub fn predecessor(record: &Value) -> Value {
     let mut value = record.clone();
     if let Some(object) = value.as_object_mut() {
@@ -63,6 +118,7 @@ pub fn predecessor(record: &Value) -> Value {
     }
     value
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn judge_request(
     template: &Request,
     binding: &Binding,
@@ -74,6 +130,7 @@ pub fn judge_request(
         .collect::<Result<Vec<_>, String>>()?;
     judge_request_from_observations(template, binding, &observations)
 }
+#[cfg(not(verus_keep_ghost))]
 fn predecessor_observation(record: &Value, template: &Request) -> Result<Value, String> {
     let mut record = predecessor(record);
     match template.observations.get("process_encoding") {
@@ -88,6 +145,7 @@ fn predecessor_observation(record: &Value, template: &Request) -> Result<Value, 
     }
     Ok(record)
 }
+#[cfg(not(verus_keep_ghost))]
 fn judge_request_from_observations(
     template: &Request,
     binding: &Binding,
@@ -97,6 +155,7 @@ fn judge_request_from_observations(
     req.seal()?;
     Ok(req)
 }
+#[cfg(not(verus_keep_ghost))]
 fn request_from_observations(
     template: &Request,
     binding: &Binding,
@@ -133,6 +192,7 @@ fn request_from_observations(
 }
 /// Lossless process encoding shared by Git evidence and scoped DAG records.
 /// Legacy inline records remain readable without rewriting their originals.
+#[cfg(not(verus_keep_ghost))]
 pub fn expand_process(value: &Value) -> Result<Value, String> {
     if value.get("encoding").is_none() {
         return Ok(value.clone());
@@ -205,6 +265,7 @@ pub fn expand_process(value: &Value) -> Result<Value, String> {
     value.as_object_mut().unwrap().remove("encoding");
     Ok(value)
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn expand_record(record: &Value) -> Result<Value, String> {
     let mut record = record.clone();
     if let Some(process) = record.get("process") {
@@ -215,6 +276,7 @@ pub fn expand_record(record: &Value) -> Result<Value, String> {
 /// Current compressed reports charge metadata plus their original judge streams.
 /// Historical inline/v1 reports retain their existing serialized-byte contract.
 /// This preflight never replaces subsequent original-byte/digest validation.
+#[cfg(not(verus_keep_ghost))]
 pub fn report_transport_bytes(report: &Value, metadata_bytes: u64) -> Result<u64, String> {
     let mut total = metadata_bytes;
     for row in report["judges"].as_array().ok_or("report judges")? {
@@ -235,6 +297,7 @@ pub fn report_transport_bytes(report: &Value, metadata_bytes: u64) -> Result<u64
     Ok(total)
 }
 /// Pure original DAG/process validation, shared by unit admission and collected proof consumption.
+#[cfg(not(verus_keep_ghost))]
 pub fn retained_judges(
     template: &Request,
     bindings: &[Binding],
@@ -330,6 +393,7 @@ pub fn retained_judges(
     }
     Ok(parsed)
 }
+#[cfg(not(verus_keep_ghost))]
 fn compact_record(record: &mut Value) -> Result<(), String> {
     if !record["process"].is_object() {
         return Ok(());
@@ -338,9 +402,11 @@ fn compact_record(record: &mut Value) -> Result<(), String> {
     Ok(())
 }
 /// Encode each original stream once; retain all process identity and failures.
+#[cfg(not(verus_keep_ghost))]
 pub fn compact_process(value: &Value) -> Result<Value, String> {
     encode_process(value, true)
 }
+#[cfg(not(verus_keep_ghost))]
 fn encode_process(original: &Value, compressed: bool) -> Result<Value, String> {
     if original.get("encoding").is_some() {
         expand_process(original)?;
@@ -387,6 +453,7 @@ fn encode_process(original: &Value, compressed: bool) -> Result<Value, String> {
     );
     Ok(value)
 }
+#[cfg(not(verus_keep_ghost))]
 fn hex_bytes(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut hex = String::with_capacity(bytes.len() * 2);
@@ -396,6 +463,7 @@ fn hex_bytes(bytes: &[u8]) -> String {
     }
     hex
 }
+#[cfg(not(verus_keep_ghost))]
 fn decode_hex(hex: &str) -> Result<Vec<u8>, String> {
     if hex.len() > 128 * 1024 * 1024 || hex.len() % 2 != 0 {
         return Err("artifact bound/encoding".into());
@@ -409,9 +477,11 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>, String> {
         .collect::<Result<Vec<_>, String>>()
 }
 /// Bounded addressed bytes. Original addresses remain intact during transport.
+#[cfg(not(verus_keep_ghost))]
 pub fn artifact(bytes: &[u8]) -> Value {
     value!({"sha256":sha256(bytes),"length":bytes.len(),"hex":hex_bytes(bytes)})
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn artifact_bytes(artifacts: &Value, address: &str) -> Result<Vec<u8>, String> {
     let a = artifacts
         .get(address)
@@ -423,6 +493,7 @@ pub fn artifact_bytes(artifacts: &Value, address: &str) -> Result<Vec<u8>, Strin
     }
     Ok(bytes)
 }
+#[cfg(not(verus_keep_ghost))]
 fn preparation_originals(binding: &Value) -> Result<Vec<crate::prepared::Original>, String> {
     if !binding.is_object() {
         return Ok(Vec::new());
@@ -437,6 +508,7 @@ fn preparation_originals(binding: &Value) -> Result<Vec<crate::prepared::Origina
     Ok(originals)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn retain_artifacts(
     req: &Request,
     judges: &[Value],
@@ -566,6 +638,7 @@ fn retain_artifacts(
     }
     Ok((Value::Object(out), Value::Object(unavailable)))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn execute(
     template: &Request,
     bindings: &[Binding],
@@ -630,6 +703,7 @@ pub fn execute(
 /// the explicit binding DAG, request identities, response/process agreement,
 /// blocked predecessors, and the aggregate status.  It does not discover
 /// dependencies or inspect host source files.
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_execution(
     template: &Request,
     bindings: &[Binding],
@@ -937,6 +1011,7 @@ pub fn validate_execution(
 /// Check receipt invariants independently of the process loop.  These checks
 /// deliberately derive facts from retained bytes rather than enumerating
 /// possible runtime error strings.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn validate_process_receipt(
     process: &crate::ProcessResult,
     label: &str,
@@ -957,6 +1032,7 @@ pub(crate) fn validate_process_receipt(
 /// retained process observation.  The process engine owns its failure text;
 /// protocol failures are checked by replaying the protocol predicate over the
 /// captured bytes, without maintaining a list of expected error messages.
+#[cfg(not(verus_keep_ghost))]
 fn validate_transport_failure(
     message: &str,
     process: &crate::ProcessResult,
@@ -982,6 +1058,7 @@ fn validate_transport_failure(
 /// Independent Kahn walk used only by the report audit.  Keeping this small
 /// copy separate from `schedule` prevents a future scheduling edit from also
 /// making the audit accept the same malformed order.
+#[cfg(not(verus_keep_ghost))]
 fn independent_schedule(bindings: &[Binding]) -> Result<Vec<Binding>, String> {
     let mut pending = BTreeMap::<String, Binding>::new();
     for binding in bindings {
@@ -1028,6 +1105,7 @@ fn independent_schedule(bindings: &[Binding]) -> Result<Vec<Binding>, String> {
 
 /// Build fixed full inputs without executing judges or business tools.
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(verus_keep_ghost))]
 pub fn prepare_request(
     root: &Path,
     config_path: &str,
@@ -1052,6 +1130,7 @@ pub fn prepare_request(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn prepare_request_with_snapshot(
     root: &Path,
     config_path: &str,
@@ -1278,6 +1357,7 @@ pub(crate) fn prepare_request_with_snapshot(
     Ok((req, bindings, reader, cfg.clone()))
 }
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(verus_keep_ghost))]
 pub fn check_prepared(
     root: &Path,
     config_path: &str,
