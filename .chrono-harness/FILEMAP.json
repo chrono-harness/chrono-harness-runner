@@ -2657,7 +2657,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/source_coverage.rs",
+            "operation": "verify.coverage-endpoints"
+          },
+          {
+            "path": "crates/runner-tests/tests/source_coverage.rs",
+            "operation": "verify.coverage-endpoints-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/units.rs",

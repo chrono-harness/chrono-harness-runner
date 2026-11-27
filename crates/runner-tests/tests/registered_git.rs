@@ -677,3 +677,131 @@ fn bounded_git_failure_and_fixed_candidate_config_are_observed() {
         }
     }
 }
+
+#[test]
+fn source_coverage_uses_bound_git_for_empty_fallback_and_batch_selection() {
+    use chrono_harness::verified_verifier::sources::continuity;
+
+    let h = BoundHost::new(false, "pass");
+    let root = h.host.root();
+    let row = |path: &str| {
+        json!({
+            "path": path,
+            "owner": "repository",
+            "surface": "documentation",
+            "cost": "unmeasured",
+            "edges": []
+        })
+    };
+    let files = json!({
+        "files": [
+            row("document.txt"),
+            row("historical-unregistered.txt"),
+            row(".gitignore")
+        ]
+    });
+    let projects = json!({"projects": []});
+    let paths = vec![
+        "document.txt".to_owned(),
+        "historical-unregistered.txt".to_owned(),
+        ".gitignore".to_owned(),
+    ];
+    let observe = |reader: &facts::Reader, selected: &Vec<String>| {
+        continuity::observe(
+            reader,
+            root,
+            Some((&h.host.base, &files, &projects, Vec::new())),
+            (&h.host.candidate, &files, &projects, Vec::new()),
+            selected,
+        )
+        .unwrap()
+    };
+    let process_count =
+        |reader: &facts::Reader| reader.observation()["processes"].as_array().unwrap().len();
+    let process_args = |receipt: &Value| {
+        let process = chrono_harness::full::expand_process(receipt).unwrap();
+        process["argv"].as_array().unwrap()[5..]
+            .iter()
+            .map(|arg| arg.as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    let empty = facts::Reader::for_config(root, CONFIG).unwrap();
+    let before = process_count(&empty);
+    assert!(!observe(&empty, &Vec::new()).preserved("document.txt"));
+    assert_eq!(
+        process_count(&empty),
+        before,
+        "empty selection read Git zero times"
+    );
+
+    let fallback = facts::Reader::for_config(root, CONFIG).unwrap();
+    let start = process_count(&fallback);
+    let evidence = observe(&fallback, &paths);
+    assert!(!evidence.preserved("document.txt"));
+    assert!(evidence.preserved("historical-unregistered.txt"));
+    assert!(evidence.preserved(".gitignore"));
+    let observation = fallback.observation();
+    let processes = observation["processes"].as_array().unwrap();
+    let added = &processes[start..];
+    let expected = vec![
+        format!("ls-tree -rz --full-tree {}", h.host.base),
+        format!("ls-tree -rz --full-tree {}", h.host.candidate),
+        format!("show {}:document.txt", h.host.base),
+        format!("show {}:document.txt", h.host.candidate),
+        format!("show {}:historical-unregistered.txt", h.host.base),
+        format!("show {}:historical-unregistered.txt", h.host.candidate),
+        format!("show {}:.gitignore", h.host.base),
+        format!("show {}:.gitignore", h.host.candidate),
+    ];
+    assert_eq!(added.iter().map(process_args).collect::<Vec<_>>(), expected);
+    for (receipt, bytes) in added[2..].iter().zip([
+        &b"candidate document"[..],
+        &b"new candidate using bound facts"[..],
+        &b"unrelated historical omission"[..],
+        &b"unrelated historical omission"[..],
+        &b".chrono-harness/bin/\n.chrono-harness/state/\nignored.txt\n"[..],
+        &b".chrono-harness/bin/\n.chrono-harness/state/\nignored.txt\n"[..],
+    ]) {
+        let process = chrono_harness::full::expand_process(receipt).unwrap();
+        let actual: Vec<u8> = serde_json::from_value(process["stdout_bytes"].clone()).unwrap();
+        assert_eq!(actual, bytes, "{:?}", process["argv"]);
+        assert_eq!(process["stdout_sha256"], json!(sha256(bytes)));
+    }
+
+    let batched = facts::Reader::for_config(root, CONFIG).unwrap();
+    batched.verify_oid(root, &h.host.base).unwrap();
+    batched.verify_oid(root, &h.host.candidate).unwrap();
+    let start = process_count(&batched);
+    let evidence = observe(&batched, &paths);
+    assert!(!evidence.preserved("document.txt"));
+    assert!(evidence.preserved("historical-unregistered.txt"));
+    assert!(evidence.preserved(".gitignore"));
+    let observation = batched.observation();
+    let processes = observation["processes"].as_array().unwrap();
+    let added = &processes[start..];
+    let batch = ["cat-file --batch-check", "cat-file --batch"];
+    let expected = vec![
+        format!("ls-tree -rz --full-tree {}", h.host.base),
+        format!("ls-tree -rz --full-tree {}", h.host.candidate),
+        batch[0].to_owned(),
+        batch[1].to_owned(),
+        batch[0].to_owned(),
+        batch[1].to_owned(),
+    ];
+    assert_eq!(added.iter().map(process_args).collect::<Vec<_>>(), expected);
+    for (receipt, oid) in [(&added[2], &h.host.base), (&added[4], &h.host.candidate)] {
+        let process = chrono_harness::full::expand_process(receipt).unwrap();
+        let input = paths
+            .iter()
+            .map(|path| format!("{oid}:{path}\n"))
+            .collect::<String>();
+        assert_eq!(process["stdin_sha256"], json!(sha256(input.as_bytes())));
+    }
+    for receipt in [&added[3], &added[5]] {
+        let process = chrono_harness::full::expand_process(receipt).unwrap();
+        let bytes: Vec<u8> = serde_json::from_value(process["stdout_bytes"].clone()).unwrap();
+        assert_eq!(process["stdout_sha256"], json!(sha256(&bytes)));
+    }
+}
