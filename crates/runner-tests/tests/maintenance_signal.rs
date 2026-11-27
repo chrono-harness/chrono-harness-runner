@@ -17,6 +17,25 @@ use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::vpanic as panic;
 verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn maintenance_notices_report_requested_and_failed_wakes() {
+    proof {
+        reveal_strlit("requested");
+        reveal_strlit("wake-failed");
+        reveal_strlit("not-adopted");
+        reveal_strlit("maintenance-internal-no-new-event");
+        assert("requested"@.len() == 9);
+        assert("wake-failed"@.len() == 11);
+        assert("not-adopted"@.len() == 11);
+        assert("maintenance-internal-no-new-event"@.len() == 33);
+        assert("wake-failed"@[0] != "not-adopted"@[0]);
+    }
+    if !signal::maintenance_notice_required("requested")
+        || !signal::maintenance_notice_required("wake-failed")
+        || signal::maintenance_notice_required("not-adopted")
+        || signal::maintenance_notice_required("maintenance-internal-no-new-event") { panic!(); }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn git_source_keeps_indexed_and_staged_deleted_paths_and_original_errors() {
     let no_paths = |_previous: bool| -> (out: (bool, Result<Vec<u8>, u8>))
         ensures out.0 && match out.1 { Ok(bytes) => bytes.len() == 0, Err(_) => false },
@@ -495,12 +514,13 @@ fn a_maintenance_custody_session_seals_its_report_while_other_sessions_still_wak
     )
     .unwrap();
 
-    let open = |args: &[&str]| {
+    let open = |args: &[&str], notice: Stdio| {
         Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
             .arg("retained-artifacts-v1")
             .args(args)
             .current_dir(host.path())
             .env_remove(signal::CONTEXT_ENV)
+            .stderr(notice)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -525,8 +545,10 @@ fn a_maintenance_custody_session_seals_its_report_while_other_sessions_still_wak
             name.as_bytes()
         );
     };
-    let mut round = open(&["--maintenance-round"]);
-    let mut business = open(&[]);
+    let mut round = open(&["--maintenance-round"], Stdio::inherit());
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let mut business = open(&[], Stdio::from(writer));
     publish(&mut round, "maintenance inventory");
     let mut bytes = [0; 64];
     assert_eq!(
