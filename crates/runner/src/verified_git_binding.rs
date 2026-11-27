@@ -16,6 +16,10 @@ pub mod paths;
 #[cfg(not(verus_keep_ghost))]
 use crate::verified_paths as paths;
 
+#[cfg(verus_keep_ghost)]
+#[path = "facts_configs.rs"]
+mod selector_admission;
+
 verus! {
 
 pub enum GitConfigSchema {
