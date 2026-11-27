@@ -50,6 +50,8 @@ fn chosen_parent_preserves_every_other_observed_original() {
 use chrono_harness::retained_artifacts::retention::{Inventory, POLICY_PATH};
 #[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(all(unix, not(verus_keep_ghost)))]
+use std::time::Duration;
 #[cfg(not(verus_keep_ghost))]
 use std::{fs, path::Path};
 #[cfg(not(verus_keep_ghost))]
@@ -559,15 +561,6 @@ fn leaf_entry_preserves_live_unknown_and_replaced_parent_originals() {
 #[cfg(all(unix, not(verus_keep_ghost)))]
 fn leaf_entry_retires_wide_parent(hops: usize, sealed: bool) {
     let h = host(2, 16);
-    let mut policy: Value =
-        serde_json::from_slice(&fs::read(h.path().join(POLICY_PATH)).unwrap()).unwrap();
-    policy["max_related_outputs"] = json!(512);
-    policy["max_millis_per_round"] = json!(25);
-    fs::write(
-        h.path().join(POLICY_PATH),
-        serde_json::to_vec(&policy).unwrap(),
-    )
-    .unwrap();
     let parent_path = tree(h.path(), "wide-parent");
     let parent = inventory(h.path())
         .begin("fixture", &parent_path, json!(null))
@@ -653,8 +646,66 @@ fn leaf_entry_retires_wide_parent(hops: usize, sealed: bool) {
     assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) }, 0);
     let mut rounds = Vec::new();
     let verification = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let parent_record = retention_state::object_path(h.path(), &parent_id);
+        let record =
+            || -> Value { serde_json::from_slice(&fs::read(&parent_record).unwrap()).unwrap() };
+        let assert_originals = || {
+            for (_, path) in &children {
+                assert_eq!(fs::read(h.path().join(path)).unwrap(), b"required original");
+            }
+            if hops == 2 {
+                assert!(h.path().join(&leaf_path).is_dir());
+            }
+            leaf_exclusion.stable().unwrap();
+            assert_eq!(
+                fs::read(address.join("address.json")).unwrap(),
+                address_before
+            );
+        };
+        let before = record();
+        let exhausted = inventory(h.path())
+            .maintain_originals_with_elapsed(std::slice::from_ref(&leaf), Duration::from_millis(25))
+            .unwrap();
+        rounds.push(exhausted);
+        let exhausted = rounds.last().unwrap();
+        assert_eq!(exhausted["accounting_errors"], json!([]), "{exhausted}");
+        assert_eq!(exhausted["nodes"], 0, "{exhausted}");
+        assert_eq!(exhausted["removed_logical_bytes"], 0, "{exhausted}");
+        assert_eq!(exhausted["disposed"], json!([]), "{exhausted}");
+        assert_eq!(exhausted["physical_bytes_reclaimed"], Value::Null);
+        assert_eq!(exhausted["scope"]["complete"], false, "{exhausted}");
+        assert_eq!(exhausted["remaining_outputs"], Value::Null, "{exhausted}");
+        let budget = &exhausted["protected"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| {
+                item["id"] == parent_id
+                    && item["reason"] == "retirement round budget exhausted; original not attempted"
+            })
+            .expect("parent deferred at the deadline")["budget"];
+        assert_eq!(budget["nodes_used"], 0);
+        assert_eq!(budget["node_limit"], 2);
+        assert_eq!(budget["time_limit_millis"], 25);
+        assert_eq!(budget["metadata_room"], true);
+        for field in [
+            "entered_micros",
+            "loaded_micros",
+            "prepared_micros",
+            "elapsed_micros",
+        ] {
+            assert_eq!(budget[field], 25_000, "{budget}");
+        }
+        assert_eq!(record(), before);
+        assert_eq!(
+            fs::read(h.path().join(&parent_path).join("failure")).unwrap(),
+            b"parent failure"
+        );
+        assert_originals();
+
+        let available = Duration::from_micros(24_999);
         let first = inventory(h.path())
-            .maintain_originals(&[leaf.clone()])
+            .maintain_originals_with_elapsed(std::slice::from_ref(&leaf), available)
             .unwrap();
         rounds.push(first);
         let first = rounds.last().unwrap();
@@ -666,20 +717,23 @@ fn leaf_entry_retires_wide_parent(hops: usize, sealed: bool) {
         assert_eq!(first["removed_logical_bytes"], 14, "{first}");
         assert_eq!(first["scope"]["complete"], false, "{first}");
         assert_eq!(first["remaining_outputs"], Value::Null, "{first}");
-        let record = || -> Value {
-            serde_json::from_slice(
-                &fs::read(retention_state::object_path(h.path(), &parent_id)).unwrap(),
-            )
-            .unwrap()
-        };
+        assert_eq!(first["physical_bytes_reclaimed"], Value::Null);
+        assert!(
+            first["protected"].as_array().unwrap().iter().any(|item| {
+                item["id"] == parent_id
+                    && item["reason"] == "bounded partial disposal; resumes on ordinary entry"
+            }),
+            "{first}"
+        );
         assert_eq!(record()["output"]["phase"], "disposing");
         assert_eq!(record()["output"]["references"], json!(child_ids));
-        for (_, path) in &children {
-            assert_eq!(fs::read(h.path().join(path)).unwrap(), b"required original");
-        }
+        assert!(h.path().join(&parent_path).is_dir());
+        assert!(!h.path().join(&parent_path).join("failure").exists());
+        assert_originals();
         // Each call reopens the owner. Continue through the leaf while the
         // parent still references it, then resume by the parent's exact ID.
-        for _ in 0..137 + 4 {
+        // Count the exhausted round within the original total round allowance.
+        for _ in 0..137 + 3 {
             let before = record();
             if before["output"].is_null() {
                 break;
@@ -703,7 +757,7 @@ fn leaf_entry_retires_wide_parent(hops: usize, sealed: bool) {
             let round = if late {
                 inventory(h.path()).maintain_late_original_at(&entry, u64::MAX)
             } else {
-                inventory(h.path()).maintain_originals(&[entry])
+                inventory(h.path()).maintain_originals_with_elapsed(&[entry], available)
             }
             .unwrap();
             if late {
@@ -721,9 +775,7 @@ fn leaf_entry_retires_wide_parent(hops: usize, sealed: bool) {
             );
             assert!(round["nodes"].as_u64().unwrap() <= 2, "{round}");
             rounds.push(round);
-            for (_, path) in &children {
-                assert_eq!(fs::read(h.path().join(path)).unwrap(), b"required original");
-            }
+            assert_originals();
         }
         assert!(record()["output"].is_null(), "{:?}", rounds.last());
         assert!(!h.path().join(&parent_path).exists());

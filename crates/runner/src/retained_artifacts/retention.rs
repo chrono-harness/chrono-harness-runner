@@ -456,6 +456,27 @@ struct Transaction {
     paths: Vec<String>,
 }
 #[cfg(not(verus_keep_ghost))]
+#[derive(Clone, Copy)]
+enum RoundClock {
+    Running(Instant),
+    #[cfg(feature = "retention-test")]
+    Fixed(Duration),
+}
+#[cfg(not(verus_keep_ghost))]
+impl RoundClock {
+    fn start() -> Self {
+        Self::Running(Instant::now())
+    }
+
+    fn elapsed(self) -> Duration {
+        match self {
+            Self::Running(began) => began.elapsed(),
+            #[cfg(feature = "retention-test")]
+            Self::Fixed(elapsed) => elapsed,
+        }
+    }
+}
+#[cfg(not(verus_keep_ghost))]
 pub struct Inventory {
     root: PathBuf,
     policy: Policy,
@@ -463,7 +484,7 @@ pub struct Inventory {
     policy_from_disk: bool,
     directory: PathBuf,
     round_metadata: Cell<Option<u64>>,
-    round_began: Cell<Option<Instant>>,
+    round_began: Cell<Option<RoundClock>>,
     round_node_limit: Cell<Option<usize>>,
     round_verified_left: Cell<Option<u64>>,
 }
@@ -2972,16 +2993,33 @@ impl Inventory {
     #[cfg(feature = "retention-test")]
     #[doc(hidden)]
     pub fn maintain_late_original_at(&self, id: &str, observed: u64) -> Result<Value, String> {
-        let originals = [id.to_owned()];
-        self.validate_originals(&originals)?;
+        self.maintain_originals_with_elapsed_at(
+            &[id.to_owned()],
+            observed,
+            Duration::from_millis(self.policy.max_millis_per_round),
+        )
+    }
+    /// Supply a fixed elapsed observation throughout the actual addressed round.
+    #[cfg(feature = "retention-test")]
+    #[doc(hidden)]
+    pub fn maintain_originals_with_elapsed(
+        &self,
+        originals: &[String],
+        elapsed: Duration,
+    ) -> Result<Value, String> {
+        self.maintain_originals_with_elapsed_at(originals, now()?, elapsed)
+    }
+    #[cfg(feature = "retention-test")]
+    fn maintain_originals_with_elapsed_at(
+        &self,
+        originals: &[String],
+        observed: u64,
+        elapsed: Duration,
+    ) -> Result<Value, String> {
+        self.validate_originals(originals)?;
         self.with_round_budget(|| {
-            let deadline = Duration::from_millis(self.policy.max_millis_per_round);
-            self.round_began.set(Some(
-                Instant::now()
-                    .checked_sub(deadline)
-                    .ok_or("test clock range")?,
-            ));
-            self.partition_round(observed, Some(&originals))
+            self.round_began.set(Some(RoundClock::Fixed(elapsed)));
+            self.partition_round(observed, Some(originals))
         })
     }
     fn maintain_round(&self, observed: u64, originals: Option<&[String]>) -> Result<Value, String> {
@@ -2994,7 +3032,7 @@ impl Inventory {
     ) -> Result<T, String> {
         self.round_metadata
             .set(Some(self.policy.max_metadata_bytes_per_round));
-        self.round_began.set(Some(Instant::now()));
+        self.round_began.set(Some(RoundClock::start()));
         self.round_node_limit
             .set(Some(self.policy.max_nodes_per_round));
         let result = action();
@@ -3012,7 +3050,7 @@ impl Inventory {
         l: &Ledger,
         id: &str,
         consumers: &BTreeMap<String, Vec<String>>,
-        began: Instant,
+        began: RoundClock,
     ) -> Result<Vec<Lease>, String> {
         let mut seen = BTreeSet::from([id.to_owned()]);
         let mut pending = consumers.get(id).cloned().unwrap_or_default();
@@ -3111,7 +3149,7 @@ impl Inventory {
         gate: &Gate,
         admitted: Option<&str>,
     ) -> Result<Value, String> {
-        let began = self.round_began.get().unwrap_or_else(Instant::now);
+        let began = self.round_began.get().unwrap_or_else(RoundClock::start);
         let entered_micros = began.elapsed().as_micros() as u64;
         let mut l = self.load(&gate)?;
         let loaded_micros = began.elapsed().as_micros() as u64;
