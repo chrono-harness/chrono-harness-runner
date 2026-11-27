@@ -1,6 +1,9 @@
 //! 实际 CI／协议状态的独立比较、退出码及 finding 边界预期。
 #![allow(unexpected_cfgs)]
 #[cfg(verus_keep_ghost)]
+#[path = "cli_contract.rs"]
+mod cli_contract;
+#[cfg(verus_keep_ghost)]
 #[path = "../../runner/src/verified_status.rs"]
 mod policy;
 #[cfg(not(verus_keep_ghost))]
