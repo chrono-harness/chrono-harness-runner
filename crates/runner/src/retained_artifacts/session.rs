@@ -1,5 +1,5 @@
 //! Retain adopted artifact capabilities for the lifetime of an external producer.
-mod descriptors;
+pub(crate) mod descriptors;
 mod directory;
 mod inventory;
 mod publication;

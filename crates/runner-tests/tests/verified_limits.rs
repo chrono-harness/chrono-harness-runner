@@ -132,4 +132,55 @@ fn direct_status_or_native_error_precedes_both_hints() {
     }
 }
 
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn process_capabilities_leave_standard_streams_to_the_child() {
+    expect_limit_true(!policy::ownership_source(-1));
+    expect_limit_true(!policy::ownership_source(2));
+    expect_limit_true(policy::ownership_source(3));
+    expect_limit_true(policy::ownership_source(255));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn reserved_bash_slot_retries_once_and_preserves_second_failure() {
+    let retained = policy::select_private_copy(254, 90u8, || -> (r: Result<u8, u8>)
+        ensures r == Err::<u8, u8>(77)
+    { Err(77) });
+    match retained { Ok(id) => expect_limit_true(id == 90), Err(_) => panic!() }
+    let replaced = policy::select_private_copy(255, 90u8, || -> (r: Result<u8, u8>)
+        ensures r == Ok::<u8, u8>(91)
+    { Ok(91) });
+    match replaced { Ok(id) => expect_limit_true(id == 91), Err(_) => panic!() }
+    let unavailable = policy::select_private_copy(255, 90u8, || -> (r: Result<u8, u8>)
+        ensures r == Err::<u8, u8>(77)
+    { Err(77) });
+    match unavailable { Err(id) => expect_limit_true(id == 77), Ok(_) => panic!() }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn empty_batch_skips_the_socket_and_full_batch_requires_one_marker_byte() {
+    use policy::BatchError;
+    expect_limit_true(policy::DESCRIPTOR_BATCH == 32);
+    let empty = policy::send_descriptor_batch(0, || -> (r: Result<usize, u8>)
+        ensures r == Err::<usize, u8>(63)
+    { Err(63) });
+    match empty { Ok(n) => expect_limit_true(n == 0), Err(_) => panic!() }
+    let full = policy::send_descriptor_batch(32, || -> (r: Result<usize, u8>)
+        ensures r == Ok::<usize, u8>(1)
+    { Ok(1) });
+    match full { Ok(n) => expect_limit_true(n == 32), Err(_) => panic!() }
+    let short = policy::send_descriptor_batch(1, || -> (r: Result<usize, u8>)
+        ensures r == Ok::<usize, u8>(0)
+    { Ok(0) });
+    match short { Err(BatchError::MarkerLength) => {}, _ => panic!() }
+    let extra = policy::send_descriptor_batch(31, || -> (r: Result<usize, u8>)
+        ensures r == Ok::<usize, u8>(2)
+    { Ok(2) });
+    match extra { Err(BatchError::MarkerLength) => {}, _ => panic!() }
+    let failed = policy::send_descriptor_batch(1, || -> (r: Result<usize, u8>)
+        ensures r == Err::<usize, u8>(47)
+    { Err(47) });
+    match failed { Err(BatchError::Send(e)) => expect_limit_true(e == 47), _ => panic!() }
+}
+
 }
