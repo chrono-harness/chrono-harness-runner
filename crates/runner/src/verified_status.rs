@@ -50,6 +50,14 @@ pub mod paths;
 #[cfg(not(verus_keep_ghost))]
 use crate::verified_paths as paths;
 
+#[cfg(verus_keep_ghost)]
+#[path = "full.rs"]
+#[rustfmt::skip]
+pub mod full;
+
+#[path = "judge_schedule.rs"]
+pub mod judge_schedule;
+
 #[path = "verified_scope.rs"]
 pub mod scopes;
 

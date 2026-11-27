@@ -9170,3 +9170,138 @@ fn finding_namespaces_choose_the_recorded_owner() {
 }
 
 }
+
+verus! {
+// Ranks are assigned by the byte ordering of all distinct binding and predecessor IDs.
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn judge_declarations_reject_the_first_error_before_checking_references() {
+    use policy::judge_schedule::{Declaration, Error, schedule};
+    let modes = vec!["evaluate".to_string()];
+    proof { reveal_strlit("inventory"); reveal_strlit("evaluate"); reveal_strlit("every-delta"); reveal_strlit("other"); }
+    let bad = vec!["inventory".to_string()];
+    let rows = vec![
+        Declaration { id: 0, empty: false, selector: "every-delta", modes: &modes, after: vec![8, 8] },
+        Declaration { id: 0, empty: true, selector: "bad", modes: &bad, after: vec![] },
+    ];
+    let result = schedule(&rows, "every-delta", "evaluate");
+    expect_status_true(matches!(result, Err(Error::DuplicatePredecessor)));
+    let missing = vec![
+        Declaration { id: 1, empty: false, selector: "every-delta", modes: &modes, after: vec![3, 2] },
+    ];
+    expect_status_true(matches!(schedule(&missing, "every-delta", "evaluate"), Err(Error::Missing(0, 0))));
+    proof {
+        assert("evaluate"@[0] != "inventory"@[0]);
+        assert("every-delta"@[0] != "other"@[0]);
+        assert(!policy::judge_schedule::admitted(missing@, 1, "every-delta", "inventory"));
+        assert(!policy::judge_schedule::admitted(missing@, 1, "other", "evaluate"));
+    }
+    expect_status_true(matches!(schedule(&missing, "every-delta", "inventory"), Err(Error::Transport)));
+    expect_status_true(matches!(schedule(&missing, "other", "evaluate"), Err(Error::Transport)));
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn judge_order_reconsiders_newly_ready_ids_after_every_step() {
+    use policy::judge_schedule::{Declaration, Error, schedule};
+    let modes = vec!["evaluate".to_string()];
+    let rows = vec![
+        Declaration { id: 2, empty: false, selector: "all", modes: &modes, after: vec![] },
+        Declaration { id: 0, empty: false, selector: "all", modes: &modes, after: vec![1] },
+        Declaration { id: 1, empty: false, selector: "all", modes: &modes, after: vec![] },
+    ];
+    match schedule(&rows, "all", "evaluate") {
+        Ok(order) => {
+            expect_status_true(order.len() == 3);
+            expect_status_true(order[0] == 2 && order[1] == 1 && order[2] == 0);
+        },
+        Err(_) => expect_status_true(false),
+    }
+    let blocked = vec![
+        Declaration { id: 1, empty: false, selector: "all", modes: &modes, after: vec![0] },
+        Declaration { id: 0, empty: false, selector: "all", modes: &modes, after: vec![1] },
+        Declaration { id: 2, empty: false, selector: "all", modes: &modes, after: vec![] },
+    ];
+    expect_status_true(matches!(schedule(&blocked, "all", "evaluate"), Err(Error::Cycle)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn ready_choice_uses_id_order_and_releases_dependents() {
+    use policy::judge_schedule::{Declaration, next_ready};
+    let modes = vec!["evaluate".to_string()];
+    let rows = vec![
+        Declaration { id: 2, empty: false, selector: "all", modes: &modes, after: vec![] },
+        Declaration { id: 0, empty: false, selector: "all", modes: &modes, after: vec![1] },
+        Declaration { id: 1, empty: false, selector: "all", modes: &modes, after: vec![] },
+    ];
+    let mut pending = std::collections::BTreeMap::new();
+    pending.insert(2usize, 0usize);
+    pending.insert(0usize, 1usize);
+    pending.insert(1usize, 2usize);
+    proof {
+        assert(policy::judge_schedule::ready(rows@, pending@, 1));
+        assert(rows@[1].after@[0] == 1);
+        assert(pending@.contains_key(rows@[pending@[0] as int].after@[0]));
+        assert(!policy::judge_schedule::ready(rows@, pending@, 0));
+    }
+    expect_status_true(matches!(next_ready(&rows, &pending), Some(1)));
+    pending.remove(&1usize);
+    assert(policy::judge_schedule::ready(rows@, pending@, 0));
+    expect_status_true(matches!(next_ready(&rows, &pending), Some(0)));
+    let cycle = vec![
+        Declaration { id: 0, empty: false, selector: "all", modes: &modes, after: vec![2] },
+        Declaration { id: 2, empty: false, selector: "all", modes: &modes, after: vec![0] },
+    ];
+    pending.insert(0usize, 0usize);
+    pending.insert(2usize, 1usize);
+    proof {
+        assert(pending@.contains_key(cycle@[pending@[0] as int].after@[0]));
+        assert(pending@.contains_key(cycle@[pending@[2] as int].after@[0]));
+        assert(!policy::judge_schedule::ready(cycle@, pending@, 0));
+        assert(!policy::judge_schedule::ready(cycle@, pending@, 2));
+    }
+    expect_status_true(next_ready(&cycle, &pending).is_none());
+}
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn judge_walk_emits_a_ready_binding_and_rejects_a_self_cycle() {
+    use policy::judge_schedule::{Declaration, Error, walk};
+    let modes: Vec<String> = Vec::new();
+    let rows = vec![Declaration { id: 5, empty: false, selector: "", modes: &modes, after: vec![] }];
+    let mut pending = std::collections::BTreeMap::new();
+    pending.insert(5usize, 0usize);
+    proof {
+        let initial = pending@;
+        assert(policy::judge_schedule::ready(rows@, initial, 5));
+        assert(!policy::judge_schedule::stalled(rows@, initial)) by {
+            assert forall|prefix: Seq<usize>, left: Map<usize, usize>|
+                policy::judge_schedule::walked(rows@, initial, prefix, left)
+                && prefix.len() + left.len() == initial.len() && left.len() > 0
+                implies policy::judge_schedule::ready(rows@, left, 5) by {
+                    assert(prefix.len() == 0);
+                    assert(left == initial);
+                }
+        }
+    }
+    match walk(&rows, pending) {
+        Ok(order) => { expect_status_true(order.len() == 1 && order[0] == 0); },
+        Err(_) => expect_status_true(false),
+    }
+    let blocked = vec![Declaration { id: 5, empty: false, selector: "", modes: &modes, after: vec![5] }];
+    let mut remaining = std::collections::BTreeMap::new();
+    remaining.insert(5usize, 0usize);
+    match walk(&blocked, remaining) {
+        Ok(order) => {
+            proof {
+                assert(order.len() == 1);
+                assert(order@[0] == 0);
+                assert(blocked@[0].after@[0] == 5);
+                assert(remaining@.contains_key(blocked@[0].after@[0]));
+                assert(!policy::judge_schedule::ready(blocked@, remaining@, 5));
+            }
+            expect_status_true(false);
+        },
+        Err(e) => expect_status_true(matches!(e, Error::Cycle)),
+    }
+}
+
+
+}
