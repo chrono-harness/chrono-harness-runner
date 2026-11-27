@@ -23,7 +23,15 @@
             "check.sh",
             "--cargo-verus-roots",
             "crates/runner/src/verified_cli.rs",
-            "crates/runner-tests/tests/verified_cli.rs"
+            "crates/runner-tests/tests/verified_cli.rs",
+            "crates/proofs/verifier/src/lib.rs",
+            "crates/runner-tests/tests/verified_verifier.rs",
+            "crates/runner/src/verified_status.rs",
+            "crates/runner-tests/tests/verified_status.rs",
+            "crates/runner/src/retained_artifacts/verified_release.rs",
+            "crates/runner-tests/tests/verified_release.rs",
+            "crates/runner/src/verified_git_binding.rs",
+            "crates/runner-tests/tests/verified_git_binding.rs"
           ],
           "output_contract": {
             "version": "0.2026.04.24.f8e1704",
