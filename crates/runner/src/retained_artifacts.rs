@@ -1,23 +1,51 @@
 //! Versioned external originals. Logical addresses and original report bytes never change.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+#[cfg(verus_keep_ghost)]
+use super::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+verus! {
+pub fn blob_matches(expected: &str, length: u64, observed: &str, measured: u64) -> (matches: bool)
+    ensures matches == (expected@ == observed@ && length == measured),
+{
+    length == measured && identifiers::equal_text(expected, observed)
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     copy_hashed, file_identity, no_symlink_parents,
     prepared::{ArtifactTransport, Original, original_path},
     units, wire,
 };
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
 };
 
+#[cfg(not(verus_keep_ghost))]
+#[path = "retained_artifacts/retention.rs"]
 pub mod retention;
+#[cfg(not(verus_keep_ghost))]
+#[path = "retained_artifacts/retention_command.rs"]
 pub mod retention_command;
 #[cfg(not(verus_keep_ghost))]
+#[path = "retained_artifacts/session.rs"]
 pub mod session;
 
+#[cfg(not(verus_keep_ghost))]
 pub const SCHEMA: &str = "chrono-retained-blob/v1";
+#[cfg(not(verus_keep_ghost))]
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Blob {
@@ -26,6 +54,7 @@ struct Blob {
     sha256: String,
     length: u64,
 }
+#[cfg(not(verus_keep_ghost))]
 fn descriptor(value: &Value) -> Result<Blob, String> {
     let b: Blob = serde_json::from_value(value.clone())
         .map_err(|e| format!("external artifact descriptor: {e}"))?;
@@ -35,6 +64,7 @@ fn descriptor(value: &Value) -> Result<Blob, String> {
     units::artifact_path(&b.storage)?;
     Ok(b)
 }
+#[cfg(not(verus_keep_ghost))]
 fn target(root: &Path, b: &Blob, transport: Option<&ArtifactTransport>) -> Result<PathBuf, String> {
     no_symlink_parents(
         root,
@@ -48,6 +78,7 @@ fn target(root: &Path, b: &Blob, transport: Option<&ArtifactTransport>) -> Resul
     )
 }
 /// Stream into the declared upload root, retaining content identity and deduplicating original bytes.
+#[cfg(not(verus_keep_ghost))]
 pub fn stage(root: &Path, input: &Path, directory: &str) -> Result<Value, String> {
     let _activity = retention::read_scope(root)?;
     units::artifact_path(directory)?;
@@ -117,6 +148,7 @@ pub fn stage(root: &Path, input: &Path, directory: &str) -> Result<Value, String
 }
 /// Resolve nested originals using the enclosing report's explicitly retained storage-address map.
 /// This is a projection for reading, not a rewrite of the original report.
+#[cfg(not(verus_keep_ghost))]
 pub fn resolve_map(artifacts: &Value, closure: Option<&Value>) -> Result<Value, String> {
     let mut out = artifacts
         .as_object()
@@ -132,7 +164,7 @@ pub fn resolve_map(artifacts: &Value, closure: Option<&Value>) -> Result<Value, 
                 .get(&b.storage)
                 .ok_or_else(|| format!("missing nested original artifact {}", b.storage))?;
             let replacement = descriptor(mapped)?;
-            if replacement.sha256 != b.sha256 || replacement.length != b.length {
+            if !blob_matches(&b.sha256, b.length, &replacement.sha256, replacement.length) {
                 return Err("nested original artifact identity differs".into());
             }
             *value = mapped.clone();
@@ -140,6 +172,7 @@ pub fn resolve_map(artifacts: &Value, closure: Option<&Value>) -> Result<Value, 
     }
     Ok(Value::Object(out))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn identity(
     root: &Path,
     artifacts: &Value,
@@ -162,12 +195,13 @@ pub fn identity(
         .ok_or("original path UTF8")?;
     let _use = retention::read_guard(root, relative)?;
     let observed = file_identity(&physical)?;
-    if observed != (b.sha256.clone(), b.length) {
+    if !blob_matches(&b.sha256, b.length, &observed.0, observed.1) {
         return Err(format!("original artifact digest/length: {address}"));
     }
     Ok(observed)
 }
 /// JSON/process originals remain bounded. Business blobs use identity(), never this allocation path.
+#[cfg(not(verus_keep_ghost))]
 pub fn bytes(
     root: &Path,
     artifacts: &Value,
@@ -209,6 +243,7 @@ pub fn bytes(
     Ok(raw)
 }
 /// Retain every external reference under a new upload root, keyed by its original storage address.
+#[cfg(not(verus_keep_ghost))]
 pub fn restage(
     root: &Path,
     artifacts: &Value,
@@ -239,6 +274,7 @@ pub fn restage(
     Ok(Value::Object(closure))
 }
 /// Stream an original descriptor to an explicit destination without decoding business bytes.
+#[cfg(not(verus_keep_ghost))]
 pub fn copy_to(
     root: &Path,
     artifacts: &Value,
@@ -262,13 +298,14 @@ pub fn copy_to(
         .ok_or("original path UTF8")?;
     let _use = retention::read_guard(root, relative)?;
     let observed = copy_hashed(fs::File::open(physical).map_err(|e| e.to_string())?, output)?;
-    if observed != (b.sha256, b.length) {
+    if !blob_matches(&b.sha256, b.length, &observed.0, observed.1) {
         return Err("original artifact digest/length".into());
     }
     Ok(observed)
 }
 
 /// Project a declared outer transport for reading, preserving every original logical key.
+#[cfg(not(verus_keep_ghost))]
 pub fn transport_map(
     artifacts: &Value,
     transport: Option<&ArtifactTransport>,

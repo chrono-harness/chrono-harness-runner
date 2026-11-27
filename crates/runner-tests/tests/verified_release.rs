@@ -27,6 +27,70 @@ mod retention_frontier;
 
 verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn local_collection_alone_requires_two_ordered_producers() {
+    let n = policy::receipt_count(true, true);
+    assert(n == 2);
+    let (local, ci) = (11u8, 22u8);
+    let a = policy::receipt_producer(true, 0, &local, Some(&ci));
+    let b = policy::receipt_producer(true, 1, &local, Some(&ci));
+    let c = policy::receipt_producer(false, 0, &local, Some(&ci));
+    expect_true(a == Some(&local) && b == Some(&ci) && c == Some(&ci));
+    expect_true(policy::receipt_producer(true, 1, &local, None).is_none());
+    expect_true(policy::receipt_producer(true, 0, &local, None).is_some());
+    let ordinary = policy::receipt_count(true, false);
+    let ci_all = policy::receipt_count(false, false);
+    let ci_collection = policy::receipt_count(false, true);
+    expect_true(ordinary == 1 && ci_all == 1 && ci_collection == 1);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn an_original_requires_the_complete_digest_and_declared_length() {
+    proof { reveal_strlit("Abc"); reveal_strlit("abc"); reveal_strlit("abc0");
+        assert("Abc"@[0] != "abc"@[0]);
+        assert("abc"@.len() != "abc0"@.len()); }
+    expect_true(policy::blob_matches("01", 0, "01", 0));
+    expect_true(policy::blob_matches("af", u64::MAX, "af", u64::MAX));
+    expect_true(!policy::blob_matches("01", 3, "01", 2));
+    expect_true(!policy::blob_matches("Abc", 2, "abc", 2));
+    expect_true(!policy::blob_matches("abc", 2, "abc0", 2));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn bounded_originals_require_the_digest_up_to_and_including_64_mib() {
+    let same = || -> (matches: bool) ensures matches { true };
+    let different = || -> (matches: bool) ensures !matches { false };
+    expect_true(policy::bounded_original(0, same));
+    expect_true(policy::bounded_original(67_108_864, same));
+    expect_true(!policy::bounded_original(67_108_864, different));
+    expect_true(!policy::bounded_original(67_108_865, same));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn operation_directories_accept_each_eligible_execution_once() {
+    use policy::DirectoryExecution::*;
+    let first = || -> (marked: bool) ensures marked { true };
+    let repeated = || -> (marked: bool) ensures !marked { false };
+
+    expect_true(matches!(policy::directory_execution(true, true, first), Run));
+    expect_true(matches!(policy::directory_execution(false, false, first), Run));
+    expect_true(matches!(policy::directory_execution(true, true, repeated), AlreadyAttempted));
+    expect_true(matches!(policy::directory_execution(false, false, repeated), AlreadyAttempted));
+    expect_true(matches!(policy::directory_execution(true, false, repeated), WrongMember));
+    expect_true(matches!(policy::directory_execution(false, true, first), WrongMember));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn absent_resumption_skips_sealing_and_present_resumption_keeps_its_error() {
+    let seal = |value: u8| -> (r: Result<(), u8>)
+        ensures r == if value == 1 { Ok::<(),u8>(()) } else { Err::<(),u8>(value) },
+    { if value == 1 { Ok(()) } else { Err(value) } };
+    let absent = policy::resume_sealed(None, seal);
+    let ok = policy::resume_sealed(Some(1), seal);
+    let failed = policy::resume_sealed(Some(7), seal);
+    expect_true(matches!(absent, Ok(false)) && matches!(ok, Ok(true)) && matches!(failed, Err(7)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn archived_tree_must_contain_the_report_and_own_all_its_inputs() {
     let tree = policy::archived_report_binding(true, true, true, false);
     let external = policy::archived_report_binding(true, true, false, true);

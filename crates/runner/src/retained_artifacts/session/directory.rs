@@ -1,12 +1,40 @@
 //! An external producer keeps this native publication open until its process and writes finish.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub enum DirectoryExecution { WrongMember, AlreadyAttempted, Run }
+
+/// Record the attempt only after checking that it belongs to this directory.
+pub fn directory_execution<F>(rooted: bool, member: bool, mark: F) -> (decision: DirectoryExecution)
+    where F: FnOnce() -> bool,
+    requires rooted == member ==> mark.requires(()),
+    ensures if rooted != member { decision == DirectoryExecution::WrongMember } else {
+        exists|first: bool| #[trigger] mark.ensures((), first) &&
+            decision == if first { DirectoryExecution::Run } else { DirectoryExecution::AlreadyAttempted }
+    },
+{
+    if rooted != member { DirectoryExecution::WrongMember }
+    else if mark() { DirectoryExecution::Run }
+    else { DirectoryExecution::AlreadyAttempted }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::retained_artifacts::retention::{self, Inventory, Publication};
+#[cfg(not(verus_keep_ghost))]
 use crate::{CommandSpec, ProcessEvidence, ProcessResult, no_symlink_parents, sha256};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) struct Directory {
     path: String,
     reference: String,
@@ -16,6 +44,7 @@ pub(super) struct Directory {
     compiler_output: Option<String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Directory {
     pub(super) fn begin(
         root: &Path,
@@ -125,11 +154,16 @@ impl Directory {
         digest: &str,
         member: Option<&str>,
     ) -> Result<ProcessResult, String> {
-        if member.is_some() != self.rooted {
-            return Err("a rooted publication runs one command per member".into());
-        }
-        if !self.executed.insert(member.map(str::to_owned)) {
-            return Err("retained operation has already been attempted".into());
+        match directory_execution(self.rooted, member.is_some(), || {
+            self.executed.insert(member.map(str::to_owned))
+        }) {
+            DirectoryExecution::WrongMember => {
+                return Err("a rooted publication runs one command per member".into());
+            }
+            DirectoryExecution::AlreadyAttempted => {
+                return Err("retained operation has already been attempted".into());
+            }
+            DirectoryExecution::Run => {}
         }
         let directory = match member {
             None => no_symlink_parents(root, &self.path)?,

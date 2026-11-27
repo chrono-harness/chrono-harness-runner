@@ -1,7 +1,23 @@
 //! Canonical consumers verify the original short acquisition observations.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub fn receipt_producer<'a, T>(local: bool, index: usize, first: &'a T, ci: Option<&'a T>)
+    -> (action: Option<&'a T>)
+    ensures action == if local && index == 0 { Some(first) } else { ci },
+{
+    if local && index == 0 { Some(first) } else { ci }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use super::*;
 
 /// Consumers compare acquisition identities with their actual fixed request and registry.
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_binding(
     root: &Path,
     cfg: &Value,
@@ -88,8 +104,8 @@ pub fn validate_binding(
         .iter()
         .map(|r| crate::json(&read_original(root, r, None)?))
         .collect::<Result<_, String>>()?;
-    let collecting = req.source == "local" && matches!(req.selection, Selection::Collect);
-    if receipts.len() != if collecting { 2 } else { 1 } {
+    let count = receipt_count(req.source == "local", req.selection == Selection::Collect);
+    if receipts.len() != count {
         return Err("short producer receipt count mismatch".into());
     }
     let mut first_request = req.clone();
@@ -97,7 +113,7 @@ pub fn validate_binding(
     if receipts[0]["request"] != serde_json::to_value(&first_request).map_err(|e| e.to_string())? {
         return Err("short endpoint producer request mismatch".into());
     }
-    if collecting
+    if count == 2
         && req
             .prepared
             .as_ref()
@@ -145,11 +161,13 @@ pub fn validate_binding(
         let process: ProcessResult =
             serde_json::from_value(r["process"].clone()).map_err(|e| e.to_string())?;
         let a: Action = serde_json::from_value(r["action"].clone()).map_err(|e| e.to_string())?;
-        let expected = if req.source == "local" && i == 0 {
-            &c.inputs.local
-        } else {
-            c.inputs.ci.as_ref().ok_or("missing CI binding")?
-        };
+        let expected = receipt_producer(
+            req.source == "local",
+            i,
+            &c.inputs.local,
+            c.inputs.ci.as_ref(),
+        )
+        .ok_or("missing CI binding")?;
         let result: PreparedCheck = decode(&process.stdout_bytes)?;
         validate_result(&request, &result)?;
         let tool: observation::Tool =
