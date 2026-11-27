@@ -4,7 +4,7 @@ use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
-pub extern crate chrono_identifiers as identifiers;
+pub use chrono_identifiers as identifiers;
 #[cfg(verus_keep_ghost)]
 use identifiers::encode_concat;
 use identifiers::{equal_bytes, equal_text};

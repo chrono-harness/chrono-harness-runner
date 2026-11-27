@@ -1,12 +1,30 @@
 //! Original tool observation and compiler output admission for installed route planners.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub fn successful_group(exit: i32, failed: bool, direct_dependency: bool, direct_artifact: bool)
+    -> (accepted: bool)
+    ensures accepted == (exit == 0 && !failed && !direct_dependency && !direct_artifact),
+{
+    exit == 0 && !failed && !direct_dependency && !direct_artifact
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{observation, verified_verifier as verifier};
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
     path::PathBuf,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Observe {
@@ -18,6 +36,7 @@ struct Observe {
     output_limit_bytes: usize,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, tag = "operation", rename_all = "kebab-case")]
 enum Compiler {
@@ -71,20 +90,135 @@ enum Compiler {
     },
 }
 
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn cargo_roots(args: &[String]) -> Option<&[String]> {
+    args.get(1)
+        .filter(|arg| arg.as_str() == "--cargo-verus-roots")
+        .map(|_| &args[2..])
+}
+
+#[cfg(not(verus_keep_ghost))]
+type Bindings = BTreeMap<String, BTreeMap<String, (String, usize)>>;
+
+#[cfg(not(verus_keep_ghost))]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CargoArchive {
+    receipt: serde_json::Value,
+    cargo_stdout_zlib_hex: serde_json::Value,
+    roots: Vec<ArchiveRoot>,
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveRoot {
+    path: String,
+    original: serde_json::Value,
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn validate_cargo(
+    stdout: &[u8],
+    roots: &[String],
+    contract: &verifier::OutputContract,
+    limit: usize,
+    candidate: Option<&Bindings>,
+    root: &std::path::Path,
+) -> Result<(), String> {
+    if roots.is_empty()
+        || stdout.len() > limit
+        || roots
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != roots.len()
+        || !roots
+            .iter()
+            .all(|r| verifier::sources::canonical_source_name(r))
+    {
+        return Err("invalid registered Cargo proof roots or output bound".into());
+    }
+    let archive: CargoArchive = serde_json::from_slice(stdout).map_err(|e| e.to_string())?;
+    if !archive
+        .roots
+        .iter()
+        .map(|row| row.path.as_str())
+        .eq(roots.iter().map(String::as_str))
+    {
+        return Err("Cargo proof roots differ from the registered method".into());
+    }
+    let size = archive.receipt["process"]["stdout"]["size"]
+        .as_u64()
+        .filter(|n| *n <= 8_388_608)
+        .ok_or("Cargo original exceeds the collector bound")? as usize;
+    let compressed = crate::full::artifact_bytes(
+        &serde_json::json!({"cargo": archive.cargo_stdout_zlib_hex}),
+        "cargo",
+    )?;
+    let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&compressed, size)
+        .map_err(|_| "invalid compressed Cargo original")?;
+    if raw.len() != size {
+        return Err("Cargo original length differs".into());
+    }
+    let mut selected = Vec::new();
+    let mut expected = BTreeMap::new();
+    for row in archive.roots {
+        let path = &row.path;
+        let report = row.original["report_sha256"]
+            .as_str()
+            .ok_or("missing original Verus result")?;
+        expected.insert(path.clone(), report.to_owned());
+        let sources = if let Some(all) = candidate {
+            serde_json::to_value(
+                all.get(path)
+                    .ok_or("Cargo root missing candidate source selection")?,
+            )
+            .map_err(|e| e.to_string())?
+        } else {
+            let source = row.original["target"]["source"]
+                .as_str()
+                .ok_or("missing original Cargo root")?;
+            let id = archive.receipt["files"]
+                .get(source)
+                .ok_or("missing compiled Cargo root identity")?;
+            serde_json::json!({path:id})
+        };
+        selected.push(serde_json::json!({"path":path,"original":row.original,"sources":sources}));
+    }
+    let input = serde_json::json!({"receipt":archive.receipt,"stdout":std::str::from_utf8(&raw).map_err(|e|e.to_string())?,"contract":contract,"roots":selected});
+    let result = crate::installed_query::host_tool(
+        root,
+        "chrono-host-bootstrap",
+        "validate-cargo-proof-originals",
+        &input,
+    )?;
+    let verified: BTreeMap<String, String> =
+        serde_json::from_slice(&result).map_err(|e| e.to_string())?;
+    if expected != verified {
+        return Err("Cargo collector reply differs from requested root reports".into());
+    }
+    Ok(())
+}
+
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct CompilerReportReader;
 
+#[cfg(not(verus_keep_ghost))]
 impl verifier::CompilerReportRead for CompilerReportReader {
     fn decode(&self, bytes: &[u8]) -> Option<verifier::CompilerReport> {
         serde_json::from_slice(bytes).ok()
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl verifier::CompilerRowRead for CompilerReportReader {
     fn decode(&self, text: &str) -> Option<verifier::CompilerReport> {
         verifier::CompilerReportRead::decode(self, text.as_bytes())
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<(), String> {
     match operation {
         "observed-tool-v1" => {
@@ -159,6 +293,13 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     limit,
                 } => {
                     let root = std::env::current_dir().map_err(|e| e.to_string())?;
+                    if cargo_roots(&argv).is_some() {
+                        return serde_json::to_writer(
+                            output,
+                            &serde_json::json!({"dependency":null,"artifact":null}),
+                        )
+                        .map_err(|e| e.to_string());
+                    }
                     let files = CompilerFiles(&root);
                     let contract = Some(contract);
                     let dependency = verifier::sources::observe_dependency(
@@ -191,6 +332,28 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     limit,
                     artifact,
                 } => {
+                    if let Some(roots) = cargo_roots(&argv) {
+                        if !successful_group(
+                            exit,
+                            process_failed,
+                            dependency.is_some(),
+                            artifact.is_some(),
+                        ) {
+                            return Err(
+                                "Cargo proof operation did not return a successful group".into()
+                            );
+                        }
+                        let root = std::env::current_dir().map_err(|e| e.to_string())?;
+                        validate_cargo(
+                            &stdout,
+                            roots,
+                            contract.as_ref().ok_or("missing Cargo proof contract")?,
+                            limit,
+                            None,
+                            &root,
+                        )?;
+                        return serde_json::to_writer(output, &()).map_err(|e| e.to_string());
+                    }
                     verifier::admit_original_output(
                         &contract,
                         &stdout,
@@ -210,7 +373,9 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct CompilerFiles<'a>(&'a std::path::Path);
+#[cfg(not(verus_keep_ghost))]
 impl verifier::sources::DependencyRead for CompilerFiles<'_> {
     fn read(&self, path: &[u8], limit: u64) -> Result<Vec<u8>, String> {
         std::str::from_utf8(path)
@@ -226,6 +391,7 @@ impl verifier::sources::DependencyRead for CompilerFiles<'_> {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl verifier::ArtifactRead for CompilerFiles<'_> {
     fn identity(&self, path: &[u8]) -> Result<(Vec<u8>, u64), String> {
         std::str::from_utf8(path)

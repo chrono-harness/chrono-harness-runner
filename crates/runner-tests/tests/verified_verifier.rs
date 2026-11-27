@@ -1,11 +1,11 @@
 //! 原进程与完整 Verus 输出的独立成功、失败和边界预期。
 #![allow(unexpected_cfgs)]
-#[cfg(verus_keep_ghost)]
-extern crate chrono_verifier as policy;
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::verified_identifiers as identifiers;
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::verified_verifier as policy;
+#[cfg(verus_keep_ghost)]
+use chrono_verifier as policy;
 #[cfg(verus_keep_ghost)]
 use policy::identifiers;
 use policy::sources::SourceRole;
@@ -25,6 +25,26 @@ mod continuity_expectations;
 mod source_pipeline_expectations;
 
 verus! {
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn cargo_root_selection_requires_the_registered_argument_and_root() {
+    let args = vec!["check.sh".to_string(), "--cargo-verus-roots".to_string(),
+        "production.rs".to_string(), "independent.rs".to_string()];
+    proof {
+        reveal_strlit("production.rs"); reveal_strlit("independent.rs");
+        reveal_strlit("missing.rs"); reveal_strlit("--cargo-verus-roots");
+        assert(args[2]@ == "production.rs"@);
+        assert(args[3]@ == "independent.rs"@);
+        assert forall|i: int| 2 <= i < args.len() implies #[trigger] args[i]@ != "missing.rs"@ by {
+            if i == 2 { assert(args[i]@.len() == 13); } else { assert(args[i]@.len() == 14); }
+        }
+    }
+    expect_verifier_true(policy::sources::has_cargo_root_argument(&args, "production.rs"));
+    expect_verifier_true(policy::sources::has_cargo_root_argument(&args, "independent.rs"));
+    expect_verifier_true(!policy::sources::has_cargo_root_argument(&args, "missing.rs"));
+    let direct = vec!["check.sh".to_string(), "production.rs".to_string()];
+    expect_verifier_true(!policy::sources::has_cargo_root_argument(&direct, "production.rs"));
+}
 
 // Both source checks supply route planning with the verdict for the same inventory.
 #[cfg_attr(not(verus_keep_ghost), test)]
@@ -1369,6 +1389,12 @@ fn changing_one_root_preserves_other_roots_scope_but_source_changes_require_both
     assert(policy::sources::root_planned(&files.entries[0].verification.unwrap().roots[0], methods@));
     let only_changed_root = policy::sources::validate_selected_roots(&files, &root, &methods, &Vec::new(), &policy::sources::continuity::Continuity::empty());
     expect_verifier_true(only_changed_root.is_ok());
+    proof {
+        reveal_strlit("proof"); reveal_strlit("other");
+        assert("proof"@.len() == "other"@.len());
+        assert("proof"@[0] != "other"@[0]);
+        assert(!policy::sources::root_planned(&files.entries[0].verification.unwrap().roots[1], methods@));
+    }
     let both_required = policy::sources::validate_selected_roots(&files, &source, &methods, &Vec::new(), &policy::sources::continuity::Continuity::empty());
     expect_verifier_true(both_required.is_err());
 }
@@ -1428,6 +1454,12 @@ fn selected_proof_rejects_duplicate_methods_wrong_roots_and_noncanonical_argumen
     other_root[8] = "Root".to_string();
     let wrong = vec![policy::ProofInvocation { operation: "proof", argv: &other_root,
         output_contract: &output, output_limit_bytes: 4096 }];
+    proof {
+        reveal_strlit("root"); reveal_strlit("Root");
+        assert("root"@[0] != "Root"@[0]);
+        assert(policy::verifier_arguments(other_root@));
+        assert(!policy::sources::root_planned(&files.entries[0].verification.unwrap().roots[0], wrong@));
+    }
     let mismatch = policy::sources::validate_selected_roots(&files, &affected, &wrong, &Vec::new(), &policy::sources::continuity::Continuity::empty());
     expect_verifier_true(mismatch.is_err());
     let invalid = Vec::new();
