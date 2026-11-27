@@ -31,8 +31,11 @@ pub(crate) extern crate chrono_identifiers as identifiers;
 use crate::verified_identifiers as identifiers;
 
 #[cfg(verus_keep_ghost)]
+#[path = "../judge_evidence.rs"]
+pub(crate) mod judge_evidence;
+#[cfg(verus_keep_ghost)]
 #[path = "../units.rs"]
-mod units;
+pub(crate) mod units;
 #[cfg(not(verus_keep_ghost))]
 pub use crate::units::publication_mode;
 #[cfg(verus_keep_ghost)]
