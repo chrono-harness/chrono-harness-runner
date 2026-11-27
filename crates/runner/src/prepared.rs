@@ -5,6 +5,14 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 verus! {
+/// A prepared result identifies exactly one initial or DELTA shape.
+pub fn prepared_scope(initial: bool, has_base: bool, standalone_profile: bool,
+    context: bool, scope: bool) -> (valid: bool)
+    ensures valid == (initial != has_base && !(initial && standalone_profile && (context || scope))),
+{
+    initial != has_base && !(initial && standalone_profile && (context || scope))
+}
+
 pub fn receipt_count(local: bool, collecting: bool) -> (required: usize)
     ensures required == if local && collecting { 2usize } else { 1usize },
 {
@@ -32,7 +40,9 @@ use std::{
 #[path = "prepared_binding.rs"]
 mod binding;
 #[cfg(not(verus_keep_ghost))]
-pub use binding::{receipt_producer, validate_binding};
+pub use binding::{
+    prepared_endpoints, receipt_producer, source_selector_matches, validate_binding,
+};
 #[cfg(not(verus_keep_ghost))]
 #[path = "prepared_artifacts.rs"]
 mod artifacts;
@@ -778,10 +788,13 @@ pub fn validate_result_identity(req: &InputRequest, p: &PreparedCheck) -> Result
         || p.request_sha256 != sha256(&serde_json::to_vec(req).map_err(|e| e.to_string())?)
         || p.source != req.source
         || p.profile != req.profile_for(p.initial)?
-        || p.initial == p.base.is_some()
-        || (p.initial
-            && req.initial_profile.is_some()
-            && (p.context.is_some() || p.scope.is_some()))
+        || !prepared_scope(
+            p.initial,
+            p.base.is_some(),
+            req.initial_profile.is_some(),
+            p.context.is_some(),
+            p.scope.is_some(),
+        )
         || !req.selection.matches(&p.scope)
         || !p.evidence.is_object()
         || p.evidence.as_object().is_none_or(|o| o.is_empty())

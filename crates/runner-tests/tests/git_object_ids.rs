@@ -16,6 +16,9 @@ mod git_facts_session;
 #[path = "../../proofs/identifiers/src/lib.rs"]
 mod identifiers;
 #[cfg(verus_keep_ghost)]
+#[path = "../../runner/src/initial.rs"]
+mod initial;
+#[cfg(verus_keep_ghost)]
 #[path = "protocol_v1.rs"]
 mod protocol;
 #[cfg(verus_keep_ghost)]
@@ -52,6 +55,20 @@ fn session_reads_exact_payload_and_checks_current_checkout() {
     proof { assert(same@[1] != changed@[1]); }
     require_observed(require_checkout_config(same.as_slice(), same.as_slice()).is_ok());
     require_observed(require_checkout_config(same.as_slice(), changed.as_slice()).is_err());
+}
+
+fn initial_inventory_keeps_original_profile_and_requires_first_commit() {
+    let bytes = [0u8, 128u8];
+    let changed = [0u8, 129u8];
+    proof { assert(bytes@[1] != changed@[1]); }
+    require_observed(initial::check_initial_profile(bytes.as_slice(), bytes.as_slice()).is_ok());
+    require_observed(initial::check_initial_profile(bytes.as_slice(), changed.as_slice()).is_err());
+    require_observed(initial::require_parentless(0).is_ok());
+    require_observed(initial::require_parentless(1).is_err());
+    require_observed(initial::require_parentless(2).is_err());
+    require_observed(identifiers::equal_text(initial::inventory_status(0), "complete"));
+    require_observed(identifiers::equal_text(initial::inventory_status(1), "failed"));
+    require_observed(identifiers::equal_text(initial::inventory_status(2), "error"));
 }
 
 fn empty_and_leading_zero_bytes_keep_the_full_lowercase_width() {

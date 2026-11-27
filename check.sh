@@ -23,6 +23,7 @@ if [[ ( $# == 1 && $1 == --native ) || ( $# -ge 2 && $1 == --cargo-verus-roots )
     exit 1
   fi
   mkdir -p target
+  installed=$(realpath "$installed")
   if [[ $(readlink "$bootstrap" || true) != "$installed" ]]; then
     ln -sfn "$installed" "$bootstrap"
   fi
