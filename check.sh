@@ -22,6 +22,25 @@ if [[ $# == 0 || ( $# -ge 2 && $1 == --cargo-verus-roots ) ]]; then
   exec "$bootstrap" native-scratch run /bin/bash .chrono-harness/native-check.sh "$@"
 fi
 
+# Scoped CI starts the route checker with a cleared environment. Put the selected
+# binaries together so its nested calls can use the same runner and collector.
+if [[ $# == 4 && $1 == --scoped ]]; then
+  runner=$2
+  base=$3
+  candidate=$4
+  mkdir -p target
+  tools=$(mktemp -d "$PWD/target/scoped-tools.XXXXXXXX")
+  trap 'rm -rf -- "$tools"' EXIT
+  for name in chrono-judge-ci chrono-judge-filemap chrono-judge-projects \
+    chrono-judge-registration chrono-judge-routes chrono-diagnostics chrono-host-bootstrap; do
+    ln -s "$(command -v "$name")" "$tools/$name"
+  done
+  ln -s "$runner" "$tools/chrono-harness"
+  PATH="$tools:$PATH" "$tools/chrono-harness" check --config .chrono-harness/check.json \
+    --base "$base" --candidate "$candidate"
+  exit $?
+fi
+
 if [[ $1 == --maintain && ( $# == 1 || ( $# == 3 && $2 == --keep-seconds ) ) ]]; then
   keep=${3:-86400}
   python3 -B .chrono-harness/native-check.py "$keep"
@@ -31,5 +50,5 @@ if [[ $1 == --maintain && ( $# == 1 || ( $# == 3 && $2 == --keep-seconds ) ) ]];
   exit 0
 fi
 
-echo "usage: ./check.sh [--cargo-verus-roots ROOT ... | --maintain [--keep-seconds N]]" >&2
+echo "usage: ./check.sh [--cargo-verus-roots ROOT ... | --scoped RUNNER BASE CANDIDATE | --maintain [--keep-seconds N]]" >&2
 exit 2

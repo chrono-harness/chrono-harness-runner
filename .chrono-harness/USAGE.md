@@ -16,4 +16,4 @@
 
 产品位于 [`crates/runner`](../crates/runner)。原生测试位于 [`crates/runner-tests`](../crates/runner-tests)。检查配置位于 [`.chrono-harness/check.json`](../.chrono-harness/check.json)，本仓 PR 会用已发布的 runner 检查候选。在仓库根目录运行 `mise exec -- ./check.sh` 执行本仓的检查。
 
-本仓 PR 使用已发布的 runner 核对候选。复验 PR 的两个固定提交时，在候选检出中设置 `VERUS` 和基线提交 `base_oid`，运行 `mise exec -- chrono-harness check --config .chrono-harness/check.json --base "$base_oid" --candidate "$(git rev-parse HEAD)"`。
+本仓 PR 使用已发布的 runner 核对候选。复验 PR 的两个固定提交时，在候选检出中设置 `VERUS` 和基线提交 `base_oid`，运行 `mise exec -- ./check.sh --scoped "$(mise which chrono-harness)" "$base_oid" "$(git rev-parse HEAD)"`。
