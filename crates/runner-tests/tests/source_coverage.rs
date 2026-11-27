@@ -35,6 +35,102 @@ fn v1_projection_edges_and_retained_identity(recorded: &String, matching: String
     let failure = wire_contract::check_request_identity(recorded, Err(error));
     match failure { Err(text) => assert(text@ == expected), Ok(()) => assert(false) }
 }
+
+fn empty_paths_skip_the_whole_read() {
+    let paths = Vec::<String>::new();
+    let never = || -> Result<u8, u8> requires false, { panic!() };
+    let empty = policy::source_endpoints::with_selected_paths(&paths, 41, never);
+    assert(empty == Ok::<u8, u8>(41));
+
+    let paths = vec!["src/lib.rs".to_string()];
+    let fail = || -> (result: Result<u8, u8>) ensures result == Err::<u8, u8>(73), { Err(73) };
+    let error = policy::source_endpoints::with_selected_paths(&paths, 41, fail);
+    assert(error == Err::<u8, u8>(73));
+}
+
+fn reads_keep_the_previous_and_candidate_observations() {
+    let read = |id: u8| -> (result: Result<u8, u8>)
+        requires id == 1 || id == 2,
+        ensures result == Ok::<u8, u8>(if id == 1 { 17 } else { 42 }),
+    { Ok(if id == 1 { 17 } else { 42 }) };
+    let both = policy::source_endpoints::read_endpoints(Some(1), 2, read);
+    assert(both == Ok::<(Option<u8>, u8), u8>((Some(17), 42)));
+
+    let only_candidate = |id: u8| -> (result: Result<u8, u8>)
+        requires id == 2,
+        ensures result == Ok::<u8, u8>(42),
+    { Ok(42) };
+    let initial = policy::source_endpoints::read_endpoints(None, 2, only_candidate);
+    assert(initial == Ok::<(Option<u8>, u8), u8>((None, 42)));
+}
+
+fn earlier_read_failure_skips_the_candidate_and_each_error_is_forwarded() {
+    let previous_fails = |id: u8| -> (result: Result<u8, u8>)
+        requires id == 1,
+        ensures result == Err::<u8, u8>(53),
+    { Err(53) };
+    let first = policy::source_endpoints::read_endpoints(Some(1), 2, previous_fails);
+    assert(first == Err::<(Option<u8>, u8), u8>(53));
+
+    let candidate_fails = |id: u8| -> (result: Result<u8, u8>)
+        requires id == 1 || id == 2,
+        ensures result == if id == 1 { Ok::<u8, u8>(17) } else { Err::<u8, u8>(67) },
+    { if id == 1 { Ok(17) } else { Err(67) } };
+    let second = policy::source_endpoints::read_endpoints(Some(1), 2, candidate_fails);
+    assert(second == Err::<(Option<u8>, u8), u8>(67));
+}
+
+fn ineligible_prefetch_skips_acquisition_and_short_circuits_reuse() {
+    proof {
+        broadcast use {vstd::string::axiom_str_literal_len, vstd::string::axiom_str_literal_get_char};
+        reveal_strlit("a"); reveal_strlit("b");
+        assert("a"@[0] != "b"@[0]);
+        assert("a"@ != "b"@);
+    }
+    let absent = policy::source_endpoints::prefetch_if_reusable(None, "b", never_reuse, never_prefetch);
+    assert(absent == Ok::<(), u8>(()));
+
+    let previous_miss = |oid: &str| -> (yes: bool)
+        requires oid@ == "a"@,
+        ensures !yes,
+    { false };
+    let previous = policy::source_endpoints::prefetch_if_reusable(
+        Some(("a", 17)), "b", previous_miss, never_prefetch,
+    );
+    assert(previous == Ok::<(), u8>(()));
+
+    let candidate_miss = |oid: &str| -> (yes: bool)
+        ensures yes == (oid@ == "a"@),
+    { oid.to_owned() == "a".to_owned() };
+    let candidate = policy::source_endpoints::prefetch_if_reusable(
+        Some(("a", 17)), "b", candidate_miss, never_prefetch,
+    );
+    assert(candidate == Ok::<(), u8>(()));
+}
+
+fn never_reuse(_oid: &str) -> bool
+    requires false,
+{
+    panic!()
+}
+
+fn never_prefetch(_base: u8) -> Result<(), u8>
+    requires false,
+{
+    panic!()
+}
+
+fn eligible_prefetch_uses_the_observed_previous_endpoint_and_preserves_the_error() {
+    let reuse = |_oid: &str| -> (yes: bool) ensures yes, { true };
+    let original_failure = |base: u8| -> (out: Result<(), u8>)
+        requires base == 17,
+        ensures out == Err::<(), u8>(89),
+    { Err(89) };
+    let result = policy::source_endpoints::prefetch_if_reusable(
+        Some(("a", 17)), "b", reuse, original_failure,
+    );
+    assert(result == Err::<(), u8>(89));
+}
 }
 
 verus! {

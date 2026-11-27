@@ -4,6 +4,10 @@ use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
+#[cfg(verus_keep_ghost)]
+#[path = "source_endpoints.rs"]
+pub(crate) mod source_endpoints;
+
 verus! {
 /// Only an authenticated request naming both outer endpoints can reach the Git reader.
 pub fn bind_request_endpoints<E, F: FnOnce() -> E>(
@@ -27,7 +31,7 @@ pub fn bind_request_endpoints<E, F: FnOnce() -> E>(
 
 #[cfg(not(verus_keep_ghost))]
 use crate::{
-    facts,
+    facts, source_endpoints,
     verified_verifier::{OutputContract, ProofInvocation, source_pipeline, sources},
     wire,
 };
@@ -149,30 +153,37 @@ fn validate(q: &Query, cwd: &Path, observation: &mut Value) -> Result<(), String
         q.candidate.view(),
         &paths,
         |state, previous, candidate, paths| {
-            let acquire = || {
-                if paths.is_empty() {
-                    return Ok(sources::continuity::Continuity::empty());
-                }
-                let (root, reader) = match &q.git {
-                    Git::Legacy => (cwd, facts::Reader::legacy()),
-                    Git::Observed {
-                        config,
-                        observations,
-                    } => (
-                        cwd,
-                        facts::Reader::from_observations(cwd, config, candidate.0, observations)?,
-                    ),
-                    Git::Request { request } => (
-                        request.candidate.root.as_path(),
-                        facts::Reader::for_request(request)?,
-                    ),
-                };
-                let result =
-                    sources::continuity::observe(&reader, root, previous, candidate, paths);
-                *observation = reader.observation();
-                result
-            };
-            (state, acquire())
+            let result = source_endpoints::with_selected_paths(
+                paths,
+                sources::continuity::Continuity::empty(),
+                || {
+                    let (root, reader) = match &q.git {
+                        Git::Legacy => (cwd, facts::Reader::legacy()),
+                        Git::Observed {
+                            config,
+                            observations,
+                        } => (
+                            cwd,
+                            facts::Reader::from_observations(
+                                cwd,
+                                config,
+                                candidate.0,
+                                observations,
+                            )?,
+                        ),
+                        Git::Request { request } => (
+                            request.candidate.root.as_path(),
+                            facts::Reader::for_request(request)?,
+                        ),
+                    };
+                    let result = source_endpoints::observe_selected(
+                        &reader, root, previous, candidate, paths,
+                    );
+                    *observation = reader.observation();
+                    result
+                },
+            );
+            (state, result)
         },
         |state, continuity| {
             let result = source_pipeline::validate_source_plan(
