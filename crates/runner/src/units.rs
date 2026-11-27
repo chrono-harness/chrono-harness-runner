@@ -9,7 +9,7 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 verus! {
-pub const PROFILE: &str = "chrono-ci-check/v3";
+pub const PROFILE: &'static str = "chrono-ci-check/v3";
 
 /// The outer option is field presence. The inner option is JSON string decoding.
 pub fn publication_mode(schema: &str, field: Option<Option<&str>>)
