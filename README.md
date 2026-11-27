@@ -61,6 +61,8 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 | `runner_cli`、`runner_cli_tests` | CLI 选择、参数解码、判官请求和输出；发布失败会保留产生它的写入或 flush 阶段 |
 | `runner_fixture_tests` | 原生测试的进程替身与输入预期，由测试框架使用 |
 
+登记 Cargo 整根的操作在 `check.sh --cargo-verus-roots ROOT ...` 中列出根，并声明 Verus 版本与提交。该操作在 stdout 返回同一次串行 Cargo 调用的压缩原输出、构建回执和各根的编译器 dep-info。runner 用 FILEMAP 和固定候选 Git 源码核对这些原件。直接运行 `./check.sh` 可查看各根的原生报告。
+
 每个整根的实际输入见 [Cargo 目标](crates/proofs/expectations/Cargo.toml) 和 [原生和证明检查](.chrono-harness/native-check.sh)。原生测试核对换用系统接口后可观察的业务结果，Verus 的结论依赖所登记的工具、编译器和外部模型。
 
 运行库与测试从 [原实现的固定提交](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/runner) 分出。旧宿主的登记表检查由新的采用宿主负责。工作树、CI 生成器及安装器各自负责其命令替身的断言。

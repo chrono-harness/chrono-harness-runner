@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 # Maintenance can run outside mise. Bind the installed executable before
 # the first new allocation so the same entry can still perform the final sweep.
 bootstrap=target/native-check-bootstrap
-if [[ $# == 0 ]]; then
+if [[ $# == 0 || ( $# -ge 2 && $1 == --cargo-verus-roots ) ]]; then
   installed=$(command -v chrono-host-bootstrap)
   if [[ $installed != /* ]]; then
     echo "expected the installed chrono-host-bootstrap on PATH" >&2
@@ -19,7 +19,7 @@ if [[ $# == 0 ]]; then
   if [[ $(readlink "$bootstrap" || true) != "$installed" ]]; then
     ln -sfn "$installed" "$bootstrap"
   fi
-  exec "$bootstrap" native-scratch run /bin/bash .chrono-harness/native-check.sh
+  exec "$bootstrap" native-scratch run /bin/bash .chrono-harness/native-check.sh "$@"
 fi
 
 if [[ $1 == --maintain && ( $# == 1 || ( $# == 3 && $2 == --keep-seconds ) ) ]]; then
@@ -31,5 +31,5 @@ if [[ $1 == --maintain && ( $# == 1 || ( $# == 3 && $2 == --keep-seconds ) ) ]];
   exit 0
 fi
 
-echo "usage: ./check.sh [--maintain [--keep-seconds N]]" >&2
+echo "usage: ./check.sh [--cargo-verus-roots ROOT ... | --maintain [--keep-seconds N]]" >&2
 exit 2

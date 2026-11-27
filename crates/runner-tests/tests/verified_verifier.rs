@@ -26,6 +26,26 @@ mod source_pipeline_expectations;
 
 verus! {
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn cargo_root_selection_requires_the_registered_argument_and_root() {
+    let args = vec!["check.sh".to_string(), "--cargo-verus-roots".to_string(),
+        "production.rs".to_string(), "independent.rs".to_string()];
+    proof {
+        reveal_strlit("production.rs"); reveal_strlit("independent.rs");
+        reveal_strlit("missing.rs"); reveal_strlit("--cargo-verus-roots");
+        assert(args[2]@ == "production.rs"@);
+        assert(args[3]@ == "independent.rs"@);
+        assert forall|i: int| 2 <= i < args.len() implies #[trigger] args[i]@ != "missing.rs"@ by {
+            if i == 2 { assert(args[i]@.len() == 13); } else { assert(args[i]@.len() == 14); }
+        }
+    }
+    expect_verifier_true(policy::sources::has_cargo_root_argument(&args, "production.rs"));
+    expect_verifier_true(policy::sources::has_cargo_root_argument(&args, "independent.rs"));
+    expect_verifier_true(!policy::sources::has_cargo_root_argument(&args, "missing.rs"));
+    let direct = vec!["check.sh".to_string(), "production.rs".to_string()];
+    expect_verifier_true(!policy::sources::has_cargo_root_argument(&direct, "production.rs"));
+}
+
 // Both source checks supply route planning with the verdict for the same inventory.
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn concrete_source_inventory_and_selection_verdicts() {

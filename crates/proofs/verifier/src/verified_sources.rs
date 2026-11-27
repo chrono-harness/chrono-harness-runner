@@ -1448,13 +1448,38 @@ fn affected_file_plan(
     false
 }
 
+/// A Cargo method names each independently replayed root in the registered invocation.
+pub open spec fn cargo_root_argument(args: Seq<String>, root: Seq<char>) -> bool {
+    args.len() >= 3 && args[1]@ == "--cargo-verus-roots"@
+        && exists|i: int| 2 <= i < args.len() && #[trigger] args[i]@ == root
+}
+
+pub fn has_cargo_root_argument(args: &Vec<String>, root: &str) -> (found: bool)
+    ensures found == cargo_root_argument(args@,root@),
+{
+    if args.len() < 3 || !super::equal_text(args[1].as_str(),"--cargo-verus-roots") { return false; }
+    let mut i = 2;
+    while i < args.len()
+        invariant 2 <= i <= args.len(), args.len() >= 3, args[1]@ == "--cargo-verus-roots"@,
+            forall|j: int| 2 <= j < i ==> #[trigger] args[j]@ != root@,
+        decreases args.len() - i,
+    {
+        if super::equal_text(args[i].as_str(),root) { return true; }
+        i += 1;
+    }
+    false
+}
+
+pub open spec fn proof_root_argument(args: Seq<String>, root: Seq<char>) -> bool {
+    (super::verifier_arguments(args) && args[8]@ == root) || cargo_root_argument(args,root)
+}
+
 /// 使用已选中计划中的真实方法；登记存在不能代替本次选择。
 pub open spec fn root_planned(root: &SourceProofRoot, methods: Seq<super::ProofInvocation>) -> bool {
     exists|i: int| super::unique_proof_invocation(methods, root.operation@, i)
         && methods[i].output_contract.is_some()
         && super::valid_contract(methods[i].output_contract)
-        && super::verifier_arguments(methods[i].argv@)
-        && methods[i].argv[8]@ == root.path@
+        && proof_root_argument(methods[i].argv@,root.path@)
 }
 
 fn planned_root(root: &SourceProofRoot, methods: &Vec<super::ProofInvocation>) -> (planned: bool)
@@ -1469,15 +1494,14 @@ fn planned_root(root: &SourceProofRoot, methods: &Vec<super::ProofInvocation>) -
             let witness = choose|i: int| super::unique_proof_invocation(methods@, root.operation@, i)
                 && methods[i].output_contract.is_some()
                 && super::valid_contract(methods[i].output_contract)
-                && super::verifier_arguments(methods[i].argv@)
-                && methods[i].argv[8]@ == root.path@;
+                && proof_root_argument(methods[i].argv@,root.path@);
             assert(witness == index as int);
         }
     }
     let method = &methods[index];
-    if method.output_contract.is_none() || super::validate_contract(method.output_contract).is_err()
-        || !super::canonical_verifier_arguments(method.argv) { return false; }
-    super::equal_text(method.argv[8].as_str(), root.path.as_str())
+    if method.output_contract.is_none() || super::validate_contract(method.output_contract).is_err() { return false; }
+    (super::canonical_verifier_arguments(method.argv) && super::equal_text(method.argv[8].as_str(), root.path.as_str()))
+        || has_cargo_root_argument(method.argv, root.path.as_str())
 }
 
 pub open spec fn file_plan_error(

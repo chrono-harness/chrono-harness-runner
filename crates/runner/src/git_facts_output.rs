@@ -56,6 +56,84 @@ impl Binding {
                 output_limit_bytes: m.output_limit_bytes,
             })
             .collect();
+        if state == "passed" {
+            let mut matching = self
+                .methods
+                .iter()
+                .filter(|method| method.operation == operation);
+            if let (Some(method), None) = (matching.next(), matching.next()) {
+                if let Some(roots) = crate::route_evidence::cargo_roots(&method.argv) {
+                    let receipt = original.as_ref().ok_or("missing Cargo proof operation")?;
+                    let contract = method
+                        .output_contract
+                        .as_ref()
+                        .ok_or("missing Cargo proof contract")?;
+                    if receipt.operation != operation
+                        || receipt.exit != 0
+                        || receipt.failed
+                        || receipt.argv.get(1..) != Some(method.argv.as_slice())
+                        || receipt.dependency.is_some()
+                        || receipt.artifact.is_some()
+                    {
+                        return Err("Cargo proof operation does not match its plan".into());
+                    }
+                    let files = &self.registry.as_ref().map_err(|e| e.clone())?.files.entries;
+                    let mut paths_by_root: BTreeMap<&String, std::collections::BTreeSet<String>> =
+                        roots
+                            .iter()
+                            .map(|root| (root, Default::default()))
+                            .collect();
+                    for file in files {
+                        if let Some(declaration) = &file.verification {
+                            for root in declaration
+                                .roots
+                                .iter()
+                                .filter(|root| root.operation == operation)
+                            {
+                                paths_by_root
+                                    .get_mut(&root.path)
+                                    .ok_or(
+                                        "FILEMAP Cargo proof root absent from the planned method",
+                                    )?
+                                    .insert(file.path.clone());
+                            }
+                        }
+                    }
+                    let mut declared = BTreeMap::new();
+                    for (root, mut paths) in paths_by_root {
+                        if paths.is_empty() {
+                            return Err("planned Cargo proof root absent from FILEMAP".into());
+                        }
+                        paths.insert(root.clone());
+                        let paths: Vec<_> = paths.into_iter().collect();
+                        if paths
+                            .iter()
+                            .any(|p| !matches!(input.mode(p).as_deref(), Some("100644" | "100755")))
+                        {
+                            return Err("Cargo proof source is not a fixed regular Git file".into());
+                        }
+                        let contents = input.blobs(&paths)?;
+                        if contents.len() != paths.len() {
+                            return Err("Cargo proof candidate Git inputs are incomplete".into());
+                        }
+                        let bindings = paths
+                            .into_iter()
+                            .zip(contents)
+                            .map(|(path, bytes)| (path, (crate::sha256(&bytes), bytes.len())))
+                            .collect();
+                        declared.insert(root.clone(), bindings);
+                    }
+                    return crate::route_evidence::validate_cargo(
+                        &receipt.stdout,
+                        roots,
+                        contract,
+                        method.output_limit_bytes,
+                        Some(&declared),
+                        input.root,
+                    );
+                }
+            }
+        }
         let process = original.as_ref().map(|r| verifier::ProofProcess {
             operation: &r.operation,
             argv: &r.argv,

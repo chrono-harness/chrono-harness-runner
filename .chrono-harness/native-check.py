@@ -1,4 +1,5 @@
-"""Finish the 32-hex runs allocated by the former runner-local producer."""
+"""Collect native-check Cargo originals and maintain previously allocated check directories."""
+import json
 import argparse
 from contextlib import contextmanager
 import fcntl
@@ -6,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sys
 import subprocess
 import time
 
@@ -73,7 +75,44 @@ def maintain(seconds):
                     print(f"removed {path}", flush=True)
 
 
+def pack_cargo_roots(records, requested):
+    """Keep a shared Cargo stdout original once, with each selected target's dep-info."""
+    import hashlib
+    import zlib
+    rows = {}
+    receipt_ref = None
+    receipt = None
+    for line in records.read_bytes().splitlines():
+        row = json.loads(line)
+        observed = row.pop("receipt")
+        if receipt_ref is None:
+            receipt_ref = observed
+            raw = Path(observed["path"]).read_bytes()
+            if len(raw) != observed["length"] or hashlib.sha256(raw).hexdigest() != observed["sha256"]:
+                raise ValueError("Cargo build receipt changed after collection")
+            receipt = json.loads(raw)
+        elif receipt_ref != observed:
+            raise ValueError("Cargo proof roots were collected from different builds")
+        cwd = Path(receipt["process"]["cwd"])
+        path = str(Path(row["target"]["source"]).resolve().relative_to(cwd))
+        if path in rows:
+            raise ValueError("duplicate collected Cargo source root")
+        rows[path] = row
+    if len(set(requested)) != len(requested) or set(requested) != set(rows) or receipt is None:
+        raise ValueError("Cargo proof root selection differs from its registration")
+    original = receipt["process"]["stdout"]
+    raw = (cwd / original["path"]).read_bytes()
+    if len(raw) != original["size"] or hashlib.sha256(raw).hexdigest() != original["sha256"]:
+        raise ValueError("Cargo compiler stdout changed after collection")
+    return {"receipt": receipt, "cargo_stdout_zlib_hex": zlib.compress(raw).hex(),
+            "roots": [{"path": path, "original": rows[path]} for path in requested]}
+
+
 if __name__ == "__main__":
+    if len(sys.argv) >= 4 and sys.argv[1] == "--pack-cargo-roots":
+        json.dump(pack_cargo_roots(Path(sys.argv[2]), sys.argv[3:]), sys.stdout, separators=(",", ":"))
+        sys.stdout.write("\n")
+        sys.exit(0)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("seconds", type=int)
     args = parser.parse_args()

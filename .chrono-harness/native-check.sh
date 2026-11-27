@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 scratch=${CHRONO_NATIVE_SCRATCH:?missing leased native check directory}
+# A registered output contract receives the original Cargo bundle on stdout.
+# The developer entry keeps its ordinary output when called without a contract.
+cargo_roots=()
+if [[ ${1:-} == --cargo-verus-roots ]]; then
+  shift
+  cargo_roots=("$@")
+  exec 3>&1
+  exec >&2
+fi
 export TMPDIR="$scratch"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 python3 -B .chrono-harness/test-native-check.py
@@ -51,6 +60,15 @@ collect() {
   local package=$1 manifest=$2
   shift 2
   printf '%s (%s)\n' "$package" "$1" >&2
+  local requested
+  for requested in "${cargo_roots[@]:+${cargo_roots[@]}}"; do
+    if [[ $requested == "$1" ]]; then
+      chrono-host-bootstrap collect-cargo-proof-original "$scratch" runner-proofs "$cargo_verus" "$workspace" \
+        "$package" 0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$manifest" "$@" >> "$scratch/cargo-roots.jsonl"
+      printf '\n' >> "$scratch/cargo-roots.jsonl"
+      return
+    fi
+  done
   chrono-host-bootstrap collect-cargo-proof "$scratch" runner-proofs "$cargo_verus" "$workspace" \
     "$package" 0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$manifest" "$@"
 }
@@ -95,3 +113,8 @@ collect_root "$tests/verified_release.rs" "${release[@]}" "$tests/support/retent
 collect_root "$tests/verified_git_binding.rs" "${git_binding[@]}"
 collect_root "$tests/verified_cli.rs" "$cli"
 collect_root "$tests/verified_identifiers.rs"
+
+
+if [[ ${#cargo_roots[@]} -gt 0 ]]; then
+  python3 -B .chrono-harness/native-check.py --pack-cargo-roots "$scratch/cargo-roots.jsonl" "${cargo_roots[@]}" >&3
+fi

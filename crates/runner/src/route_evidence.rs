@@ -71,6 +71,109 @@ enum Compiler {
     },
 }
 
+pub(crate) fn cargo_roots(args: &[String]) -> Option<&[String]> {
+    args.get(1)
+        .filter(|arg| arg.as_str() == "--cargo-verus-roots")
+        .map(|_| &args[2..])
+}
+
+type Bindings = BTreeMap<String, BTreeMap<String, (String, usize)>>;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CargoArchive {
+    receipt: serde_json::Value,
+    cargo_stdout_zlib_hex: String,
+    roots: Vec<ArchiveRoot>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveRoot {
+    path: String,
+    original: serde_json::Value,
+}
+
+pub(crate) fn validate_cargo(
+    stdout: &[u8],
+    roots: &[String],
+    contract: &verifier::OutputContract,
+    limit: usize,
+    candidate: Option<&Bindings>,
+    root: &std::path::Path,
+) -> Result<(), String> {
+    if roots.is_empty()
+        || stdout.len() > limit
+        || roots
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != roots.len()
+        || !roots
+            .iter()
+            .all(|r| verifier::sources::canonical_source_name(r))
+    {
+        return Err("invalid registered Cargo proof roots or output bound".into());
+    }
+    let archive: CargoArchive = serde_json::from_slice(stdout).map_err(|e| e.to_string())?;
+    if !archive
+        .roots
+        .iter()
+        .map(|row| row.path.as_str())
+        .eq(roots.iter().map(String::as_str))
+    {
+        return Err("Cargo proof roots differ from the registered method".into());
+    }
+    let size = archive.receipt["process"]["stdout"]["size"]
+        .as_u64()
+        .filter(|n| *n <= 8_388_608)
+        .ok_or("Cargo original exceeds the collector bound")? as usize;
+    let compressed = crate::full::decode_hex(&archive.cargo_stdout_zlib_hex)?;
+    let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&compressed, size)
+        .map_err(|_| "invalid compressed Cargo original")?;
+    if raw.len() != size {
+        return Err("Cargo original length differs".into());
+    }
+    let mut selected = Vec::new();
+    let mut expected = BTreeMap::new();
+    for row in archive.roots {
+        let path = &row.path;
+        let report = row.original["report_sha256"]
+            .as_str()
+            .ok_or("missing original Verus result")?;
+        expected.insert(path.clone(), report.to_owned());
+        let sources = if let Some(all) = candidate {
+            serde_json::to_value(
+                all.get(path)
+                    .ok_or("Cargo root missing candidate source selection")?,
+            )
+            .map_err(|e| e.to_string())?
+        } else {
+            let source = row.original["target"]["source"]
+                .as_str()
+                .ok_or("missing original Cargo root")?;
+            let id = archive.receipt["files"]
+                .get(source)
+                .ok_or("missing compiled Cargo root identity")?;
+            serde_json::json!({path:id})
+        };
+        selected.push(serde_json::json!({"path":path,"original":row.original,"sources":sources}));
+    }
+    let input = serde_json::json!({"receipt":archive.receipt,"stdout":std::str::from_utf8(&raw).map_err(|e|e.to_string())?,"contract":contract,"roots":selected});
+    let result = crate::installed_query::inherited(
+        root,
+        "chrono-host-bootstrap",
+        "validate-cargo-proof-originals",
+        &input,
+    )?;
+    let verified: BTreeMap<String, String> =
+        serde_json::from_slice(&result).map_err(|e| e.to_string())?;
+    if expected != verified {
+        return Err("Cargo collector reply differs from requested root reports".into());
+    }
+    Ok(())
+}
+
 pub(crate) struct CompilerReportReader;
 
 impl verifier::CompilerReportRead for CompilerReportReader {
@@ -159,6 +262,13 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     limit,
                 } => {
                     let root = std::env::current_dir().map_err(|e| e.to_string())?;
+                    if cargo_roots(&argv).is_some() {
+                        return serde_json::to_writer(
+                            output,
+                            &serde_json::json!({"dependency":null,"artifact":null}),
+                        )
+                        .map_err(|e| e.to_string());
+                    }
                     let files = CompilerFiles(&root);
                     let contract = Some(contract);
                     let dependency = verifier::sources::observe_dependency(
@@ -191,6 +301,24 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     limit,
                     artifact,
                 } => {
+                    if let Some(roots) = cargo_roots(&argv) {
+                        if exit != 0 || process_failed || dependency.is_some() || artifact.is_some()
+                        {
+                            return Err(
+                                "Cargo proof operation did not return a successful group".into()
+                            );
+                        }
+                        let root = std::env::current_dir().map_err(|e| e.to_string())?;
+                        validate_cargo(
+                            &stdout,
+                            roots,
+                            contract.as_ref().ok_or("missing Cargo proof contract")?,
+                            limit,
+                            None,
+                            &root,
+                        )?;
+                        return serde_json::to_writer(output, &()).map_err(|e| e.to_string());
+                    }
                     verifier::admit_original_output(
                         &contract,
                         &stdout,

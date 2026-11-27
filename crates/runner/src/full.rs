@@ -396,7 +396,7 @@ fn hex_bytes(bytes: &[u8]) -> String {
     }
     hex
 }
-fn decode_hex(hex: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn decode_hex(hex: &str) -> Result<Vec<u8>, String> {
     if hex.len() > 128 * 1024 * 1024 || hex.len() % 2 != 0 {
         return Err("artifact bound/encoding".into());
     }
