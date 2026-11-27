@@ -58,7 +58,7 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 | `runner_limits`、`runner_limits_tests` | 执行计划的正超时、输出量下界和上界，命令请求头和输入边界、实际采集截止以及直接子进程状态取得后是否进入阻塞等待，以及工作树能力描述符复制、移除会话打开和分批发送的结果 |
 | `retention_release`、`retention_release_tests` | 保管对象的选择、取得及释放，外部文件系统的观察与操作由适配层执行 |
 | `runner_git_binding`、`runner_git_binding_tests` | Git 工具及登记绑定，拒绝无效版本、选择器或输入边 |
-| `runner_cli`、`runner_cli_tests` | CLI 选择、参数解码、判官请求和输出；发布失败会保留产生它的写入或 flush 阶段 |
+| `runner_cli`、`runner_cli_tests` | CLI 选择、参数解码、判官请求和输出；发布失败会保留产生它的写入或 flush 阶段。诊断回执按代码、原生错误码及消息匹配队头，Rust 调用方优先取得实际写入错误 |
 | `runner_fixture_tests` | 原生测试的进程替身与输入预期，由测试框架使用 |
 
 登记 Cargo 整根的操作在 `check.sh --cargo-verus-roots ROOT ...` 中列出根，并声明 Verus 版本与提交。该操作在 stdout 返回同一次串行 Cargo 调用的压缩原输出、构建回执和各根的编译器 dep-info。runner 用 FILEMAP 和固定候选 Git 源码核对这些原件。直接运行 `./check.sh` 可查看各根的原生报告。

@@ -1,19 +1,44 @@
 //! Process evidence retains native errors in the process that observed them and exports chrono-error/v1.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Rust callers receive the local writer object, or the source retained in the wire record.
+pub fn received_source<T, F>(writer: Option<T>, wire: F) -> (source: Option<T>)
+    where F: FnOnce() -> Option<T>,
+    requires writer.is_none() ==> wire.requires(()),
+    ensures match writer {
+        Some(error) => source == Some(error),
+        None => wire.ensures((), source),
+    },
+{
+    match writer { Some(error) => Some(error), None => wire() }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{collections::BTreeMap, error::Error, fmt, io};
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ErrorSchema {
     #[serde(rename = "chrono-error/v1")]
     V1,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ErrorRecord {
     pub schema: ErrorSchema,
     pub error: ErrorNode,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ErrorNode {
@@ -30,12 +55,14 @@ pub struct ErrorNode {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<RelatedError>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelatedError {
     pub role: String,
     pub error: ErrorNode,
 }
+#[cfg(not(verus_keep_ghost))]
 impl ErrorNode {
     fn new(kind: &str, code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
@@ -51,12 +78,15 @@ impl ErrorNode {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub trait RecordedError: Error + Send + Sync + 'static {
     fn error_node(&self) -> ErrorNode;
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Debug)]
 pub struct NativeIoError(io::Error);
+#[cfg(not(verus_keep_ghost))]
 impl NativeIoError {
     pub(crate) fn into_inner(self) -> io::Error {
         self.0
@@ -66,16 +96,19 @@ impl NativeIoError {
         Self(error)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl fmt::Display for NativeIoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Error for NativeIoError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.0)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl RecordedError for NativeIoError {
     fn error_node(&self) -> ErrorNode {
         let kind = format!("{:?}", self.0.kind());
@@ -102,6 +135,7 @@ impl RecordedError for NativeIoError {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 /// Record the same native error object used by Rust callers, together with ordered secondary failures.
 #[derive(Debug)]
 pub struct Failure {
@@ -109,6 +143,7 @@ pub struct Failure {
     source: Option<Box<dyn RecordedError>>,
     related: Vec<(String, Box<dyn RecordedError>)>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Failure {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
@@ -146,16 +181,19 @@ impl Failure {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.node.message)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Error for Failure {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         self.source.as_deref().map(|e| e as &dyn Error)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl RecordedError for Failure {
     fn error_node(&self) -> ErrorNode {
         let mut node = self.node.clone();
@@ -171,22 +209,26 @@ impl RecordedError for Failure {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl fmt::Display for ErrorNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.message)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Error for ErrorNode {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         self.source.as_deref().map(|node| node as &dyn Error)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 /// A received record retains its wire tree and the native writer error if the caller observed it.
 #[derive(Debug)]
 pub struct ReceivedError {
     node: ErrorNode,
     writer: Option<io::Error>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl ReceivedError {
     pub(crate) fn with_native(record: ErrorRecord, writer: io::Error) -> Self {
         Self {
@@ -195,29 +237,34 @@ impl ReceivedError {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl From<ErrorRecord> for ReceivedError {
     fn from(record: ErrorRecord) -> Self {
         Self::from(record.error)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl From<ErrorNode> for ReceivedError {
     fn from(node: ErrorNode) -> Self {
         Self { node, writer: None }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl fmt::Display for ReceivedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt(f)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Error for ReceivedError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match &self.writer {
-            Some(error) => Some(error),
-            None => self.node.source(),
-        }
+        received_source(
+            self.writer.as_ref().map(|error| error as &dyn Error),
+            || self.node.source(),
+        )
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl RecordedError for ReceivedError {
     fn error_node(&self) -> ErrorNode {
         self.node.clone()

@@ -9,6 +9,22 @@ pub extern crate chrono_identifiers as identifiers;
 #[cfg(not(verus_keep_ghost))]
 use crate::verified_identifiers as identifiers;
 
+#[cfg(verus_keep_ghost)]
+#[path = "diagnostic_session.rs"]
+mod diagnostic_session;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::diagnostic_session::{take_matching_front, writer_record_matches};
+#[cfg(verus_keep_ghost)]
+pub use diagnostic_session::{take_matching_front, writer_record_matches};
+
+#[cfg(verus_keep_ghost)]
+#[path = "process_error.rs"]
+mod process_error;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::process_error::received_source;
+#[cfg(verus_keep_ghost)]
+pub use process_error::received_source;
+
 verus! {
 
 /// Return the original failed operation and its stream phase.
