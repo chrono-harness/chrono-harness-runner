@@ -20,13 +20,13 @@ fn deployed_cargo_adapters() -> [&'static str; 4] {
 
 fn matches_cargo_adapter(index: usize, digest: &String) -> (accepted: bool)
     ensures accepted == ((index == 0 && digest@ == "f00105287cdc42d4da739dedc424954b3dac2cc6f838b801b201847fab25661b"@)
-        || (index == 1 && digest@ == "6dcbd143db6647755146c19dad080e58844af60d602ea384f09b320be41f98fb"@)
+        || (index == 1 && digest@ == "a8088a9745e2ba09311d2669ea9f06ed7e5d8e2950d6034a9e31971b4339547c"@)
         || (index == 2 && digest@ == "075672a2bde655099d99f1744c25677b636fb234804c6dc9c788727344c4b45c"@)
         || (index == 3 && digest@ == "8f271f1cbab6a29242fb7dd42fd5777df6aead4b53a0df3d7a25a7bc11fab9db"@)),
 {
     match index {
         0 => *digest == "f00105287cdc42d4da739dedc424954b3dac2cc6f838b801b201847fab25661b".to_string(),
-        1 => *digest == "6dcbd143db6647755146c19dad080e58844af60d602ea384f09b320be41f98fb".to_string(),
+        1 => *digest == "a8088a9745e2ba09311d2669ea9f06ed7e5d8e2950d6034a9e31971b4339547c".to_string(),
         2 => *digest == "075672a2bde655099d99f1744c25677b636fb234804c6dc9c788727344c4b45c".to_string(),
         3 => *digest == "8f271f1cbab6a29242fb7dd42fd5777df6aead4b53a0df3d7a25a7bc11fab9db".to_string(),
         _ => false,
