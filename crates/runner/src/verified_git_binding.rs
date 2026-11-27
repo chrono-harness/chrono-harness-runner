@@ -17,8 +17,15 @@ pub mod paths;
 use crate::verified_paths as paths;
 
 #[cfg(verus_keep_ghost)]
+#[path = "invocation_query.rs"]
+mod invocation_query;
+#[cfg(verus_keep_ghost)]
 #[path = "facts_configs.rs"]
 mod selector_admission;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::invocation_query::validate_local_preparation;
+#[cfg(verus_keep_ghost)]
+pub use invocation_query::validate_local_preparation;
 
 verus! {
 

@@ -14,11 +14,45 @@ use vstd::string::StringSliceAdditionalSpecFns;
 #[cfg(verus_keep_ghost)]
 use vstd::vpanic as panic;
 
+#[cfg(not(verus_keep_ghost))]
+use chrono_harness::verified_identifiers::equal_text as text_matches;
+#[cfg(verus_keep_ghost)]
+use policy::identifiers::equal_text as text_matches;
+
 verus! {
 
 fn expect_true(value: bool)
     requires value,
 { if !value { panic!(); } }
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn local_preparation_checks_the_origin_before_reading_registered_files() {
+    proof {
+        reveal_strlit("local"); reveal_strlit("ci"); reveal_strlit("Local");
+        assert("local"@[0] != "ci"@[0]);
+        assert("local"@[0] != "Local"@[0]);
+    }
+    let unread = || -> (out: Result<(),String>) requires false { panic!() };
+    let ok = || -> (out: Result<(),String>) ensures out == Ok::<(),String>(()) { Ok(()) };
+    let fail = || -> (out: Result<(),String>)
+        ensures out is Err && out->Err_0@ == "read failed"@
+    { Err("read failed".to_owned()) };
+    expect_true(policy::validate_local_preparation("local", false, false, ok).is_ok());
+    match policy::validate_local_preparation("local", false, false, fail) {
+        Err(error) => {
+            expect_true(text_matches(error.as_str(), "read failed"));
+        },
+        Ok(_) => panic!(),
+    }
+    expect_true(policy::validate_local_preparation("ci", false, false, unread).is_err());
+    expect_true(policy::validate_local_preparation("ci", true, false, unread).is_err());
+    expect_true(policy::validate_local_preparation("ci", false, true, unread).is_err());
+    expect_true(policy::validate_local_preparation("ci", true, true, unread).is_err());
+    expect_true(policy::validate_local_preparation("Local", false, false, unread).is_err());
+    expect_true(policy::validate_local_preparation("local", true, false, unread).is_err());
+    expect_true(policy::validate_local_preparation("local", false, true, unread).is_err());
+    expect_true(policy::validate_local_preparation("local", true, true, unread).is_err());
+}
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn request_header_selector_and_profile_precedence() {

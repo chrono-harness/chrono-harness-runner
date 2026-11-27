@@ -94,7 +94,7 @@ release=("$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/
          "$src/prepared.rs" "$src/prepared_artifacts.rs" "$src/prepared_binding.rs" "$src/retained_artifacts.rs"
          "$src/retained_artifacts/session/directory.rs" "$src/retained_artifacts/session/inventory.rs"
          "$src/retained_artifacts/session/publication.rs")
-git_binding=("$src/verified_git_binding.rs" "$src/verified_paths.rs" "$src/facts_configs.rs")
+git_binding=("$src/verified_git_binding.rs" "$src/verified_paths.rs" "$src/facts_configs.rs" "$src/invocation_query.rs")
 cli=("$src/verified_cli.rs" "$src/trace_source.rs" "$src/diagnostic_session.rs" "$src/process_error.rs" "$src/publication.rs" "$src/short_console.rs")
 
 collect_root "${paths[@]}"
