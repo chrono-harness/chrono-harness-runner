@@ -12,7 +12,8 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
 #[cfg(verus_keep_ghost)]
-extern crate chrono_identifiers as identifiers;
+#[path = "../../proofs/identifiers/src/lib.rs"]
+mod identifiers;
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::verified_identifiers as identifiers;
 #[cfg(verus_keep_ghost)]

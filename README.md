@@ -53,7 +53,7 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 | --- | --- |
 | `chrono_identifiers`、`identifiers_tests` | runner 解码提交 OID、请求头、状态路径及摘要；验证器以相同依赖判断文本与字节身份 |
 | `chrono_verifier`、`verifier_tests` | `compiler-output-v1` 接纳版本、commit、整根报告和编译原件；验证器测试还覆盖固定源连续性和候选判定 |
-| `runner_paths`、`runner_paths_tests` | 发布、保留和输出路径的准入，逐段处理路径、符号链接及发布错误 |
+| `runner_paths`、`runner_paths_tests` | 发布、保留和输出路径的准入，逐段处理路径、符号链接及发布错误。宿主的 runner 检查组执行 `verify.report-paths` 和 `verify.report-paths-tests`，返回根和源码摘要；本仓的 `./check.sh` 使用 Cargo 登记的这两个示例 |
 | `runner_status`、`runner_status_tests` | 判官响应、固定 Git 事实与运行状态；状态解释使用实际读到的端点和结果 |
 | `runner_limits`、`runner_limits_tests` | 执行计划的正超时、输出量下界和上界 |
 | `retention_release`、`retention_release_tests` | 保管对象的选择、取得及释放，外部文件系统的观察与操作由适配层执行 |
