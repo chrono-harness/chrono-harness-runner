@@ -1435,7 +1435,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/maintenance_signal.rs",
+            "operation": "verify.maintenance-notice"
+          },
+          {
+            "path": "crates/runner-tests/tests/maintenance_signal.rs",
+            "operation": "verify.maintenance-notice-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/canonical_request.rs",
