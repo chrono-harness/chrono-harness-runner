@@ -46,6 +46,15 @@ pub use crate::retained_artifacts::session::descriptors::{
 #[cfg(verus_keep_ghost)]
 pub use descriptor_batch::{BatchError, DESCRIPTOR_BATCH, send_descriptor_batch};
 
+#[cfg(verus_keep_ghost)]
+#[path = "retained_artifacts/session.rs"]
+#[rustfmt::skip]
+mod removal_session;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::retained_artifacts::session::{AcquisitionError, acquire_removal};
+#[cfg(verus_keep_ghost)]
+pub use removal_session::{AcquisitionError, acquire_removal};
+
 verus! {
 
 pub struct CapturedStreams<'a> {

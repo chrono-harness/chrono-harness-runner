@@ -1,8 +1,42 @@
 //! Retain adopted artifact capabilities for the lifetime of an external producer.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub enum AcquisitionError<E> { AlreadyOpen, Owner(E) }
+
+/// The current removal scope stays owned when a second open is rejected.
+pub fn acquire_removal<T, E, F>(already_open: bool, acquire: F)
+    -> (out: Result<Option<T>, AcquisitionError<E>>)
+    where F: FnOnce() -> Result<Option<T>, E>,
+    requires !already_open ==> acquire.requires(()),
+    ensures if already_open { out == Err::<Option<T>, AcquisitionError<E>>(AcquisitionError::AlreadyOpen) } else {
+        exists|original: Result<Option<T>, E>| #[trigger] acquire.ensures((), original)
+            && out == match original {
+                Ok(scope) => Ok::<Option<T>, AcquisitionError<E>>(scope),
+                Err(e) => Err(AcquisitionError::Owner(e)),
+            }
+    },
+{
+    if already_open { return Err(AcquisitionError::AlreadyOpen); }
+    match acquire() {
+        Ok(scope) => Ok(scope),
+        Err(error) => Err(AcquisitionError::Owner(error)),
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 pub(crate) mod descriptors;
+#[cfg(not(verus_keep_ghost))]
 mod directory;
+#[cfg(not(verus_keep_ghost))]
 mod inventory;
+#[cfg(not(verus_keep_ghost))]
 mod publication;
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     decode, file_identity, no_symlink_parents,
     prepared::{ArtifactTransport, Original},
@@ -11,9 +45,13 @@ use crate::{
         retention::{self, Consumer, Inventory, OriginalIdentity, Publication},
     },
 };
+#[cfg(not(verus_keep_ghost))]
 use directory::Directory;
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeMap,
     fs,
@@ -21,6 +59,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
@@ -242,6 +281,7 @@ enum Operation {
     },
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct Session<'a> {
     publications: publication::Publications,
     implicit_reads: Option<retention::ReadScope>,
@@ -253,11 +293,13 @@ struct Session<'a> {
     consumers: Vec<crate::ownership::Lease>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct Stage {
     publication: Option<Publication>,
     file: fs::File,
     length: u64,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for Session<'_> {
     fn drop(&mut self) {
         use std::os::unix::fs::MetadataExt;
@@ -275,6 +317,7 @@ impl Drop for Session<'_> {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Session<'_> {
     fn apply(
         &mut self,
@@ -332,10 +375,13 @@ impl Session<'_> {
                 Ok(Value::Null)
             }
             Operation::OpenRemoval { paths } => {
-                if self.removal.is_some() {
-                    return Err("removal scope is already open".into());
-                }
-                self.removal = retention::external_removal_guards(root, &paths)?;
+                self.removal = acquire_removal(self.removal.is_some(), || {
+                    retention::external_removal_guards(root, &paths)
+                })
+                .map_err(|error| match error {
+                    AcquisitionError::AlreadyOpen => "removal scope is already open".to_string(),
+                    AcquisitionError::Owner(source) => source,
+                })?;
                 Ok(json!(self.removal.is_some()))
             }
             Operation::CheckRemoval => {
@@ -760,6 +806,7 @@ impl Session<'_> {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 fn validate_request(root: &Path, request: &crate::prepared::InputRequest) -> Result<(), String> {
     if request
         .host_root
@@ -772,10 +819,12 @@ fn validate_request(root: &Path, request: &crate::prepared::InputRequest) -> Res
     request.validate()
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct Bounded<'a> {
     file: &'a mut fs::File,
     remaining: u64,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Write for Bounded<'_> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if bytes.len() as u64 > self.remaining {
@@ -789,6 +838,7 @@ impl Write for Bounded<'_> {
         self.file.flush()
     }
 }
+#[cfg(not(verus_keep_ghost))]
 /// The collector supplies each original under its own cumulative budget and declared paths.
 fn requested_original(
     input: &mut impl BufRead,
@@ -822,6 +872,7 @@ fn requested_original(
     Ok(bytes)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn write_frame(output: &mut impl Write, frame: &impl serde::Serialize) -> Result<(), String> {
     serde_json::to_writer(&mut *output, frame).map_err(|e| e.to_string())?;
     output
@@ -830,8 +881,10 @@ fn write_frame(output: &mut impl Write, frame: &impl serde::Serialize) -> Result
         .map_err(|e| e.to_string())
 }
 
+#[cfg(not(verus_keep_ghost))]
 const MAX_FRAME: u64 = 128 * 1024 * 1024;
 
+#[cfg(not(verus_keep_ghost))]
 pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Result<(), String> {
     let mut session = Session {
         implicit_reads: Some(retention::read_scope(root)?),
@@ -860,6 +913,7 @@ pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Re
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn command() -> crate::CliOutput {
     let result = std::env::current_dir()
         .map_err(|e| e.to_string())

@@ -183,4 +183,26 @@ fn empty_batch_skips_the_socket_and_full_batch_requires_one_marker_byte() {
     match failed { Err(BatchError::Send(e)) => expect_limit_true(e == 47), _ => panic!() }
 }
 
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn removal_scope_rejects_reopening_and_preserves_acquisition_results() {
+    use policy::AcquisitionError;
+    let held = policy::acquire_removal(true, || -> (r: Result<Option<u8>, u8>)
+        ensures r == Ok::<Option<u8>, u8>(Some(7u8))
+    { Ok(Some(7)) });
+    match held { Err(AcquisitionError::AlreadyOpen) => {}, _ => panic!() }
+    let opened = policy::acquire_removal(false, || -> (r: Result<Option<u8>, u8>)
+        ensures r == Ok::<Option<u8>, u8>(Some(17u8))
+    { Ok(Some(17)) });
+    match opened { Ok(Some(token)) => expect_limit_true(token == 17), _ => panic!() }
+    let absent = policy::acquire_removal(false, || -> (r: Result<Option<u8>, u8>)
+        ensures r == Ok::<Option<u8>, u8>(None)
+    { Ok(None) });
+    match absent { Ok(None) => {}, _ => panic!() }
+    let failed = policy::acquire_removal(false, || -> (r: Result<Option<u8>, u8>)
+        ensures r == Err::<Option<u8>, u8>(21u8)
+    { Err(21) });
+    match failed { Err(AcquisitionError::Owner(code)) => expect_limit_true(code == 21), _ => panic!() }
+}
+
 }
