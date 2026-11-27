@@ -95,5 +95,62 @@ class NativeDirectoryTest(unittest.TestCase):
             cwd=self.root,
         )
 
+
+class DevelopmentCheckTest(unittest.TestCase):
+    @patch.object(native.os, "execv")
+    @patch.object(native.shutil, "which", side_effect=lambda name: "/tools/" + name)
+    @patch.object(native.subprocess, "check_output")
+    def test_clean_branch_passes_its_whole_delta_to_scoped_check(self, git, which, execute):
+        git.side_effect = ["", "a" * 40, "b" * 40]
+        with patch.dict(os.environ, {}, clear=True):
+            native.development_check()
+        self.assertEqual([call.args[0] for call in git.call_args_list], [
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            ["git", "rev-parse", "--verify", "HEAD^{commit}"],
+            ["git", "merge-base", "refs/remotes/origin/dev", "a" * 40],
+        ])
+        program, argv = execute.call_args.args
+        self.assertEqual(argv, [program, "--scoped", "/tools/chrono-harness", "b" * 40, "a" * 40])
+
+    @patch.object(native.os, "execv")
+    @patch.object(native.subprocess, "check_output")
+    def test_working_copy_uses_the_existing_native_check(self, git, execute):
+        for status in [" M crates/runner/src/lib.rs", "M  Cargo.toml", "?? new.rs"]:
+            git.reset_mock()
+            git.return_value = status
+            native.development_check()
+            git.assert_called_once()
+            program, argv = execute.call_args.args
+            self.assertEqual(argv, [program, "--native"])
+
+    @patch.object(native.os, "execv")
+    @patch.object(native.shutil, "which", side_effect=lambda name: "/tools/" + name)
+    @patch.object(native.subprocess, "check_output")
+    def test_baseline_selected_by_caller_is_resolved_to_its_commit(self, git, which, execute):
+        git.side_effect = ["", "a" * 40, "c" * 40]
+        with patch.dict(os.environ, {"CHRONO_CHECK_BASE": "fix/start"}, clear=True):
+            native.development_check()
+        self.assertEqual(git.call_args.args[0], ["git", "rev-parse", "--verify", "--end-of-options", "fix/start^{commit}"])
+        self.assertEqual(execute.call_args.args[1][-2:], ["c" * 40, "a" * 40])
+
+    @patch.object(native.os, "execv")
+    @patch.object(native.shutil, "which", side_effect=lambda name: "/tools/" + name)
+    @patch.object(native.subprocess, "check_output")
+    def test_integrated_commit_uses_its_first_parent(self, git, which, execute):
+        git.side_effect = ["", "a" * 40, "a" * 40, "d" * 40]
+        with patch.dict(os.environ, {}, clear=True):
+            native.development_check()
+        self.assertEqual(git.call_args.args[0], ["git", "rev-parse", "--verify", "a" * 40 + "^1"])
+        self.assertEqual(execute.call_args.args[1][-2:], ["d" * 40, "a" * 40])
+
+    @patch.object(native.os, "execv")
+    @patch.object(native.subprocess, "check_output")
+    def test_failed_git_observation_stops_before_running_any_check(self, git, execute):
+        import subprocess
+        git.side_effect = subprocess.CalledProcessError(128, ["git", "status"])
+        with self.assertRaises(subprocess.CalledProcessError):
+            native.development_check()
+        execute.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()

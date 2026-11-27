@@ -39,7 +39,7 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 
 ## 验证
 
-在仓库根运行 `mise exec -- ./check.sh` 执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。本地入口需要 Python 3.8+ 和支持 BSD flock 的本地文件系统。宿主调用固定版本的 chrono-host-bootstrap native-scratch。每次检查在本工作树的 `target/native-checks/` 下独占一个目录；标准错误会输出路径。原生编译和 Verus 结束并释放租约后，成功目录立即清理。自选 `CARGO_TARGET_DIR` 由调用者管理，应放在本工具的专用目录以外。
+在仓库根运行 `mise exec -- ./check.sh`。干净的开发分支按本地 `origin/dev` 与候选的共同祖先选择已登记检查，已合入的候选使用第一父提交。指定推送或 PR 的基线时使用 `CHRONO_CHECK_BASE="$base_oid" mise exec -- ./check.sh`。工作树中有未提交改动时，执行格式、锁定构建、原生测试及整 crate 证明。Rust 固定为 1.95.0，Verus 固定为 0.2026.04.24.f8e1704。开发检查使用该分发包中的 `cargo-verus`。本地入口需要 Python 3.8+ 和支持 BSD flock 的本地文件系统。宿主调用固定版本的 chrono-host-bootstrap native-scratch。每次原生检查在本工作树的 `target/native-checks/` 下独占一个目录；标准错误会输出路径。原生编译和 Verus 结束并释放租约后，成功目录立即清理。自选 `CARGO_TARGET_DIR` 由调用者管理，应放在本工具的专用目录以外。
 
 失败和中断的可重建目录默认保留 24 小时。需要保存的诊断应在窗口内复制到其他存储，读回并核对摘要。失败从进程返回时计时，中断按目录最后一次修改时间计时。检查进程及继承租约的子进程仍在使用时，维护跳过该目录。在仓库根运行 `./check.sh --maintain`，可回收已经到期且租约已释放的目录。
 
@@ -53,7 +53,7 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 | --- | --- |
 | `chrono_identifiers`、`identifiers_tests` | runner 解码提交 OID、请求头、状态路径及摘要；验证器以相同依赖判断文本与字节身份 |
 | `chrono_verifier`、`verifier_tests` | `compiler-output-v1` 接纳版本、commit、整根报告和编译原件；验证器测试还覆盖固定源连续性和候选判定 |
-| `runner_paths`、`runner_paths_tests` | 发布、保留和输出路径的准入，逐段处理路径、符号链接及发布错误。宿主的 runner 检查组执行 `verify.report-paths` 和 `verify.report-paths-tests`，返回根和源码摘要；本仓的 `./check.sh` 使用 Cargo 登记的这两个示例 |
+| `runner_paths`、`runner_paths_tests` | 发布、保留和输出路径的准入，逐段处理路径、符号链接及发布错误。宿主的 runner 检查组执行 `verify.report-paths` 和 `verify.report-paths-tests`，返回根和源码摘要；本仓的原生检查使用 Cargo 登记的这两个示例 |
 | `runner_status`、`runner_status_tests` | 判官响应、固定 Git 事实与运行状态；状态解释使用实际读到的端点和结果 |
 | `runner_limits`、`runner_limits_tests` | 执行计划的正超时、输出量下界和上界，命令请求头和输入边界、实际采集截止以及直接子进程状态取得后是否进入阻塞等待，以及工作树能力描述符复制、移除会话打开和分批发送的结果 |
 | `retention_release`、`retention_release_tests` | 保管对象的选择、取得及释放，外部文件系统的观察与操作由适配层执行 |
@@ -61,19 +61,13 @@ CI 输入生产者可用 `validate-preparation-request` 核对当前检出的请
 | `runner_cli`、`runner_cli_tests` | CLI 选择、参数解码、判官请求和输出；发布失败会保留产生它的写入或 flush 阶段。诊断回执按代码、原生错误码及消息匹配队头，Rust 调用方优先取得实际写入错误。两个输出均失败时保留主次错误，短检查显示失败或阻塞的操作并给出原始报告路径 |
 | `runner_fixture_tests` | 原生测试的进程替身与输入预期，由测试框架使用 |
 
-登记 Cargo 整根的操作在 `check.sh --cargo-verus-roots ROOT ...` 中列出根，并声明 Verus 版本与提交。该操作在 stdout 返回同一次串行 Cargo 调用的压缩原输出、构建回执和各根的编译器 dep-info。runner 用 FILEMAP 和固定候选 Git 源码核对这些原件。直接运行 `./check.sh` 可查看各根的原生报告。
+登记 Cargo 整根的操作在 `check.sh --cargo-verus-roots ROOT ...` 中列出根，并声明 Verus 版本与提交。该操作在 stdout 返回同一次串行 Cargo 调用的压缩原输出、构建回执和各根的编译器 dep-info。runner 用 FILEMAP 和固定候选 Git 源码核对这些原件。运行 `mise exec -- ./check.sh --native` 可查看所有根的原生报告。
 
 每个整根的实际输入见 [Cargo 目标](crates/proofs/expectations/Cargo.toml) 和 [原生和证明检查](.chrono-harness/native-check.sh)。原生测试核对换用系统接口后可观察的业务结果，Verus 的结论依赖所登记的工具、编译器和外部模型。
 
 运行库与测试从 [原实现的固定提交](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/runner) 分出。旧宿主的登记表检查由新的采用宿主负责。工作树、CI 生成器及安装器各自负责其命令替身的断言。
 
-The runner checks its own pull requests with a digest-pinned released binary. The check compares the first parent with the PR merge commit, then runs the registered native and Verus check for changes affecting the runner. After a successful operation the freshly built candidate checks the same commits. For a local replay put the released `chrono-harness` and `chrono-judge-ci` binaries on PATH, set `VERUS`, and run:
-
-```sh
-chrono-harness check --config .chrono-harness/check.json --base "$base_oid" --candidate "$(git rev-parse HEAD)"
-```
-
-The local checkout must match the candidate. The report and operation streams are written to `.chrono-harness/state/`.
+CI 从固定的合并候选及第一父提交、或推送事件的 before 与 after 读取 DELTA。当登记操作构建候选 runner 后，CI 让它再检查同一对输入。固定候选的报告与操作原件写入 `.chrono-harness/state/`。
 
 预览版从已合入 dev 的提交打标签，正式版从 main 发布。每个版本在本仓构建 Linux x86_64 和 macOS arm64 的单个 `chrono-harness` 二进制，并附 SHA256SUMS。下载所需标签的二进制和校验文件，验算目标平台的 SHA-256 后将它安装为 `chrono-harness`。升级或回退时按同样方式替换该程序。宿主启用运行日志时，runner 通过已安装的 chrono-diagnostics 命令写入日志。
 

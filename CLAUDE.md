@@ -8,9 +8,9 @@
 
 本仓安装和 PR 查询命令见 [USAGE.md](.chrono-harness/USAGE.md)。
 
-产品位于 [`crates/runner`](crates/runner)。原生测试位于 [`crates/runner-tests`](crates/runner-tests)。检查配置位于 [`.chrono-harness/check.json`](.chrono-harness/check.json)，本仓 PR 会用已发布的 runner 检查候选。在仓库根目录运行 `mise exec -- ./check.sh` 执行本仓的检查。
+产品位于 [`crates/runner`](crates/runner)。原生测试位于 [`crates/runner-tests`](crates/runner-tests)。检查配置位于 [`.chrono-harness/check.json`](.chrono-harness/check.json)，本仓 PR 会用已发布的 runner 检查候选。在仓库根目录运行 `mise exec -- ./check.sh`。已提交的开发分支以本地 `origin/dev` 的共同祖先为基线，已合入的提交检查其第一父提交。工作树有待提交文件时，执行当前源码的原生检查。
 
-复验 PR 的两个固定提交时，在候选检出中设置 `VERUS` 和基线提交 `base_oid`，运行 `mise exec -- chrono-harness check --config .chrono-harness/check.json --base "$base_oid" --candidate "$(git rev-parse HEAD)"`。
+复验特定范围时，在干净的候选检出中运行 `CHRONO_CHECK_BASE="$base_oid" mise exec -- ./check.sh`。
 
 本仓逐文件登记受 Git 跟踪的输入。升级模板或切换选项时，在同一提交更新 [FILEMAP](.chrono-harness/FILEMAP.json)，登记新增、删除或改名的文件，包括规则选择和随附许可。CI 用变更前后两个提交各自的登记检查实际文件。
 
