@@ -86,7 +86,7 @@ collect chrono-verifier crates/proofs/verifier/Cargo.toml "$verifier_src/lib.rs"
 limits=("$src/verified_limits.rs" "$src/command_stream.rs" "$src/observed_command.rs" "$src/process_child.rs" "$src/process_fds.rs" "$src/retained_artifacts/session.rs" "$src/retained_artifacts/session/descriptors.rs")
 paths=("$src/verified_paths.rs")
 status=("$src/verified_status.rs" "$src/observation.rs" "$src/facts.rs" "$src/facts_binding.rs" "$src/verified_paths.rs"
-        "$src/verified_scope.rs" "$src/verified_export.rs" "$src/lib.rs")
+        "$src/verified_scope.rs" "$src/verified_export.rs" "$src/lib.rs" "$src/ownership.rs")
 maintenance=("$src/maintenance_signal.rs" "$src/artifact_disposal.rs")
 release=("$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs"
          "$src/retained_artifacts/manifest.rs" "$src/retained_artifacts/partition.rs"

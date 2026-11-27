@@ -2486,7 +2486,8 @@ fn execute_check(
         None
     };
     let input = serde_json::to_vec(&req).map_err(|e| e.to_string())?;
-    let proc = if req.observations["preparation"].is_object() {
+    let prepared_judge = req.observations["preparation"].is_object();
+    let proc = if prepared_judge {
         let (_, _, policy, _) = facts_configs::load(&root, ".chrono-harness/config.json")?;
         let credentials = prepared::credential_environment(&policy)?;
         let mut judge = c.judge.clone();
@@ -2544,8 +2545,8 @@ fn execute_check(
             run_process_observed(&root, &judge, &input, &file_identity(&path)?.0)
         }
     } else {
-        // Preserve the legacy environment contract and retain original process
-        // evidence when an unprepared invocation fails after launch.
+        // The unprepared judge inherits its execution environment. Publish
+        // identities for these inputs in both successful and failed reports.
         let evidence_paths = process_evidence
             .as_ref()
             .map(|(stdout, stderr, launch)| {
@@ -2579,11 +2580,32 @@ fn execute_check(
     let runner_identity = serde_json::json!({"path":runner_executable,"sha256":sha256(&fs::read(&runner_executable).map_err(|e|e.to_string())?),"version":env!("CARGO_PKG_VERSION")});
     let mut report = match proc {
         Ok(p) => {
+            // A collector verifies the producer's PATH selection offline. Record
+            // candidate identities while the original environment is available.
+            let inherited_unit =
+                !prepared_judge && matches!(req.scope, Some(units::Scope::Unit { .. }));
+            let search_candidates = if inherited_unit && !c.judge.program.contains('/') {
+                let path = p
+                    .environment
+                    .get("PATH")
+                    .ok_or("missing judge search path")?;
+                let candidates = program_candidates(&req.host_root, &c.judge.program, Some(path))?;
+                Some(
+                    candidates
+                        .iter()
+                        .map(wire::digest)
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+            } else {
+                None
+            };
+            let (p, environment_representation) =
+                scoped_report::judge_environment(p, prepared_judge, prepared::process_identities);
             let response: Result<Response, String> = match &p.failure {
                 Some(failure) => Err(failure.clone()),
                 None => decode(&p.stdout_bytes),
             };
-            let stored_process = if retained_streams {
+            let mut stored_process = if retained_streams {
                 let (stdout, stderr, launch) = process_evidence
                     .as_ref()
                     .ok_or("missing process evidence paths")?;
@@ -2591,6 +2613,19 @@ fn execute_check(
             } else {
                 serde_json::to_value(&p).map_err(|e| e.to_string())?
             };
+            if let Some(label) = environment_representation {
+                stored_process["environment_representation"] = Value::from(label);
+                if inherited_unit {
+                    stored_process["unit_environment_digest"] = Value::from(wire::digest(&(
+                        &p.environment_digest,
+                        &p.environment,
+                        &search_candidates,
+                    ))?);
+                }
+                if let Some(candidates) = search_candidates {
+                    stored_process["program_candidates_sha256"] = serde_json::json!(candidates);
+                }
+            }
             match response.and_then(|r| {
                 validate_response_protocol(&r, &request_id, p.exit_code, protocol)?;
                 Ok(r)

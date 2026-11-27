@@ -1335,6 +1335,121 @@ fn real_child_and_report_publish() {
 }
 
 #[test]
+fn explicit_unit_reports_bind_candidates_from_the_producer_search_path() {
+    let (dir, config) = fixture(json!({"echo_protocol":true}));
+    let mut profile: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+    let child = std::path::Path::new(CHILD);
+    let name = child.file_name().unwrap().to_str().unwrap();
+    profile["schema"] = json!("chrono-ci-check/v3");
+    profile["judge"]["program"] = json!(name);
+    profile["policy"]["units"] =
+        json!({"build":{"tests":["test"],"report_path":".chrono-harness/state/build.json"}});
+    fs::write(&config, serde_json::to_vec(&profile).unwrap()).unwrap();
+    let missing = dir.path().join("inert-search-directory");
+    let path = std::env::join_paths([missing.as_path(), child.parent().unwrap()]).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
+        .env_clear()
+        .env("PATH", &path)
+        .args([
+            "check",
+            "--config",
+            &config,
+            "--base",
+            &"a".repeat(40),
+            "--candidate",
+            &"b".repeat(40),
+            "--unit",
+            "build",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stored = fs::read(dir.path().join(".chrono-harness/state/build.json")).unwrap();
+    for bytes in [&output.stdout, &stored] {
+        let report: Value = serde_json::from_slice(bytes).unwrap();
+        let judge = &report["judge"];
+        assert_eq!(
+            judge["environment"]["PATH"],
+            chrono_harness::sha256(path.to_str().unwrap().as_bytes())
+        );
+        assert_eq!(
+            judge["unit_environment_digest"],
+            chrono_harness::wire::digest(&json!([
+                judge["environment_digest"],
+                judge["environment"],
+                judge["program_candidates_sha256"]
+            ]))
+            .unwrap()
+        );
+        assert_eq!(
+            judge["program_candidates_sha256"],
+            json!([
+                chrono_harness::wire::digest(&missing.join(name)).unwrap(),
+                chrono_harness::wire::digest(&child).unwrap()
+            ])
+        );
+        assert!(
+            !std::str::from_utf8(bytes)
+                .unwrap()
+                .contains("inert-search-directory")
+        );
+    }
+}
+
+#[test]
+fn direct_scoped_reports_publish_inherited_input_identities() {
+    let value = "inert scoped input λ";
+    let hash = chrono_harness::sha256(value.as_bytes());
+    for (mut case, status) in [
+        (json!({}), 0),
+        (
+            json!({"exit":7,"fields":{"status":"failed","results":[{
+                "id":"external","status":"failed","cause":"real execution","exit_code":7
+            }]}}),
+            1,
+        ),
+        (json!({"kind":"raw","text":"bad response"}), 2),
+    ] {
+        case["inherited_sha256"] = json!(hash);
+        let (dir, config) = fixture(case);
+        let output = Command::new(env!("CARGO_BIN_EXE_chrono-harness-test-cli"))
+            .env_clear()
+            .env("CHRONO_TEST_SCOPED_INPUT", value)
+            .args([
+                "check",
+                "--config",
+                &config,
+                "--base",
+                &"a".repeat(40),
+                "--candidate",
+                &"b".repeat(40),
+            ])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(status));
+        let stored = fs::read(dir.path().join(".chrono-harness/state/check.json")).unwrap();
+        for bytes in [&output.stdout, &stored] {
+            assert!(
+                !bytes
+                    .windows(value.len())
+                    .any(|window| window == value.as_bytes())
+            );
+            let report: Value = serde_json::from_slice(bytes).unwrap();
+            let judge = &report["judge"];
+            assert_eq!(judge["environment_representation"], "sha256");
+            assert_eq!(judge["environment"]["CHRONO_TEST_SCOPED_INPUT"], hash);
+            let original = json!({"CHRONO_TEST_SCOPED_INPUT":value});
+            assert_eq!(
+                judge["environment_digest"],
+                chrono_harness::wire::digest(&original).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore]
 fn retained_reference_cli_subprocess_helper() {
     let output = dispatch(&["check"]);
