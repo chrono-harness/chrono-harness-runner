@@ -18,6 +18,8 @@ use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
+use vstd::string::{StringSliceAdditionalSpecFns, is_ascii};
+#[cfg(verus_keep_ghost)]
 use vstd::vpanic as panic;
 verus! {
 
@@ -48,5 +50,63 @@ fn isolation_requires_complete_test_identity() {
     expect(!isolation::same_test("case",Some("")));
     expect(!isolation::same_test("case",None));
 }
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn isolation_requires_a_successful_exit_and_one_passed_test() {
+    let passed = "test result: ok. 1 passed; 0 failed;";
+    let zero = "test result: ok. 0 passed; 0 failed;";
+    let embedded = " test result: ok. 1 passed; 0 failed;";
+    proof {
+        reveal_strlit("test result: ok. 1 passed; 0 failed;");
+        reveal_strlit("test result: ok. 0 passed; 0 failed;");
+        reveal_strlit(" test result: ok. 1 passed; 0 failed;");
+        reveal(isolation::LIBTEST_PASS_PREFIX);
+        broadcast use vstd::string::is_ascii_spec_bytes;
+        assert(is_ascii(passed) && is_ascii(zero) && is_ascii(embedded));
+        let prefix_len = passed.spec_bytes().len() as int;
+        assert(passed.spec_bytes().take(prefix_len) =~= passed.spec_bytes());
+        assert(isolation::libtest_pass_at(passed.spec_bytes(), 0));
+        assert(zero.spec_bytes()[17] != passed.spec_bytes()[17]);
+        assert(embedded.spec_bytes()[0] != passed.spec_bytes()[0]);
+        assert(forall|start: int| !#[trigger] isolation::libtest_pass_at(zero.spec_bytes(), start)) by {
+            assert(zero.spec_bytes().take(prefix_len)[17] == zero.spec_bytes()[17]);
+        }
+        assert(forall|start: int| !#[trigger] isolation::libtest_pass_at(embedded.spec_bytes(), start)) by {
+            assert(embedded.spec_bytes().take(prefix_len)[0] == embedded.spec_bytes()[0]);
+            assert(embedded.spec_bytes()[0] != '\n' as u8);
+        }
+    }
+    expect(isolation::isolated_test_passed(true, passed.as_bytes()));
+    expect(!isolation::isolated_test_passed(false, passed.as_bytes()));
+    expect(!isolation::isolated_test_passed(true, zero.as_bytes()));
+    expect(!isolation::isolated_test_passed(true, embedded.as_bytes()));
+}
+
 fn expect(actual:bool) requires actual, { if !actual {panic!();} }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn isolation_preserves_libtest_line_and_byte_boundaries() {
+    let cases: &[(&[u8], bool)] = &[
+        (
+            b"\xff\r\ntest result: ok. 1 passed; 0 failed; 0 ignored\xff\r\nmore output",
+            true,
+        ),
+        (
+            b"running 1 test\ntest result: ok. 1 passed; 0 failed;",
+            true,
+        ),
+        (b"\xfftest result: ok. 1 passed; 0 failed;", false),
+        (b"noise\rtest result: ok. 1 passed; 0 failed;", false),
+        (b"test result: ok. 1 passed; 0 failed", false),
+        (b"", false),
+    ];
+    for &(stdout, expected) in cases {
+        assert_eq!(
+            isolation::isolated_test_passed(true, stdout),
+            expected,
+            "stdout: {stdout:?}"
+        );
+    }
 }

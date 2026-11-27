@@ -31,7 +31,8 @@
             "crates/runner/src/retained_artifacts/verified_release.rs",
             "crates/runner-tests/tests/verified_release.rs",
             "crates/runner/src/verified_git_binding.rs",
-            "crates/runner-tests/tests/verified_git_binding.rs"
+            "crates/runner-tests/tests/verified_git_binding.rs",
+            "crates/runner-tests/tests/verified_fixture.rs"
           ],
           "output_contract": {
             "version": "0.2026.04.24.f8e1704",
