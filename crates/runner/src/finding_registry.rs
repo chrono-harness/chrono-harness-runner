@@ -1,13 +1,79 @@
 //! Registered finding records belong to fixed Git endpoints already retained in the request.
+#[cfg(verus_keep_ghost)]
+use super::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub struct BoundGitCommand<'a> {
+    pub executable: &'a str,
+    pub sha256: &'a str,
+    pub cwd: &'a str,
+    /// A batch binds its input when the requested object is read.
+    pub stdin_sha256: Option<&'a str>,
+}
+
+pub struct RecordedGitCommand<'a> {
+    pub executable: Option<&'a str>,
+    pub sha256: Option<&'a str>,
+    pub cwd: Option<&'a str>,
+    pub stdin_sha256: Option<&'a str>,
+    pub successful_exit: bool,
+    pub failure_is_null: bool,
+    pub stdout_complete: bool,
+}
+
+fn recorded_text_is(actual: Option<&str>, expected: &str) -> (ok: bool)
+    ensures ok == (actual matches Some(text) && text@ == expected@),
+{
+    match actual {
+        Some(text) => identifiers::equal_text(text, expected),
+        None => false,
+    }
+}
+
+impl<'a> BoundGitCommand<'a> {
+    pub fn accepts(&self, argv_matches: bool, record: &RecordedGitCommand) -> (ok: bool)
+        ensures ok == (argv_matches && record.successful_exit && record.failure_is_null
+            && record.stdout_complete
+            && (record.executable matches Some(path) && path@ == self.executable@)
+            && (record.sha256 matches Some(hash) && hash@ == self.sha256@)
+            && (record.cwd matches Some(dir) && dir@ == self.cwd@)
+            && match self.stdin_sha256 {
+                None => true,
+                Some(expected) => record.stdin_sha256 matches Some(hash) && hash@ == expected@,
+            }),
+    {
+        argv_matches && record.successful_exit && record.failure_is_null && record.stdout_complete
+            && recorded_text_is(record.executable, self.executable)
+            && recorded_text_is(record.sha256, self.sha256)
+            && recorded_text_is(record.cwd, self.cwd)
+            && match self.stdin_sha256 {
+                None => true,
+                Some(expected) => recorded_text_is(record.stdin_sha256, expected),
+            }
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{facts, full};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::collections::BTreeMap;
 
+#[cfg(not(verus_keep_ghost))]
 fn component(path: &str) -> (&str, &str) {
     path.split_once('/')
         .map_or((path, ""), |(head, _)| (head, &path[head.len()..]))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Resolver<'a> {
     request: &'a Value,
     streams: BTreeMap<usize, Vec<u8>>,
@@ -15,6 +81,7 @@ pub(crate) struct Resolver<'a> {
     documents: BTreeMap<(String, String), Value>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl<'a> Resolver<'a> {
     pub(crate) fn new(request: &'a Value) -> Self {
         Self {
@@ -160,23 +227,33 @@ impl<'a> Resolver<'a> {
             .as_array()
             .ok_or("Git process originals unavailable")?;
         let expected_stdin = (args != ["cat-file", "--batch"]).then(|| crate::sha256(&[]));
+        let command = BoundGitCommand {
+            executable: tool,
+            sha256: digest,
+            cwd: root,
+            stdin_sha256: expected_stdin.as_deref(),
+        };
         Ok(records
             .iter()
             .enumerate()
             .filter(|(_, p)| {
-                p["argv"].as_array().is_some_and(|a| {
+                let argv_matches = p["argv"].as_array().is_some_and(|a| {
                     a.iter()
                         .map(|x| x.as_str())
                         .eq(argv.iter().map(|x| Some(*x)))
-                }) && p["executable"] == tool
-                    && p["sha256"] == digest
-                    && expected_stdin
-                        .as_ref()
-                        .is_none_or(|d| p["stdin_sha256"].as_str() == Some(d))
-                    && p["cwd"] == root
-                    && p["exit_code"] == 0
-                    && p["failure"].is_null()
-                    && p["stdout_complete"] == true
+                });
+                command.accepts(
+                    argv_matches,
+                    &RecordedGitCommand {
+                        executable: p["executable"].as_str(),
+                        sha256: p["sha256"].as_str(),
+                        cwd: p["cwd"].as_str(),
+                        stdin_sha256: p["stdin_sha256"].as_str(),
+                        successful_exit: p["exit_code"] == 0,
+                        failure_is_null: p["failure"].is_null(),
+                        stdout_complete: p["stdout_complete"] == true,
+                    },
+                )
             })
             .map(|(index, _)| index)
             .collect())
