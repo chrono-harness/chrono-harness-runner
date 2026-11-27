@@ -37,9 +37,9 @@ fn full_commit(pin: &[u8]) -> (valid: bool)
 
 // SHA-256 of the reviewed YAML and shell with each action's commit replaced by @COMMIT.
 fn matches_deployed_contract(digest: &String) -> (matches: bool)
-    ensures matches == (digest@ == "012a89a7d8024b091b96a293e00347eac50cada9704eef2abc531d83f8a82a04"@),
+    ensures matches == (digest@ == "47b859d3387c2803862dccb97f6652d36df3ca91e9486f9fe0512900c8589565"@),
 {
-    *digest == "012a89a7d8024b091b96a293e00347eac50cada9704eef2abc531d83f8a82a04".to_string()
+    *digest == "47b859d3387c2803862dccb97f6652d36df3ca91e9486f9fe0512900c8589565".to_string()
 }
 }
 

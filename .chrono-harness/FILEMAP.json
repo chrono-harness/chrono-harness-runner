@@ -1195,7 +1195,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "specification",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/verified_paths.rs",
+            "operation": "verify.report-paths-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner-tests/tests/verified_release.rs",
@@ -2143,6 +2152,10 @@
           {
             "path": "crates/runner-tests/tests/git_object_ids.rs",
             "operation": "verify.git-object-ids"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_paths.rs",
+            "operation": "verify.report-paths-tests"
           }
         ]
       }
@@ -2157,7 +2170,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_paths.rs",
+            "operation": "verify.report-paths"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_paths.rs",
+            "operation": "verify.report-paths-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/verified_scope.rs",
@@ -2414,7 +2440,9 @@
         "verify.roadmap-adapters",
         "verify.check-workflow",
         "verify.git-object-ids",
-        "verify.process-ownership-exit"
+        "verify.process-ownership-exit",
+        "verify.report-paths",
+        "verify.report-paths-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576
