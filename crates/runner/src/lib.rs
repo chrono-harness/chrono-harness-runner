@@ -2317,13 +2317,14 @@ fn check_unmanaged(args: &[&str], entry: Value) -> Result<(u8, String), String> 
     // keeps the literal entry path so route identity and registry provenance
     // still bind the caller's selector; policy checks use the stable selected
     // direct full-v3 profile.
-    let (root, config_path, _profile) = if facts_configs::is_selector(&entry_profile) {
-        let (root, entry_path) = root_for_config(config, Some(&root))?;
-        let (_, _, selected, _) = facts_configs::load(&root, &entry_path)?;
-        (root, entry_path, selected)
-    } else {
-        (root, entry_path, entry_profile)
-    };
+    let (root, config_path, _profile) =
+        if facts_configs::config_schema(&entry_profile).admit_selector()? {
+            let (root, entry_path) = root_for_config(config, Some(&root))?;
+            let (_, _, selected, _) = facts_configs::load(&root, &entry_path)?;
+            (root, entry_path, selected)
+        } else {
+            (root, entry_path, entry_profile)
+        };
     execute_check(
         root,
         config_path,

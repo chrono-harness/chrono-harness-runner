@@ -1039,6 +1039,18 @@ fn expect_schema(schema: Option<&str>, expected: policy::GitConfigSchema)
 {
     use policy::GitConfigSchema::*;
     let actual = policy::classify_git_config_schema(schema);
+    let admission = actual.admit_selector();
+    match &expected {
+        Unsupported => expect_selector_error(admission, "unsupported Git config selector schema"),
+        Direct => match admission {
+            Ok(selected) => expect_true(!selected),
+            Err(_) => { panic!(); },
+        },
+        V1 | V2 | V3 => match admission {
+            Ok(selected) => expect_true(selected),
+            Err(_) => { panic!(); },
+        },
+    }
     let same = match (actual, expected) {
         (Direct, Direct) | (V1, V1) | (V2, V2) | (V3, V3) | (Unsupported, Unsupported) => true,
         _ => false,
