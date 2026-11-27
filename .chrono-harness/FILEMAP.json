@@ -1086,7 +1086,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "specification",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/verified_release.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner-tests/tests/support/retention_state.rs",
