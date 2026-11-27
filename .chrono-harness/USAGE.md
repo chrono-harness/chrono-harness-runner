@@ -14,6 +14,6 @@
 
 ## 本仓验证
 
-产品位于 [`crates/runner`](../crates/runner)。原生测试位于 [`crates/runner-tests`](../crates/runner-tests)。检查配置位于 [`.chrono-harness/check.json`](../.chrono-harness/check.json)，本仓 PR 会用已发布的 runner 检查候选。在仓库根目录运行 `mise exec -- ./check.sh` 执行本仓的检查。
+产品位于 [`crates/runner`](../crates/runner)。原生测试位于 [`crates/runner-tests`](../crates/runner-tests)。检查配置位于 [`.chrono-harness/check.json`](../.chrono-harness/check.json)，本仓 PR 会用已发布的 runner 检查候选。在仓库根目录运行 `mise exec -- ./check.sh`。已提交的开发分支以本地 `origin/dev` 的共同祖先为基线，已合入的提交检查其第一父提交。工作树有待提交文件时，执行当前源码的原生检查。
 
-本仓 PR 使用已发布的 runner 核对候选。复验 PR 的两个固定提交时，在候选检出中设置 `VERUS` 和基线提交 `base_oid`，运行 `mise exec -- ./check.sh --scoped "$(mise which chrono-harness)" "$base_oid" "$(git rev-parse HEAD)"`。
+本仓 PR 使用已发布的 runner 核对候选。复验特定范围时，在干净候选检出中运行 `CHRONO_CHECK_BASE="$base_oid" mise exec -- ./check.sh`。没有本地目标分支或父提交时，提供已有的固定基线。要执行当前源码的完整原生检查，运行 `mise exec -- ./check.sh --native`。

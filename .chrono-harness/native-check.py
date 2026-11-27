@@ -110,7 +110,38 @@ def pack_cargo_roots(records, requested):
             "roots": [{"path": path, "original": rows[path]} for path in requested]}
 
 
+def development_check():
+    """Run the registered check for a committed delta or the native working tree."""
+    program = str(ROOT / "check.sh")
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=ROOT, text=True).rstrip("\n")
+
+    if git("status", "--porcelain", "--untracked-files=normal"):
+        os.execv(program, [program, "--native"])
+        return
+
+    head = git("rev-parse", "--verify", "HEAD^{commit}")
+    configured = os.environ.get("CHRONO_CHECK_BASE")
+    if configured is not None:
+        base = git("rev-parse", "--verify", "--end-of-options", configured + "^{commit}")
+    else:
+        base = git("merge-base", "refs/remotes/origin/dev", head)
+        if base == head:
+            base = git("rev-parse", "--verify", head + "^1")
+
+    runner = shutil.which("chrono-harness")
+    if runner is None:
+        raise ValueError("chrono-harness is required on PATH for the fixed DELTA")
+    os.execv(program, [program, "--scoped", runner, base, head])
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--development"]:
+        try:
+            development_check()
+        except (ValueError, OSError, subprocess.CalledProcessError) as error:
+            sys.exit(f"development check: {error}")
     if len(sys.argv) >= 4 and sys.argv[1] == "--pack-cargo-roots":
         json.dump(pack_cargo_roots(Path(sys.argv[2]), sys.argv[3:]), sys.stdout, separators=(",", ":"))
         sys.stdout.write("\n")

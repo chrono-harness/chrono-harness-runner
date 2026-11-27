@@ -4,8 +4,15 @@ cd "$(dirname "$0")"
 
 # Maintenance can run outside mise. Bind the installed executable before
 # the first new allocation so the same entry can still perform the final sweep.
+if [[ $# == 0 ]]; then
+  exec python3 -B .chrono-harness/native-check.py --development
+fi
+
 bootstrap=target/native-check-bootstrap
-if [[ $# == 0 || ( $# -ge 2 && $1 == --cargo-verus-roots ) ]]; then
+if [[ ( $# == 1 && $1 == --native ) || ( $# -ge 2 && $1 == --cargo-verus-roots ) ]]; then
+  if [[ $1 == --native ]]; then
+    shift
+  fi
   installed=$(command -v chrono-host-bootstrap)
   if [[ $installed != /* ]]; then
     echo "expected the installed chrono-host-bootstrap on PATH" >&2
@@ -26,6 +33,10 @@ fi
 # binaries together so its nested calls can use the same runner and collector.
 if [[ $# == 4 && $1 == --scoped ]]; then
   runner=$2
+  if [[ -z ${VERUS:-} ]]; then
+    VERUS=$(command -v verus)
+    export VERUS
+  fi
   base=$3
   candidate=$4
   mkdir -p target
@@ -50,5 +61,5 @@ if [[ $1 == --maintain && ( $# == 1 || ( $# == 3 && $2 == --keep-seconds ) ) ]];
   exit 0
 fi
 
-echo "usage: ./check.sh [--cargo-verus-roots ROOT ... | --scoped RUNNER BASE CANDIDATE | --maintain [--keep-seconds N]]" >&2
+echo "usage: ./check.sh [--native | --cargo-verus-roots ROOT ... | --scoped RUNNER BASE CANDIDATE | --maintain [--keep-seconds N]]" >&2
 exit 2
