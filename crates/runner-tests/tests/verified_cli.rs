@@ -405,4 +405,64 @@ fn judge_finish_emits_only_the_selected_diagnostic_and_keeps_exit_codes() {
     expect_true(trace.len() == 0); expect_text(&error, ""); expect_true(exit == 1);
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn only_matching_log_errors_claim_the_first_observed_writer() {
+    use std::collections::VecDeque;
+    let mut writers = VecDeque::new();
+    writers.push_back(17u8);
+    writers.push_back(23u8);
+    let other = |x: &u8| -> (value: bool) ensures value == (*x == 23) { *x == 23 };
+    let first = |x: &u8| -> (value: bool) ensures value == (*x == 17) { *x == 17 };
+    expect_true(policy::take_matching_front(&mut writers, other).is_none());
+    match policy::take_matching_front(&mut writers, first) {
+        Some(x) => expect_true(x == 17),
+        None => panic!(),
+    }
+    match policy::take_matching_front(&mut writers, other) {
+        Some(x) => expect_true(x == 23),
+        None => panic!(),
+    }
+    expect_true(policy::take_matching_front(&mut writers, other).is_none());
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn writer_records_require_the_exact_code_native_number_and_message() {
+    proof {
+        reveal_strlit("E_LOG_IO"); reveal_strlit("E_LOG_I0");
+        reveal_strlit("写入\0\né"); reveal_strlit("写入\0\nE");
+        assert("E_LOG_IO"@[7] == 'O');
+        assert("E_LOG_I0"@[7] == '0');
+        assert("写入\0\né"@[4] == 'é');
+        assert("写入\0\nE"@[4] == 'E');
+    }
+    let unused = || -> (s: String) requires false { panic!() };
+    expect_true(!policy::writer_record_matches("E_LOG_IO", None, None, unused));
+    expect_true(!policy::writer_record_matches("E_LOG_IO", Some((None, "any")), Some(9), unused));
+    expect_true(!policy::writer_record_matches("E_LOG_I0", Some((None, "any")), None, unused));
+    let original = || -> (s: String) ensures s@ == "写入\0\né"@ { "写入\0\né".to_owned() };
+    expect_true(!policy::writer_record_matches("E_LOG_I0", Some((None, "写入\0\né")), None, original));
+    expect_true(!policy::writer_record_matches("E_LOG_IO", Some((Some(-1), "写入\0\né")), None, original));
+    expect_true(!policy::writer_record_matches("E_LOG_IO", Some((None, "写入\0\né")), Some(9), original));
+    expect_true(!policy::writer_record_matches("E_LOG_IO", Some((Some(8), "写入\0\né")), Some(9), original));
+    expect_true(!policy::writer_record_matches("E_LOG_IO", Some((Some(9), "写入\0\nE")), Some(9), original));
+    expect_true(policy::writer_record_matches("E_LOG_IO", Some((Some(-1), "写入\0\né")), Some(-1), original));
+    expect_true(policy::writer_record_matches("E_LOG_IO", Some((None, "写入\0\né")), None, original));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn errors_expose_the_observed_writer_then_the_recorded_source() {
+    let wire = || -> (source: Option<u32>) ensures source == Some(15u32) { Some(15u32) };
+    let empty = || -> (source: Option<u32>) ensures source.is_none() { None };
+    let unused = || -> (s: Option<u32>) requires false { panic!() };
+    match policy::received_source(Some(29u32), unused) {
+        Some(x) => expect_true(x == 29),
+        None => panic!(),
+    }
+    match policy::received_source(None, wire) {
+        Some(x) => expect_true(x == 15),
+        None => panic!(),
+    }
+    expect_true(policy::received_source(None, empty).is_none());
+}
+
 }

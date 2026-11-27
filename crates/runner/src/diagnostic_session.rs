@@ -1,33 +1,93 @@
 //! The installed diagnostics producer owns policy, formatting, and rolling files.
 //! Runner retains its actual output handles and any native errors returned by them.
+#[cfg(verus_keep_ghost)]
+use super::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+use std::collections::VecDeque;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Only format the native message after its record kind and optional errno match.
+pub fn writer_record_matches<F>(
+    code: &str, source: Option<(Option<i64>, &str)>, observed: Option<i64>, original: F,
+) -> (paired: bool)
+    where F: FnOnce() -> String,
+    requires code@ == "E_LOG_IO"@ && source.is_some() && source.unwrap().0 == observed
+        ==> original.requires(()),
+    ensures match source {
+        Some((reported, message)) => if code@ == "E_LOG_IO"@ && reported == observed {
+            exists|text: String| #[trigger] original.ensures((), text) && paired == (message@ == text@)
+        } else { !paired },
+        None => !paired,
+    },
+{
+    if !identifiers::equal_text(code, "E_LOG_IO") { return false; }
+    let (reported, message) = match source { Some(pair) => pair, None => return false };
+    let same_number = match (reported, observed) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => false,
+    };
+    same_number && identifiers::equal_text(message, original().as_str())
+}
+
+/// Consume exactly the matching head, leaving later native writer objects in order.
+pub fn take_matching_front<T, F>(writers: &mut VecDeque<T>, matches: F) -> (original: Option<T>)
+    where F: FnOnce(&T) -> bool,
+    requires forall|v: &T| matches.requires((v,)),
+    ensures if old(writers)@.len() == 0 {
+        original.is_none() && writers@ == old(writers)@
+    } else {
+        exists|matched: bool| #[trigger] matches.ensures((&old(writers)@[0],), matched) &&
+            if matched {
+                original == Some(old(writers)@[0]) &&
+                    writers@ == old(writers)@.subrange(1, old(writers)@.len() as int)
+            } else { original.is_none() && writers@ == old(writers)@ }
+    },
+{
+    if writers.len() != 0 && matches(&writers[0]) { writers.pop_front() } else { None }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     process_error::{ErrorRecord, Failure, NativeIoError, ReceivedError, RecordedError},
     trace_source::Source,
 };
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
-    collections::VecDeque,
     io::{self, BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Mutex},
 };
 
+#[cfg(not(verus_keep_ghost))]
 fn command() -> Result<Command, io::Error> {
     let mut child = Command::new("chrono-diagnostics");
     crate::process_fds::forward_command(&mut child, &[]).map_err(io::Error::other)?;
     Ok(child)
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Serialize)]
 struct TraceMessage {
     event: tracing_tunnel::TracingEvent,
 }
+#[cfg(not(verus_keep_ghost))]
 fn line(writer: &mut impl Write, data: impl Serialize) -> io::Result<()> {
     serde_json::to_writer(&mut *writer, &data)?;
     writer.write_all(b"\n")?;
     writer.flush()
 }
+#[cfg(not(verus_keep_ghost))]
 fn read<T: serde::de::DeserializeOwned>(reader: &mut impl BufRead) -> io::Result<T> {
     let mut data = String::new();
     if reader.read_line(&mut data)? == 0 {
@@ -39,9 +99,11 @@ fn read<T: serde::de::DeserializeOwned>(reader: &mut impl BufRead) -> io::Result
     serde_json::from_str(&data).map_err(io::Error::other)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn log_cli_error(message: &str) {
     tracing::error!(event_id = "cli.diagnostic", message = message);
 }
+#[cfg(not(verus_keep_ghost))]
 fn context() -> io::Result<(PathBuf, String)> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     let root = match args.windows(2).find(|p| p[0] == "--host-root") {
@@ -56,15 +118,18 @@ fn context() -> io::Result<(PathBuf, String)> {
             .to_owned(),
     ))
 }
+#[cfg(not(verus_keep_ghost))]
 fn report(result: io::Result<u8>) -> u8 {
     result.unwrap_or_else(|e| {
         eprintln!("chrono-diagnostics: {e}");
         2
     })
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn logged_main(producer: &str, work: impl FnOnce() -> u8) -> u8 {
     report(context().map(|(root, operation)| logged_main_at(&root, producer, &operation, work)))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn logged_main_at(
     root: &Path,
     producer: &str,
@@ -77,6 +142,7 @@ pub fn logged_main_at(
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn invalid_argument(producer: &str, index: usize, bytes: &[u8]) -> u8 {
     report(context().and_then(|(root, op)| {
         cli(
@@ -89,6 +155,7 @@ pub(crate) fn invalid_argument(producer: &str, index: usize, bytes: &[u8]) -> u8
     }))
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn cli(
     root: &Path,
     producer: &str,
@@ -143,6 +210,7 @@ fn cli(
         Err(panic) => std::panic::resume_unwind(panic),
     }
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Reply {
@@ -152,12 +220,14 @@ enum Reply {
     Flush,
     Finished(Vec<ErrorRecord>),
 }
+#[cfg(not(verus_keep_ghost))]
 struct Trace<I, O, W> {
     input: I,
     output: O,
     sink: W,
     originals: Arc<Mutex<VecDeque<io::Error>>>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl<I: Write, O: BufRead, W: Write> Trace<I, O, W> {
     fn reply(&mut self) -> io::Result<Reply> {
         loop {
@@ -181,31 +251,35 @@ impl<I: Write, O: BufRead, W: Write> Trace<I, O, W> {
         records
             .into_iter()
             .map(|record| {
-                let paired = record
-                    .error
-                    .source
-                    .as_deref()
-                    .zip(originals.front())
-                    .is_some_and(|(source, error)| {
-                        record.error.code == "E_LOG_IO"
-                            && source.native_code == error.raw_os_error().map(i64::from)
-                            && source.message == error.to_string()
-                    });
-                if paired {
-                    ReceivedError::with_native(record, originals.pop_front().unwrap())
-                } else {
-                    ReceivedError::from(record)
+                let original = take_matching_front(&mut originals, |error| {
+                    let source = record
+                        .error
+                        .source
+                        .as_deref()
+                        .map(|source| (source.native_code, source.message.as_str()));
+                    writer_record_matches(
+                        &record.error.code,
+                        source,
+                        error.raw_os_error().map(i64::from),
+                        || error.to_string(),
+                    )
+                });
+                match original {
+                    Some(error) => ReceivedError::with_native(record, error),
+                    None => ReceivedError::from(record),
                 }
             })
             .collect()
     }
 }
+#[cfg(not(verus_keep_ghost))]
 fn protocol(error: io::Error) -> ReceivedError {
     let native = NativeIoError::new(error);
     let mut record = Failure::new("E_LOG_PROTOCOL", "diagnostic publication failed").record();
     record.error.source = Some(Box::new(native.error_node()));
     ReceivedError::with_native(record, native.into_inner())
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn publish_failure(
     id: &str,
     failure: &Failure,
@@ -276,6 +350,7 @@ pub(crate) fn publish_failure(
     }
     errors
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ExpiredLogs {
     pub removed: usize,
@@ -283,6 +358,7 @@ pub struct ExpiredLogs {
     pub busy: bool,
     pub errors: Vec<String>,
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn maintain_runtime_logs(root: &Path) -> Result<Option<ExpiredLogs>, Failure> {
     if std::fs::symlink_metadata(root.join(".chrono-harness/logging.json"))
         .is_err_and(|e| e.kind() == io::ErrorKind::NotFound)

@@ -47,7 +47,7 @@ check_native crates/proofs/verifier "$verifier_src/lib.rs" "$verifier_src/verifi
   "$verifier_src/verified_continuity.rs" "$verifier_src/verified_source_pipeline.rs"
 src=crates/runner/src
 check_native crates/runner "$src/lib.rs" "$src/artifact_disposal.rs" "$src/source_endpoints.rs" "$src/source_coverage.rs" "$src/route_evidence.rs" \
-  "$src/verified_cli.rs" "$src/verified_git_binding.rs" "$src/verified_shallow_reads.rs" "$src/verified_limits.rs" "$src/verified_paths.rs" "$src/verified_status.rs" \
+  "$src/verified_cli.rs" "$src/diagnostic_session.rs" "$src/process_error.rs" "$src/verified_git_binding.rs" "$src/verified_shallow_reads.rs" "$src/verified_limits.rs" "$src/verified_paths.rs" "$src/verified_status.rs" \
   "$src/command_stream.rs" "$src/observed_command.rs" "$src/process_child.rs" "$src/process_fds.rs" "$src/retained_artifacts/session.rs" "$src/retained_artifacts/session/descriptors.rs" \
   "$src/facts.rs" "$src/facts_binding.rs" "$src/git_facts_session.rs" "$src/publication.rs" "$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs" "$src/retained_artifacts/session/publication.rs" "$src/retained_artifacts/manifest.rs"
 
@@ -92,7 +92,7 @@ release=("$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/
          "$src/retained_artifacts/manifest.rs" "$src/retained_artifacts/partition.rs"
          "$src/retained_artifacts/retention_command.rs" "$src/scoped_report.rs")
 git_binding=("$src/verified_git_binding.rs" "$src/verified_paths.rs")
-cli="$src/verified_cli.rs"
+cli=("$src/verified_cli.rs" "$src/diagnostic_session.rs" "$src/process_error.rs")
 
 collect_root "${paths[@]}"
 collect_root "${status[@]}"
@@ -101,7 +101,7 @@ collect_root "$src/verified_shallow_reads.rs"
 collect_root "${maintenance[@]}"
 collect_root "${release[@]}"
 collect_root "${git_binding[@]}"
-collect_root "$cli"
+collect_root "${cli[@]}"
 
 collect_root "$tests/verified_paths.rs" "${paths[@]}"
 collect_root "$tests/verified_fixture.rs" "$tests/support/cli_child.rs" "$tests/support/isolated_capability.rs" \
@@ -113,7 +113,7 @@ collect_root "$tests/maintenance_signal.rs" "${maintenance[@]}"
 collect_root "$tests/verified_verifier.rs" "$tests/support/verified_continuity.rs" "$tests/support/source_pipeline.rs"
 collect_root "$tests/verified_release.rs" "${release[@]}" "$tests/support/retention_frontier.rs"
 collect_root "$tests/verified_git_binding.rs" "${git_binding[@]}"
-collect_root "$tests/verified_cli.rs" "$cli"
+collect_root "$tests/verified_cli.rs" "${cli[@]}"
 collect_root "$tests/verified_identifiers.rs"
 
 
