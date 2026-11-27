@@ -42,17 +42,17 @@ pub use prepared_artifacts::bounded_original;
 #[path = "../prepared.rs"]
 mod prepared;
 #[cfg(not(verus_keep_ghost))]
-pub use crate::prepared::receipt_count;
+pub use crate::prepared::{prepared_scope, receipt_count};
 #[cfg(verus_keep_ghost)]
-pub use prepared::receipt_count;
+pub use prepared::{prepared_scope, receipt_count};
 
 #[cfg(verus_keep_ghost)]
 #[path = "../prepared_binding.rs"]
 mod prepared_binding;
 #[cfg(not(verus_keep_ghost))]
-pub use crate::prepared::receipt_producer;
+pub use crate::prepared::{prepared_endpoints, receipt_producer, source_selector_matches};
 #[cfg(verus_keep_ghost)]
-pub use prepared_binding::receipt_producer;
+pub use prepared_binding::{prepared_endpoints, receipt_producer, source_selector_matches};
 
 #[cfg(verus_keep_ghost)]
 #[path = "../retained_artifacts.rs"]

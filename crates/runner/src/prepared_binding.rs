@@ -4,7 +4,37 @@ use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
+#[cfg(verus_keep_ghost)]
+use super::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+
 verus! {
+/// The monitor recorded either absence of the source selector, or its digest.
+pub fn source_selector_matches(observed: &str, requested: &str, selector_matches: Option<bool>) -> (valid: bool)
+    ensures valid == (observed@ == requested@ && match selector_matches {
+        None => requested@ == "local"@, Some(digest_matches) => digest_matches,
+    }),
+{
+    identifiers::equal_text(observed, requested) && match selector_matches {
+        None => identifiers::equal_text(requested, "local"),
+        Some(digest_matches) => digest_matches,
+    }
+}
+
+pub fn prepared_endpoints(expected_base: Option<&str>, actual_base: Option<&str>,
+    expected_candidate: &str, actual_candidate: &str, expected_initial: bool, actual_initial: bool) -> (valid: bool)
+    ensures valid == (expected_candidate@ == actual_candidate@ && expected_initial == actual_initial
+        && match (expected_base, actual_base) {
+            (Some(a), Some(b)) => a@ == b@, (None, None) => true, _ => false,
+        }),
+{
+    identifiers::equal_text(expected_candidate, actual_candidate) && expected_initial == actual_initial
+        && match (expected_base, actual_base) {
+            (Some(a), Some(b)) => identifiers::equal_text(a, b), (None, None) => true, _ => false,
+        }
+}
+
 pub fn receipt_producer<'a, T>(local: bool, index: usize, first: &'a T, ci: Option<&'a T>)
     -> (action: Option<&'a T>)
     ensures action == if local && index == 0 { Some(first) } else { ci },
@@ -76,9 +106,14 @@ pub fn validate_binding(
         || req.host_root != root
         || req.profile_for(initial)? != profile
         || p.profile != profile
-        || p.base.as_deref() != base
-        || p.candidate != candidate
-        || p.initial != initial
+        || !prepared_endpoints(
+            base,
+            p.base.as_deref(),
+            candidate,
+            &p.candidate,
+            initial,
+            p.initial,
+        )
         || &p.scope != scope
     {
         return Err("short preparation differs from actual check request".into());
@@ -87,11 +122,10 @@ pub fn validate_binding(
     let selector: Option<String> =
         serde_json::from_value(binding["environment"]["inherited"][SOURCE].clone())
             .map_err(|_| "check source selector disagreement")?;
-    if observed != req.source
-        || (selector.is_none() && req.source != "local")
-        || selector
-            .as_ref()
-            .is_some_and(|h| h != &sha256(req.source.as_bytes()))
+    let selector_matches = selector
+        .as_ref()
+        .map(|value| value == &sha256(req.source.as_bytes()));
+    if !source_selector_matches(observed, &req.source, selector_matches)
         || (!c.inputs.inherit_environment.iter().any(|key| key == SOURCE)
             && std::env::var(SOURCE).unwrap_or_else(|_| "local".into()) != req.source)
     {
