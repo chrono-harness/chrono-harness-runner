@@ -1,11 +1,46 @@
+//! Admission of a worktree request before reading its registered input files.
+#[cfg(verus_keep_ghost)]
+use super::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub fn validate_local_preparation<F>(source: &str, has_artifacts: bool, prepared: bool, validate: F)
+    -> (result: Result<(), String>)
+    where F: FnOnce() -> Result<(), String>,
+    requires (source@ == "local"@ && !has_artifacts && !prepared) ==> validate.requires(()),
+    ensures
+        if source@ == "local"@ && !has_artifacts && !prepared {
+            validate.ensures((), result)
+        } else {
+            result is Err && result->Err_0@ == "expected an unprepared local input request"@
+        },
+{
+    if identifiers::equal_text(source, "local") && !has_artifacts && !prepared {
+        validate()
+    } else {
+        Err("expected an unprepared local input request".to_owned())
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::wire::Request;
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     io::{Read, Write},
     path::PathBuf,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(tag = "mode", rename_all = "kebab-case", deny_unknown_fields)]
 enum Query {
@@ -31,6 +66,7 @@ enum Query {
         config: Value,
     },
 }
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn serve(input: impl Read, mut output: impl Write) -> Result<(), String> {
     let query: Query = serde_json::from_reader(input).map_err(|e| e.to_string())?;
     match query {
@@ -80,13 +116,12 @@ pub(super) fn serve(input: impl Read, mut output: impl Write) -> Result<(), Stri
             }
         }
         Query::LocalPreparation { request } => {
-            if request.source != "local"
-                || request.native_artifacts.is_some()
-                || request.prepared.is_some()
-            {
-                return Err("expected an unprepared local input request".into());
-            }
-            request.validate()?;
+            validate_local_preparation(
+                &request.source,
+                request.native_artifacts.is_some(),
+                request.prepared.is_some(),
+                || request.validate(),
+            )?;
         }
         Query::Participation { config } => {
             let declaration = crate::prepared::declaration(&config)?;
