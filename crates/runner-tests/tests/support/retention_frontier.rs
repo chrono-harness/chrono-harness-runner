@@ -16,6 +16,12 @@ fn require_frontier_expectation(actual: bool)
 { if !actual { panic!(); } }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn unadmitted_original_stops_at_the_round_deadline() {
+    require_frontier_expectation(policy::retirement_time_available(false, 24, 25));
+    require_frontier_expectation(!policy::retirement_time_available(false, 25, 25));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn current_root_keeps_its_direct_original_boundary() {
     let actual = policy::original_expansion(true, true, None, "parent", 0, 1);
     match actual {
