@@ -26,6 +26,28 @@ use policy::identifiers;
 mod retention_frontier;
 
 verus! {
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn report_reference_requires_an_exact_version_and_an_explicit_string() {
+    proof {
+        reveal_strlit("chrono-ci-check/v3"); reveal_strlit("chrono-ci-check/v2");
+        reveal_strlit("retained-reference/v2"); reveal_strlit("retained-reference/v1");
+        reveal_strlit("retained-reference/v2 "); reveal_strlit("chrono-ci-check/v3+");
+        assert("chrono-ci-check/v3"@[17] != "chrono-ci-check/v2"@[17]);
+        assert("retained-reference/v1"@[20] != "retained-reference/v2"@[20]);
+        assert("retained-reference/v2"@.len() != "retained-reference/v2 "@.len());
+        assert("chrono-ci-check/v3"@.len() != "chrono-ci-check/v3+"@.len());
+    }
+    expect_true(matches!(policy::publication_mode("chrono-ci-check/v3", None), Ok(false)));
+    expect_true(matches!(policy::publication_mode("chrono-ci-check/v2", None), Ok(false)));
+    expect_true(matches!(policy::publication_mode("chrono-ci-check/v3", Some(Some("retained-reference/v2"))), Ok(true)));
+    expect_true(policy::publication_mode("chrono-ci-check/v3", Some(None)).is_err());
+    expect_true(policy::publication_mode("chrono-ci-check/v3", Some(Some("retained-reference/v1"))).is_err());
+    expect_true(policy::publication_mode("chrono-ci-check/v3", Some(Some("retained-reference/v2 "))).is_err());
+    expect_true(policy::publication_mode("chrono-ci-check/v2", Some(Some("retained-reference/v2"))).is_err());
+    expect_true(policy::publication_mode("chrono-ci-check/v3+", Some(Some("retained-reference/v2"))).is_err());
+}
+
 #[cfg(verus_keep_ghost)]
 fn scoped_environment_receipt(process: u64) {
     let project = |value: u64| -> (result: u64)
