@@ -6,12 +6,8 @@ use crate::{json, no_symlink_parents, sha256};
 use serde_json::{Value, json as value};
 use std::{fs, path::Path};
 
-fn config_schema(config: &Value) -> GitConfigSchema {
+pub(crate) fn config_schema(config: &Value) -> GitConfigSchema {
     classify_git_config_schema(config["schema"].as_str())
-}
-
-pub(crate) fn is_selector(config: &Value) -> bool {
-    config_schema(config).is_selector()
 }
 
 /// 标准 JSON 接口只转交对象借用和字段操作；投影分支及参数由 Verus 决定。
@@ -93,12 +89,8 @@ pub(crate) fn resolve_target(
 
     let config = json(&bytes)?;
     let schema = config_schema(&config);
-    match schema {
-        GitConfigSchema::Direct => return Ok((path.into(), bytes, config, None)),
-        GitConfigSchema::Unsupported => {
-            return Err("unsupported Git config selector schema".into());
-        }
-        GitConfigSchema::V1 | GitConfigSchema::V2 | GitConfigSchema::V3 => {}
+    if !schema.admit_selector()? {
+        return Ok((path.into(), bytes, config, None));
     }
     let object = config.as_object();
     admit_selector_object(
@@ -204,7 +196,7 @@ pub fn identity(
 ) -> Result<Identity, String> {
     let entry = values.get(path).ok_or("missing configuration entry")?;
     let schema = config_schema(entry);
-    if !schema.is_selector() {
+    if !schema.admit_selector()? {
         return Ok(Identity {
             entry_path: path.into(),
             effective_path: path.into(),

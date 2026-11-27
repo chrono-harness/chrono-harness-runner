@@ -33,6 +33,19 @@ impl GitConfigSchema {
         matches!(self, Self::V1 | Self::V2 | Self::V3)
     }
 
+    pub fn admit_selector(&self) -> (out: Result<bool, &'static str>)
+        ensures out == match self {
+            Self::Direct => Ok::<bool, &str>(false),
+            Self::Unsupported => Err::<bool, &str>("unsupported Git config selector schema"),
+            _ => Ok::<bool, &str>(true),
+        },
+    {
+        match self {
+            Self::Unsupported => Err("unsupported Git config selector schema"),
+            _ => Ok(self.is_selector()),
+        }
+    }
+
     pub fn has_identity(&self) -> (valid: bool)
         ensures valid == (self is V2 || self is V3),
     {
