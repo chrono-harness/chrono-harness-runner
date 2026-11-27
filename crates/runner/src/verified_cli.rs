@@ -10,6 +10,14 @@ pub extern crate chrono_identifiers as identifiers;
 use crate::verified_identifiers as identifiers;
 
 #[cfg(verus_keep_ghost)]
+#[path = "trace_source.rs"]
+mod trace_source;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::trace_source::publish_new_callsite;
+#[cfg(verus_keep_ghost)]
+pub use trace_source::publish_new_callsite;
+
+#[cfg(verus_keep_ghost)]
 #[path = "diagnostic_session.rs"]
 mod diagnostic_session;
 #[cfg(not(verus_keep_ghost))]

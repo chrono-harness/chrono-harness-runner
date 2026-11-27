@@ -22,6 +22,23 @@ fn expect_true(value: bool)
     if !value { panic!(); }
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn callsites_are_published_once_per_subscriber() {
+    let mut seen = std::collections::HashSet::new();
+    let emit = |n: u8| -> (out: u8) requires n < 10, ensures out == n + 1, { n + 1 };
+    let never = |_n: u8| -> u8 requires false, { panic!() };
+    let first = policy::publish_new_callsite(&mut seen, 7, 0, emit);
+    expect_true(first == 1);
+    let repeat = policy::publish_new_callsite(&mut seen, 7, first, never);
+    expect_true(repeat == 1);
+    let other = policy::publish_new_callsite(&mut seen, 9, repeat, emit);
+    expect_true(other == 2);
+    let duplicate = policy::publish_new_callsite(&mut seen, 9, other, never);
+    expect_true(duplicate == 2);
+    let mut fresh = std::collections::HashSet::new();
+    expect_true(policy::publish_new_callsite(&mut fresh, 7, duplicate, emit) == 3);
+}
+
 fn expect_text(actual: &str, expected: &str)
     requires actual@ == expected@,
 {
