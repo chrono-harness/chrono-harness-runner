@@ -10,6 +10,9 @@ mod cli_child;
 #[path = "../../runner/src/facts_binding.rs"]
 mod facts_binding;
 #[cfg(verus_keep_ghost)]
+#[path = "../../runner/src/git_facts_session.rs"]
+mod git_facts_session;
+#[cfg(verus_keep_ghost)]
 #[path = "../../proofs/identifiers/src/lib.rs"]
 mod identifiers;
 #[cfg(verus_keep_ghost)]
@@ -21,6 +24,35 @@ use vstd::{prelude::*, vpanic as panic};
 #[cfg(verus_keep_ghost)]
 verus! {
 fn require_observed(value: bool) requires value, { if !value { panic!(); } }
+
+fn session_reads_exact_payload_and_checks_current_checkout() {
+    use git_facts_session::{complete_frame, require_checkout_config, require_checkout_head};
+    require_observed(git_facts_session::FRAME_LIMIT == 67_108_864);
+    require_observed(matches!(complete_frame(Vec::new(), 0), Ok(None)));
+    let newline = vec![10u8];
+    match complete_frame(newline, 0) {
+        Ok(Some(line)) => require_observed(line.len() == 0),
+        _ => vstd::vpanic!(),
+    }
+    let line = vec![0u8, 13u8, 10u8];
+    match complete_frame(line, 2) {
+        Ok(Some(payload)) => {
+            require_observed(payload.len() == 2);
+            require_observed(payload[0] == 0 && payload[1] == 13);
+        },
+        _ => vstd::vpanic!(),
+    }
+    require_observed(matches!(complete_frame(vec![0u8, 13u8, 10u8], 1), Err(_)));
+    require_observed(matches!(complete_frame(vec![0u8, 13u8], 2), Err(_)));
+    proof { reveal_strlit("same"); reveal_strlit("sand"); assert("same"@[2] != "sand"@[2]); }
+    require_observed(require_checkout_head("same", "same").is_ok());
+    require_observed(require_checkout_head("same", "sand").is_err());
+    let same = [0u8, 255u8];
+    let changed = [0u8, 254u8];
+    proof { assert(same@[1] != changed@[1]); }
+    require_observed(require_checkout_config(same.as_slice(), same.as_slice()).is_ok());
+    require_observed(require_checkout_config(same.as_slice(), changed.as_slice()).is_err());
+}
 
 fn empty_and_leading_zero_bytes_keep_the_full_lowercase_width() {
     let empty: [u8; 0] = [];

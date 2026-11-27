@@ -30,6 +30,62 @@ pub(crate) extern crate chrono_identifiers as identifiers;
 #[cfg(not(verus_keep_ghost))]
 use crate::verified_identifiers as identifiers;
 
+#[cfg(verus_keep_ghost)]
+#[path = "../prepared_artifacts.rs"]
+mod prepared_artifacts;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::prepared::bounded_original;
+#[cfg(verus_keep_ghost)]
+pub use prepared_artifacts::bounded_original;
+
+#[cfg(verus_keep_ghost)]
+#[path = "../prepared.rs"]
+mod prepared;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::prepared::receipt_count;
+#[cfg(verus_keep_ghost)]
+pub use prepared::receipt_count;
+
+#[cfg(verus_keep_ghost)]
+#[path = "../prepared_binding.rs"]
+mod prepared_binding;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::prepared::receipt_producer;
+#[cfg(verus_keep_ghost)]
+pub use prepared_binding::receipt_producer;
+
+#[cfg(verus_keep_ghost)]
+#[path = "../retained_artifacts.rs"]
+mod blobs;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::retained_artifacts::blob_matches;
+#[cfg(verus_keep_ghost)]
+pub use blobs::blob_matches;
+
+#[cfg(verus_keep_ghost)]
+#[path = "session/directory.rs"]
+mod directory;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::retained_artifacts::session::directory::{DirectoryExecution, directory_execution};
+#[cfg(verus_keep_ghost)]
+pub use directory::{DirectoryExecution, directory_execution};
+
+#[cfg(verus_keep_ghost)]
+#[path = "session/inventory.rs"]
+mod inventory;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::retained_artifacts::session::inventory::resume_sealed;
+#[cfg(verus_keep_ghost)]
+pub use inventory::resume_sealed;
+
+#[cfg(verus_keep_ghost)]
+#[path = "session/publication.rs"]
+mod publication;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::retained_artifacts::session::publication::{ReportSettlement, report_settlement};
+#[cfg(verus_keep_ghost)]
+pub use publication::{ReportSettlement, report_settlement};
+
 verus! {
 
 pub open spec fn retirement_rank(body: Seq<nat>, metadata: Seq<nat>) -> nat
@@ -432,23 +488,6 @@ pub fn publication_read_scope<T>(path: Option<T>, inputs: bool) -> (scope: Publi
                    else { PublicationReadScope::Output(p) },
         None => if inputs { PublicationReadScope::RootInputs }
                 else { PublicationReadScope::MissingOutput },
-    }
-}
-
-pub enum ReportSettlement { Commit, Reject, Unmanaged }
-
-pub fn report_settlement(adopted: bool, held_original: Option<&str>, original: &str) -> (decision: ReportSettlement)
-    ensures match decision {
-        ReportSettlement::Commit => recovery_text(held_original) == Some(original@),
-        ReportSettlement::Unmanaged => !adopted && held_original.is_none(),
-        ReportSettlement::Reject => (adopted || held_original.is_some())
-            && recovery_text(held_original) != Some(original@),
-    },
-{
-    match held_original {
-        Some(held) => if identifiers::equal_text(held, original) { ReportSettlement::Commit }
-                      else { ReportSettlement::Reject },
-        None => if adopted { ReportSettlement::Reject } else { ReportSettlement::Unmanaged },
     }
 }
 

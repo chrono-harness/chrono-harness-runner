@@ -1,9 +1,44 @@
 //! Producer-held directories with optional host adoption. Reads and publication capabilities
 //! remain in the same session as reference updates and admission.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+#[cfg(verus_keep_ghost)]
+use super::identifiers;
+#[cfg(verus_keep_ghost)]
+use super::recovery_text;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+verus! {
+pub enum ReportSettlement { Commit, Reject, Unmanaged }
+
+pub fn report_settlement(adopted: bool, held_original: Option<&str>, original: &str) -> (decision: ReportSettlement)
+    ensures match decision {
+        ReportSettlement::Commit => recovery_text(held_original) == Some(original@),
+        ReportSettlement::Unmanaged => !adopted && held_original.is_none(),
+        ReportSettlement::Reject => (adopted || held_original.is_some())
+            && recovery_text(held_original) != Some(original@),
+    },
+{
+    match held_original {
+        Some(held) => if identifiers::equal_text(held, original) { ReportSettlement::Commit }
+                      else { ReportSettlement::Reject },
+        None => if adopted { ReportSettlement::Reject } else { ReportSettlement::Unmanaged },
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use crate::ownership::Lease;
-use crate::verified_release::{self, PublicationReadScope, ReportSettlement};
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_release::{self, PublicationReadScope};
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub(super) enum Action {
@@ -115,17 +150,20 @@ pub(super) enum Action {
         path: String,
     },
 }
+#[cfg(not(verus_keep_ghost))]
 struct ReportReference {
     original: String,
     _guard: Lease,
     held_by_reader: bool,
 }
 
+#[cfg(not(verus_keep_ghost))]
 enum ReadLease {
     Original { _guard: Lease },
     ReportSlot(String),
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Default)]
 pub(super) struct Publications {
     open: BTreeMap<String, Publication>,
@@ -134,6 +172,7 @@ pub(super) struct Publications {
     next_read: u64,
     scopes: BTreeMap<u64, retention::ReadScope>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Publications {
     fn next_token(&mut self) -> Result<u64, String> {
         self.next_read =
@@ -394,7 +433,7 @@ impl Publications {
             }
             Action::Settle { slot, path } => {
                 let claim = self.slots.get(&slot);
-                match verified_release::report_settlement(inventory.is_some(), claim.map(|c| c.original.as_str()), &path) {
+                match report_settlement(inventory.is_some(), claim.map(|c| c.original.as_str()), &path) {
                     ReportSettlement::Unmanaged => return Ok(Value::Null),
                     ReportSettlement::Reject => return Err("report settlement requires the active reference for this slot and original".into()),
                     ReportSettlement::Commit => retention::settle_report(root, &slot, &path)?,

@@ -29,13 +29,17 @@ pub fn acquire_removal<T, E, F>(already_open: bool, acquire: F)
 }
 
 #[cfg(not(verus_keep_ghost))]
+#[path = "session/descriptors.rs"]
 pub(crate) mod descriptors;
 #[cfg(not(verus_keep_ghost))]
-mod directory;
+#[path = "session/directory.rs"]
+pub(crate) mod directory;
 #[cfg(not(verus_keep_ghost))]
-mod inventory;
+#[path = "session/inventory.rs"]
+pub(crate) mod inventory;
 #[cfg(not(verus_keep_ghost))]
-mod publication;
+#[path = "session/publication.rs"]
+pub(crate) mod publication;
 #[cfg(not(verus_keep_ghost))]
 use crate::{
     decode, file_identity, no_symlink_parents,

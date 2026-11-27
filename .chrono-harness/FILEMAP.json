@@ -1614,7 +1614,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/git_object_ids.rs",
+            "operation": "verify.git-object-ids"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/judge_evidence.rs",
@@ -1858,7 +1867,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/retained_artifacts/verified_release.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_release.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/prepared_artifacts.rs",
@@ -1870,7 +1892,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/retained_artifacts/verified_release.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_release.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/prepared_binding.rs",
@@ -1882,7 +1917,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/retained_artifacts/verified_release.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_release.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/process_child.rs",
@@ -2068,7 +2116,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/retained_artifacts/verified_release.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_release.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/retained_artifacts/manifest.rs",
@@ -2229,7 +2290,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/retained_artifacts/verified_release.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_release.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/retained_artifacts/session/descriptors.rs",
@@ -2274,7 +2348,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/retained_artifacts/verified_release.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_release.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/retained_artifacts/session/publication.rs",
@@ -2286,7 +2373,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/retained_artifacts/verified_release.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_release.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/retained_artifacts/verified_release.rs",
