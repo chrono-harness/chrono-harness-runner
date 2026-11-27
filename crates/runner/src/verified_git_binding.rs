@@ -17,6 +17,14 @@ pub mod paths;
 use crate::verified_paths as paths;
 
 #[cfg(verus_keep_ghost)]
+#[path = "finding_registry.rs"]
+mod finding_registry;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::finding_registry::{BoundGitCommand, RecordedGitCommand};
+#[cfg(verus_keep_ghost)]
+pub use finding_registry::{BoundGitCommand, RecordedGitCommand};
+
+#[cfg(verus_keep_ghost)]
 #[path = "invocation_query.rs"]
 mod invocation_query;
 #[cfg(verus_keep_ghost)]
