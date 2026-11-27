@@ -1,13 +1,50 @@
 //! Typed scoped check selection and explicit report inputs. No test discovery.
+#[cfg(verus_keep_ghost)]
+use super::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub const PROFILE: &str = "chrono-ci-check/v3";
+
+/// The outer option is field presence. The inner option is JSON string decoding.
+pub fn publication_mode(schema: &str, field: Option<Option<&str>>)
+    -> (result: Result<bool, &'static str>)
+    ensures
+        match field {
+            None => result == Ok::<bool, &str>(false),
+            Some(Some(mode)) if schema@ == "chrono-ci-check/v3"@ && mode@ == "retained-reference/v2"@
+                => result == Ok::<bool, &str>(true),
+            _ => result == Err::<bool, &str>("report_publication requires scoped v3 retained-reference/v2"),
+        },
+{
+    match field {
+        None => Ok(false),
+        Some(Some(mode)) if identifiers::equal_text(schema, PROFILE)
+            && identifiers::equal_text(mode, "retained-reference/v2") => Ok(true),
+        _ => Err("report_publication requires scoped v3 retained-reference/v2"),
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{CheckConfig, relative_path};
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const PROFILE: &str = "chrono-ci-check/v3";
+#[cfg(not(verus_keep_ghost))]
 pub const PROTOCOL: &str = "chrono-ci-judge/v2";
+#[cfg(not(verus_keep_ghost))]
 pub const REPORT_REFERENCE: &str = "chrono-check-reference/v1";
 
 /// A fixed publication slot names one immutable original; it carries no verdict.
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReportReference {
@@ -15,20 +52,22 @@ pub struct ReportReference {
     pub original: crate::prepared::Original,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn reference_publication(config: &CheckConfig) -> Result<bool, String> {
-    match config.policy.get("report_publication") {
-        None => Ok(false),
-        Some(value)
-            if config.schema == PROFILE && value.as_str() == Some("retained-reference/v2") =>
-        {
-            Ok(true)
-        }
-        Some(_) => Err("report_publication requires scoped v3 retained-reference/v2".into()),
-    }
+    publication_mode(
+        &config.schema,
+        config
+            .policy
+            .get("report_publication")
+            .map(serde_json::Value::as_str),
+    )
+    .map_err(String::from)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub use crate::verified_status::scopes::Scope;
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Unit {
@@ -36,6 +75,7 @@ pub struct Unit {
     pub report_path: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
@@ -43,6 +83,7 @@ pub struct Manifest {
     pub reports: Vec<ReportInput>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReportInput {
@@ -57,12 +98,14 @@ pub struct ReportInput {
 
 /// Full collection derives executable pins from the bound candidate registry,
 /// never from caller claims copied out of a report.
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullManifest {
     pub schema: String,
     pub reports: Vec<FullReportInput>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullReportInput {
@@ -77,6 +120,7 @@ pub struct FullReportInput {
     pub artifacts: Option<crate::prepared::ArtifactTransport>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn required(units: &BTreeMap<String, Unit>, selected: &BTreeSet<String>) -> Vec<String> {
     units
         .iter()
@@ -87,6 +131,7 @@ pub fn required(units: &BTreeMap<String, Unit>, selected: &BTreeSet<String>) -> 
 
 /// Read the opt-in full-v3 execution unit block.  Older full registrations do
 /// not acquire selector semantics merely because a caller supplied `--unit`.
+#[cfg(not(verus_keep_ghost))]
 pub fn overlap(a: &str, b: &str) -> bool {
     let (a, b) = (std::path::Path::new(a), std::path::Path::new(b));
     a.starts_with(b) || b.starts_with(a)
@@ -94,6 +139,7 @@ pub fn overlap(a: &str, b: &str) -> bool {
 /// Validate a caller-supplied collection manifest against every registered
 /// publication destination. This is the single path owner used by the scoped
 /// adapter, full runner and offline collector.
+#[cfg(not(verus_keep_ghost))]
 pub fn validate_collection_paths(
     manifest: &str,
     report_path: &str,
@@ -110,6 +156,7 @@ pub fn validate_collection_paths(
     }
     Ok(())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn report_paths(profile: &serde_json::Value, evidence: Option<&str>) -> Result<(), String> {
     let Some(block) = profile.get("execution_units") else {
         return Ok(());
@@ -158,6 +205,7 @@ pub fn report_paths(profile: &serde_json::Value, evidence: Option<&str>) -> Resu
     }
     Ok(())
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn full_execution_units(
     profile: &serde_json::Value,
 ) -> Result<Option<serde_json::Value>, String> {
@@ -224,6 +272,7 @@ pub fn full_execution_units(
     })))
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn id(s: &str) -> Result<(), String> {
     if !crate::verified_identifiers::valid_id(s.as_bytes()) {
         return Err(format!("invalid CI unit ID: {s:?}"));
@@ -231,6 +280,7 @@ pub fn id(s: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn artifact_path(path: &str) -> Result<(), String> {
     relative_path(path)?;
     if !path.starts_with(".chrono-harness/state/") {
@@ -241,6 +291,7 @@ pub fn artifact_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Scope {
     pub fn contract_argv(&self, profile: &serde_json::Value) -> Vec<String> {
         if profile["schema_version"] == 4 {
@@ -283,6 +334,7 @@ impl Scope {
 }
 
 /// Explicit bounded state input reader shared by registration bootstrap and projects admission.
+#[cfg(not(verus_keep_ghost))]
 pub fn read_bounded(root: &std::path::Path, path: &str, limit: u64) -> Result<Vec<u8>, String> {
     use std::io::Read;
     artifact_path(path)?;
