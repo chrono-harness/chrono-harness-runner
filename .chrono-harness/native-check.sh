@@ -106,7 +106,7 @@ collect_root "${cli[@]}"
 collect_root "$tests/verified_paths.rs" "${paths[@]}"
 collect_root "$tests/verified_fixture.rs" "$tests/support/cli_child.rs" "$tests/support/isolated_capability.rs" \
   crates/test-process/src/lib.rs "$tests/protocol_v1.rs" "$tests/retention.rs"
-collect_root "$tests/verified_status.rs" "${status[@]}"
+collect_root "$tests/verified_status.rs" "${status[@]}" "$tests/cli_contract.rs"
 collect_root "$tests/verified_limits.rs" "${limits[@]}"
 collect_root "$tests/verified_shallow_reads.rs" "$src/verified_shallow_reads.rs" crates/proofs/identifiers/src/lib.rs
 collect_root "$tests/maintenance_signal.rs" "${maintenance[@]}"

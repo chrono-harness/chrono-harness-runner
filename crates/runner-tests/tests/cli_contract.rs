@@ -1,12 +1,45 @@
+#![allow(unexpected_cfgs)]
+#[cfg(verus_keep_ghost)]
+use super::{
+    policy::{CheckResult, Status as ReportStatus},
+    scope_text as text,
+};
+#[cfg(not(verus_keep_ghost))]
+use chrono_harness::{CheckResult, Status as ReportStatus, verified_identifiers as text};
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// Only the judge's response determines whether the original failure survived.
+pub(crate) fn original_failure(status: &ReportStatus, results: &[CheckResult]) -> (ok: bool)
+    ensures ok == (matches!(status, ReportStatus::Failed) && results.len() == 1
+        && results@[0].id@ == "external"@ && (results@[0].status is Failed)
+        && results@[0].cause@ == "real execution"@ && results@[0].exit_code == Some(7i32)),
+{
+    matches!(status, ReportStatus::Failed) && results.len() == 1
+        && text::equal_text(results[0].id.as_str(), "external")
+        && matches!(results[0].status, ReportStatus::Failed)
+        && text::equal_text(results[0].cause.as_str(), "real execution")
+        && results[0].exit_code == Some(7i32)
+}
+}
+#[cfg(not(verus_keep_ghost))]
 #[path = "support/native_executable.rs"]
 mod native_executable;
 
+#[cfg(not(verus_keep_ghost))]
 use chrono_harness::{CommandSpec, Status, dispatch, run_process};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
 
+#[cfg(not(verus_keep_ghost))]
 use std::{fs, path::Path, process::Command};
+#[cfg(not(verus_keep_ghost))]
 use tempfile::TempDir;
 
+#[cfg(not(verus_keep_ghost))]
 const CHILD: &str = env!("CARGO_BIN_EXE_chrono-test-cli-child");
 
 #[test]
@@ -693,8 +726,10 @@ fn runner_output_publication_keeps_both_failures_and_does_not_replay_partial_pay
     );
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Default)]
 struct PublicationCapture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+#[cfg(not(verus_keep_ghost))]
 impl std::io::Write for PublicationCapture {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.lock().unwrap().extend_from_slice(bytes);
@@ -1257,6 +1292,7 @@ fn standard_sha256_vectors_match_memory_stream_and_file() {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn fixture(case: Value) -> (TempDir, String) {
     let dir = tempfile::tempdir_in(std::path::Path::new(CHILD).parent().unwrap()).unwrap();
     fs::create_dir_all(dir.path().join(".chrono-harness/ci")).unwrap();
@@ -1270,6 +1306,7 @@ fn fixture(case: Value) -> (TempDir, String) {
     let name = path.to_str().unwrap().to_string();
     (dir, name)
 }
+#[cfg(not(verus_keep_ghost))]
 fn run(path: &str) -> chrono_harness::CliOutput {
     dispatch(&[
         "check",
@@ -1312,6 +1349,7 @@ fn retained_reference_cli_subprocess_helper() {
     );
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn run_retained_cli_child(root: &Path, source: &str) -> Value {
     let output = Command::new(std::env::current_exe().unwrap())
         .args([
@@ -1358,6 +1396,7 @@ fn retained_reference_local_fixture_preserves_assertions_under_each_enclosing_so
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn retained_cli_config() -> Value {
     let shell = env!("CARGO_BIN_EXE_chrono-test-cli-child");
     let shell_hash = chrono_harness::sha256(&fs::read(shell).unwrap());
@@ -2109,8 +2148,13 @@ fn actual_failure_is_preserved() {
         "id":"external","status":"failed","cause":"real execution","exit_code":7}]}}));
     let r = run(&p);
     assert_eq!(r.exit_code, 1);
-    assert!(r.stdout.contains("registered") == false);
-    assert!(r.stdout.contains("\"exit_code\": 7"));
+    let report: Value = serde_json::from_str(&r.stdout).unwrap();
+    let response: chrono_harness::Response =
+        serde_json::from_value(report["response"].clone()).unwrap();
+    assert!(
+        original_failure(&response.status, &response.results),
+        "{response:?}"
+    );
 }
 #[test]
 fn malformed_empty_and_identity_mismatch_fail() {
