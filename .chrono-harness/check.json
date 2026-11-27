@@ -24,6 +24,15 @@
     ],
     "adoption_base": "f870460921d6d99fe7fcbbf92246984ddad3b5cd",
     "operation_timeout_seconds": 1800,
-    "operation_output_limit_bytes": 1048576
+    "operation_output_limit_bytes": 1048576,
+    "inherit_environment": [
+      "HOME",
+      "PATH",
+      "TMPDIR",
+      "CARGO_HOME",
+      "RUSTUP_HOME",
+      "CARGO_TARGET_DIR",
+      "VERUS"
+    ]
   }
 }

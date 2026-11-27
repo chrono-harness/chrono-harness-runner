@@ -94,6 +94,8 @@ workflow 判官通过同一会话的 `shallow-boundaries` 读取 Git 报出的�
 
 项目收集器通过 `judge-evidence-v1` 的 `unit-tests`、`collection-paths`、`artifact-directories` 和 `retained-entry` 核对已登记的测试、收集路径与封存的启动命令。`selected-host-config-v1` 从标准输入读取宿主配置的相对路径，输出当前平台选中的配置。
 
+直接运行 scoped 检查且配置没有准备阶段时，判官继承调用者环境。返回和落盘的报告在 judge.environment 中按变量名保存值的 SHA-256，judge.environment_representation 标为 sha256。judge.environment_digest 绑定运行时的完整有效环境。显式 unit 的 judge.unit_environment_digest 绑定三个按顺序排列的 JSON 元素：原始环境摘要、逐值身份对象、程序候选列表。裸程序名的 judge.program_candidates_sha256 按生产者 PATH 顺序记录每个候选绝对路径的 JCS SHA-256；含斜杠的登记路径在三元组中使用 null。 判官的 stdout 和 stderr 保留原始内容。
+
 scoped CI 在 `judge-evidence-v1` 中使用 `scoped-report-path` 和 `scoped-reference-publication` 查询当前 profile 的发布合同，使用 `checkout-index-issue` 核对固定工作树的 index 标志。`check-invocation-v1` 的 `scoped-request` 模式接收完整 scoped request、其登记配置和 `admit_entry`。本地执行和离线收集由同一入口核对适用的原调用参数和准备阶段身份。
 
 

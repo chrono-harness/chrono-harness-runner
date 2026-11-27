@@ -26,6 +26,17 @@ use policy::identifiers;
 mod retention_frontier;
 
 verus! {
+#[cfg(verus_keep_ghost)]
+fn scoped_environment_receipt(process: u64) {
+    let project = |value: u64| -> (result: u64)
+        ensures result == !value,
+    { !value };
+    let prepared = policy::scoped_report::judge_environment(process, true, project);
+    let inherited = policy::scoped_report::judge_environment(process, false, project);
+    assert(prepared.0 == process && prepared.1.is_none());
+    assert(inherited.0 == !process && inherited.1 == Some("sha256"));
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn prepared_check_selects_only_the_same_checkout_and_observed_source() {
     use policy::{prepared_endpoints, prepared_scope, source_selector_matches};

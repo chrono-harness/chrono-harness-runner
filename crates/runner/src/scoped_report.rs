@@ -6,6 +6,19 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 verus! {
+/// A prepared judge already uses its declared environment contract. Project an
+/// inherited environment once before either success or failure is serialized.
+pub fn judge_environment<T, F>(process: T, prepared: bool, project: F)
+    -> (published: (T, Option<&'static str>))
+    where F: FnOnce(T) -> T,
+    requires project.requires((process,)),
+    ensures if prepared { published == (process, None::<&str>) }
+        else { project.ensures((process,), published.0)
+            && published.1 == Some("sha256") },
+{
+    if prepared { (process, None) } else { (project(process), Some("sha256")) }
+}
+
 /// Releasing a local slot is an opt-in terminal-success operation.
 pub fn local_slot_expired(deadline: u64, observed: u64, successful: bool, sole_consumer: bool) -> (release: bool)
     ensures release == (deadline <= observed && successful && sole_consumer),

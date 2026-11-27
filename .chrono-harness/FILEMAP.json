@@ -332,7 +332,11 @@
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/projects.json",
