@@ -160,7 +160,7 @@ pub(crate) fn validate_cargo(
         selected.push(serde_json::json!({"path":path,"original":row.original,"sources":sources}));
     }
     let input = serde_json::json!({"receipt":archive.receipt,"stdout":std::str::from_utf8(&raw).map_err(|e|e.to_string())?,"contract":contract,"roots":selected});
-    let result = crate::installed_query::inherited(
+    let result = crate::installed_query::host_tool(
         root,
         "chrono-host-bootstrap",
         "validate-cargo-proof-originals",

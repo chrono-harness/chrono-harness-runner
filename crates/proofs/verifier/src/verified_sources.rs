@@ -1471,7 +1471,7 @@ pub fn has_cargo_root_argument(args: &Vec<String>, root: &str) -> (found: bool)
 }
 
 pub open spec fn proof_root_argument(args: Seq<String>, root: Seq<char>) -> bool {
-    (super::verifier_arguments(args) && args[8]@ == root) || cargo_root_argument(args,root)
+    if super::verifier_arguments(args) { args[8]@ == root } else { cargo_root_argument(args, root) }
 }
 
 /// 使用已选中计划中的真实方法；登记存在不能代替本次选择。
@@ -1500,8 +1500,11 @@ fn planned_root(root: &SourceProofRoot, methods: &Vec<super::ProofInvocation>) -
     }
     let method = &methods[index];
     if method.output_contract.is_none() || super::validate_contract(method.output_contract).is_err() { return false; }
-    (super::canonical_verifier_arguments(method.argv) && super::equal_text(method.argv[8].as_str(), root.path.as_str()))
-        || has_cargo_root_argument(method.argv, root.path.as_str())
+    if super::canonical_verifier_arguments(method.argv) {
+        super::equal_text(method.argv[8].as_str(), root.path.as_str())
+    } else {
+        has_cargo_root_argument(method.argv, root.path.as_str())
+    }
 }
 
 pub open spec fn file_plan_error(

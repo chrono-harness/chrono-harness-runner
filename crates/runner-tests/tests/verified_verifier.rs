@@ -1389,6 +1389,12 @@ fn changing_one_root_preserves_other_roots_scope_but_source_changes_require_both
     assert(policy::sources::root_planned(&files.entries[0].verification.unwrap().roots[0], methods@));
     let only_changed_root = policy::sources::validate_selected_roots(&files, &root, &methods, &Vec::new(), &policy::sources::continuity::Continuity::empty());
     expect_verifier_true(only_changed_root.is_ok());
+    proof {
+        reveal_strlit("proof"); reveal_strlit("other");
+        assert("proof"@.len() == "other"@.len());
+        assert("proof"@[0] != "other"@[0]);
+        assert(!policy::sources::root_planned(&files.entries[0].verification.unwrap().roots[1], methods@));
+    }
     let both_required = policy::sources::validate_selected_roots(&files, &source, &methods, &Vec::new(), &policy::sources::continuity::Continuity::empty());
     expect_verifier_true(both_required.is_err());
 }
@@ -1448,6 +1454,12 @@ fn selected_proof_rejects_duplicate_methods_wrong_roots_and_noncanonical_argumen
     other_root[8] = "Root".to_string();
     let wrong = vec![policy::ProofInvocation { operation: "proof", argv: &other_root,
         output_contract: &output, output_limit_bytes: 4096 }];
+    proof {
+        reveal_strlit("root"); reveal_strlit("Root");
+        assert("root"@[0] != "Root"@[0]);
+        assert(policy::verifier_arguments(other_root@));
+        assert(!policy::sources::root_planned(&files.entries[0].verification.unwrap().roots[0], wrong@));
+    }
     let mismatch = policy::sources::validate_selected_roots(&files, &affected, &wrong, &Vec::new(), &policy::sources::continuity::Continuity::empty());
     expect_verifier_true(mismatch.is_err());
     let invalid = Vec::new();
