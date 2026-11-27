@@ -28,6 +28,33 @@ pub use crate::process_child::{ProbeAction, probe_action};
 #[cfg(verus_keep_ghost)]
 pub use process_child::{ProbeAction, probe_action};
 
+#[cfg(verus_keep_ghost)]
+#[path = "process_fds.rs"]
+mod process_fds;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::process_fds::{ownership_source, select_private_copy};
+#[cfg(verus_keep_ghost)]
+pub use process_fds::{ownership_source, select_private_copy};
+
+#[cfg(verus_keep_ghost)]
+#[path = "retained_artifacts/session/descriptors.rs"]
+mod descriptor_batch;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::retained_artifacts::session::descriptors::{
+    BatchError, DESCRIPTOR_BATCH, send_descriptor_batch,
+};
+#[cfg(verus_keep_ghost)]
+pub use descriptor_batch::{BatchError, DESCRIPTOR_BATCH, send_descriptor_batch};
+
+#[cfg(verus_keep_ghost)]
+#[path = "retained_artifacts/session.rs"]
+#[rustfmt::skip]
+mod removal_session;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::retained_artifacts::session::{AcquisitionError, acquire_removal};
+#[cfg(verus_keep_ghost)]
+pub use removal_session::{AcquisitionError, acquire_removal};
+
 verus! {
 
 pub struct CapturedStreams<'a> {
