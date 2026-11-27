@@ -10,6 +10,33 @@ use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::{prelude::*, vpanic as panic};
 
+#[cfg(verus_keep_ghost)]
+#[path = "../../runner/src/canonical_request.rs"]
+mod canonical_request;
+#[cfg(verus_keep_ghost)]
+#[path = "../../runner/src/wire.rs"]
+mod wire_contract;
+
+#[cfg(verus_keep_ghost)]
+verus! {
+fn v1_projection_edges_and_retained_identity(recorded: &String, matching: String, other: String, error: String)
+    requires recorded@ == matching@, recorded@ != other@,
+{
+    let lower = canonical_request::direct_integer(-9_007_199_254_740_992);
+    let upper = canonical_request::direct_integer(9_007_199_254_740_992);
+    let below = canonical_request::direct_integer(-9_007_199_254_740_993);
+    let above = canonical_request::direct_integer(9_007_199_254_740_993);
+    assert(lower && upper && !below && !above);
+    let same = wire_contract::check_request_identity(recorded, Ok(matching));
+    assert(same.is_ok());
+    let different = wire_contract::check_request_identity(recorded, Ok(other));
+    assert(different.is_err());
+    let ghost expected = error@;
+    let failure = wire_contract::check_request_identity(recorded, Err(error));
+    match failure { Err(text) => assert(text@ == expected), Ok(()) => assert(false) }
+}
+}
+
 verus! {
 fn expect(value: bool) requires value, { if !value { panic!(); } }
 
@@ -107,4 +134,31 @@ fn raw_observation_objects_retain_their_wire_type() {
         br#"[{"$serde_json::private::Number":"4.50"}]"#
     );
     assert_eq!(wire::canonical(&[number]).unwrap(), b"[4.5]");
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn generic_identity_preserves_typed_numbers_keys_and_errors() {
+    use chrono_harness::wire::canonical;
+    use serde::Serialize;
+    use std::collections::BTreeMap;
+
+    #[derive(Serialize)]
+    enum Event {
+        Limit(u128),
+    }
+    assert_eq!(
+        canonical(&BTreeMap::from([(u64::MAX, Event::Limit(u128::MAX))])).unwrap(),
+        br#"{"18446744073709552000":{"Limit":3.402823669209385e+38}}"#
+    );
+    assert_eq!(
+        canonical(&[0.1_f32, f32::NAN]).unwrap(),
+        b"[0.10000000149011612,null]"
+    );
+    assert!(canonical(&f64::INFINITY).is_err());
+    assert!(canonical(&i128::MAX).is_err());
+    assert_eq!(
+        canonical(&Some(i128::MIN)).unwrap(),
+        b"-1.7014118346046923e+38"
+    );
 }
