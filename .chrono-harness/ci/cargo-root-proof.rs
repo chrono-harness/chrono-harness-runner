@@ -1,15 +1,4 @@
-//! Direct root for the host that publishes the Cargo-aware verifier.
-pub extern crate self as chrono_identifiers;
-pub extern crate self as chrono_verifier;
-#[path = "../../crates/proofs/identifiers/src/lib.rs"]
-mod identity;
-pub use identity::*;
-#[path = "../../crates/proofs/verifier/src/lib.rs"]
-mod compiler_policy;
-pub use compiler_policy::*;
-#[path = "../../crates/runner-tests/tests/verified_verifier.rs"]
-mod independent;
-
+//! Source, output and installed-tool checks for Cargo evidence replay.
 #[path = "../../crates/runner/src/route_evidence.rs"]
 mod route_evidence;
 #[path = "../../crates/runner/src/git_facts_output.rs"]
