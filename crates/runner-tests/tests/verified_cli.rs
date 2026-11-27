@@ -465,4 +465,72 @@ fn errors_expose_the_observed_writer_then_the_recorded_source() {
     expect_true(policy::received_source(None, empty).is_none());
 }
 
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn both_output_failures_keep_stdout_primary_and_stderr_secondary() {
+    let unused = |a: u16, b: u16| -> (joined: u16) requires false { panic!() };
+    expect_true(policy::channel_failures(None::<u16>, None, unused).is_ok());
+    match policy::channel_failures(Some(17u16), None, unused) {
+        Err(x) => expect_true(x == 17),
+        Ok(()) => panic!(),
+    }
+    match policy::channel_failures(None, Some(43u16), unused) {
+        Err(x) => expect_true(x == 43),
+        Ok(()) => panic!(),
+    }
+    let combine = |a: u16, b: u16| -> (joined: u16)
+        requires a == 17 && b == 43,
+        ensures joined == a * 100 + b,
+    { a * 100 + b };
+    match policy::channel_failures(Some(17u16), Some(43u16), combine) {
+        Err(x) => expect_true(x == 1743),
+        Ok(()) => panic!(),
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn diagnostics_append_a_separator_only_after_a_non_newline_byte() {
+    expect_true(!policy::needs_separator(None));
+    expect_true(!policy::needs_separator(Some(10u8)));
+    expect_true(policy::needs_separator(Some(13u8)));
+    expect_true(policy::needs_separator(Some(0u8)));
+    expect_true(policy::needs_separator(Some(255u8)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn completed_projection_uses_the_exact_published_locator_if_present() {
+    let prior = "old/报告\0";
+    let actual = "new/记录\n路径";
+    match policy::original_locator(Some(actual), Some(prior)) {
+        Some(path) => expect_text(path, actual),
+        None => panic!(),
+    }
+    match policy::original_locator(None, Some(prior)) {
+        Some(path) => expect_text(path, prior),
+        None => panic!(),
+    }
+    match policy::original_locator(Some(""), Some(prior)) {
+        Some(path) => expect_text(path, ""),
+        None => panic!(),
+    }
+    expect_true(policy::original_locator(None, None).is_none());
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn the_short_console_preserves_only_failed_or_blocked_operation_rows() {
+    proof {
+        reveal_strlit("failed"); reveal_strlit("blocked"); reveal_strlit("passed");
+        reveal_strlit("fail"); reveal_strlit("blocked "); reveal_strlit("");
+        assert("passed"@[0] == 'p'); assert("failed"@[0] == 'f');
+        assert("blocked"@[0] == 'b'); assert("fail"@.len() == 4);
+        assert("blocked "@.len() == 8);
+        assert(""@.len() == 0); assert("failed"@.len() == 6); assert("blocked"@.len() == 7);
+    }
+    expect_true(policy::display_operation("failed"));
+    expect_true(policy::display_operation("blocked"));
+    expect_true(!policy::display_operation("passed"));
+    expect_true(!policy::display_operation("fail"));
+    expect_true(!policy::display_operation("blocked "));
+    expect_true(!policy::display_operation(""));
+}
+
 }

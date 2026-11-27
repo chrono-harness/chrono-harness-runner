@@ -25,6 +25,22 @@ pub use crate::process_error::received_source;
 #[cfg(verus_keep_ghost)]
 pub use process_error::received_source;
 
+#[cfg(verus_keep_ghost)]
+#[path = "publication.rs"]
+mod publication;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::publication::{channel_failures, needs_separator};
+#[cfg(verus_keep_ghost)]
+pub use publication::{channel_failures, needs_separator};
+
+#[cfg(verus_keep_ghost)]
+#[path = "short_console.rs"]
+mod short_console;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::short_console::{display_operation, original_locator};
+#[cfg(verus_keep_ghost)]
+pub use short_console::{display_operation, original_locator};
+
 verus! {
 
 /// Return the original failed operation and its stream phase.
