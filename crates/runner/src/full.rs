@@ -19,40 +19,38 @@ pub(crate) fn schedule_mode(
     selector: &str,
     mode: &str,
 ) -> Result<Vec<Binding>, String> {
-    let mut pending = BTreeMap::new();
+    use crate::verified_status::judge_schedule::{self, Declaration, Error};
+    // Intern the original strings once. BTreeMap's UTF-8 key order defines the rank
+    // for both declarations and references, including undeclared predecessor names.
+    let mut ids = BTreeMap::new();
     for b in bindings {
-        if b.id.is_empty() || pending.insert(b.id.clone(), b.clone()).is_some() {
-            return Err("duplicate/empty judge ID".into());
-        }
-        if b.selector != selector || b.modes != [mode] {
-            return Err("unsupported judge transport selection/mode".into());
-        }
-        if b.after.iter().collect::<BTreeSet<_>>().len() != b.after.len() {
-            return Err("duplicate predecessor".into());
+        ids.insert(b.id.as_str(), 0);
+        for parent in &b.after {
+            ids.insert(parent.as_str(), 0);
         }
     }
-    if pending.is_empty() {
-        return Err("no configured judges".into());
+    for (rank, slot) in ids.values_mut().enumerate() {
+        *slot = rank;
     }
-    for b in bindings {
-        for id in &b.after {
-            if !pending.contains_key(id) {
-                return Err(format!("missing predecessor {id}"));
-            }
-        }
+    let rows: Vec<_> = bindings
+        .iter()
+        .map(|b| Declaration {
+            id: ids[b.id.as_str()],
+            empty: b.id.is_empty(),
+            selector: &b.selector,
+            modes: &b.modes,
+            after: b.after.iter().map(|p| ids[p.as_str()]).collect(),
+        })
+        .collect();
+    match judge_schedule::schedule(&rows, selector, mode) {
+        Ok(order) => Ok(order.into_iter().map(|i| bindings[i].clone()).collect()),
+        Err(Error::Id) => Err("duplicate/empty judge ID".into()),
+        Err(Error::Transport) => Err("unsupported judge transport selection/mode".into()),
+        Err(Error::DuplicatePredecessor) => Err("duplicate predecessor".into()),
+        Err(Error::Empty) => Err("no configured judges".into()),
+        Err(Error::Missing(i, j)) => Err(format!("missing predecessor {}", bindings[i].after[j])),
+        Err(Error::Cycle) => Err("judge dependency cycle".into()),
     }
-    let mut ordered = vec![];
-    let mut done = BTreeSet::new();
-    while !pending.is_empty() {
-        let id = pending
-            .iter()
-            .find(|(_, b)| b.after.iter().all(|id| done.contains(id)))
-            .map(|(id, _)| id.clone())
-            .ok_or("judge dependency cycle")?;
-        ordered.push(pending.remove(&id).ok_or("missing scheduled judge")?);
-        done.insert(id);
-    }
-    Ok(ordered)
 }
 /// The single original stdin construction rule. History never contains requests.
 pub fn predecessor(record: &Value) -> Value {

@@ -42,6 +42,9 @@ pub mod paths;
 #[cfg(not(verus_keep_ghost))]
 use crate::verified_paths as paths;
 
+#[path = "judge_schedule.rs"]
+pub mod judge_schedule;
+
 #[path = "verified_scope.rs"]
 pub mod scopes;
 
