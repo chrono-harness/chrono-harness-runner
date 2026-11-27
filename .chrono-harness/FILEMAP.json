@@ -1724,7 +1724,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/git_object_ids.rs",
+            "operation": "verify.git-object-ids"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/input_file.rs",

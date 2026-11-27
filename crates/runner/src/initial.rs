@@ -1,15 +1,55 @@
 //! Explicit single-endpoint inventory transport. It never constructs a DELTA base.
+#[cfg(verus_keep_ghost)]
+use crate::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub(super) fn check_initial_profile(actual: &[u8], committed: &[u8]) -> (out: Result<(), &'static str>)
+    ensures out == if actual@ == committed@ { Ok::<(), &str>(()) }
+        else { Err::<(), &str>("initial profile differs from candidate") },
+{
+    if identifiers::equal_bytes(actual, committed) { Ok(()) }
+    else { Err("initial profile differs from candidate") }
+}
+
+pub(super) fn require_parentless(parents: usize) -> (out: Result<(), &'static str>)
+    ensures out == if parents == 0 { Ok::<(), &str>(()) }
+        else { Err::<(), &str>("initial inventory requires parentless commit") },
+{
+    if parents == 0 { Ok(()) } else { Err("initial inventory requires parentless commit") }
+}
+
+/// The runner's existing WireStatus contract maps pass/warn to 0, fail to 1 and error to 2.
+pub(super) fn inventory_status(exit: i32) -> (label: &'static str)
+    ensures label == if exit == 0 { "complete" } else if exit == 1 { "failed" } else { "error" },
+{
+    match exit { 0 => "complete", 1 => "failed", _ => "error" }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     ProcessResult, decode, facts, full, no_symlink_parents, sha256,
     wire::{self, Binding, Checkout, Endpoint, Executable, Response, Status, TransportFailure},
 };
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json as value};
+#[cfg(not(verus_keep_ghost))]
 use std::{collections::BTreeMap, fs, path::Path};
 
+#[cfg(not(verus_keep_ghost))]
 pub const PROFILE: &str = "chrono-initial-check/v1";
+#[cfg(not(verus_keep_ghost))]
 pub const PROTOCOL: &str = "chrono-initial-judge/v1";
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
@@ -19,6 +59,7 @@ pub struct Profile {
     pub timeout_seconds: u64,
     pub stdout_limit_bytes: usize,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Profile {
     pub fn validate(&self) -> Result<(), String> {
         crate::relative_path(&self.host_config)?;
@@ -43,6 +84,7 @@ impl Profile {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
@@ -60,6 +102,7 @@ pub struct Request {
     pub observations: Value,
     pub prior_results: Vec<Response>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Request {
     fn identity(&self) -> Result<String, String> {
         let mut v = serde_json::to_value(self).map_err(|e| e.to_string())?;
@@ -98,6 +141,7 @@ impl Request {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn invoke(
     req: &Request,
     b: &Binding,
@@ -157,6 +201,7 @@ pub fn invoke(
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn check(
     root: &Path,
     profile_path: &str,
@@ -169,12 +214,9 @@ pub fn check(
     let reader = facts::Reader::for_config(root, &profile.host_config)?;
     reader.verify_config(root, candidate)?;
     let tree = reader.verify_oid(root, candidate)?;
-    if reader.blob(root, candidate, profile_path)? != bytes {
-        return Err("initial profile differs from candidate".into());
-    }
-    if !reader.parents(root, candidate)?.is_empty() {
-        return Err("initial inventory requires parentless commit".into());
-    }
+    let committed_profile = reader.blob(root, candidate, profile_path)?;
+    check_initial_profile(&bytes, &committed_profile)?;
+    require_parentless(reader.parents(root, candidate)?.len())?;
     let registries = reader.registry_values(root, candidate, &profile.host_config)?;
     let identity = facts::registry_identity(&registries, &profile.host_config)?;
     let cfg = registries
@@ -303,7 +345,7 @@ pub fn check(
     let state = no_symlink_parents(root, directory.trim_end_matches('/'))?;
     fs::create_dir_all(&state).map_err(|e| e.to_string())?;
     let mut report = value!({"schema":"chrono-initial-report/v1","git_facts":reader.observation(),"scope":"initial-inventory",
-        "status":match status {Status::Pass|Status::Warn=>"complete",Status::Fail=>"failed",Status::Error=>"error"},
+        "status":inventory_status(status.exit_code()),
         "base":null,"delta":null,"candidate":candidate,"candidate_tree":tree,"governance":"not-evaluated",
         "previous_enforcement":"none","parity":"unestablished","profile_path":profile_path,"profile_sha256":request.profile_sha256,
         "registry_digest":request.registry_digest,"runner":runner,"environment":request.observations["environment"],"entry":request.observations["entry"],"preparation":request.observations["entry"]["preparation"],"judges":records});

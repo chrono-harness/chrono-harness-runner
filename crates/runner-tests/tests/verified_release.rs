@@ -27,6 +27,32 @@ mod retention_frontier;
 
 verus! {
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn prepared_check_selects_only_the_same_checkout_and_observed_source() {
+    use policy::{prepared_endpoints, prepared_scope, source_selector_matches};
+    proof { reveal_strlit("a"); reveal_strlit("b"); reveal_strlit("ci"); reveal_strlit("local");
+        assert("a"@[0] != "b"@[0] && "ci"@[0] != "local"@[0]); }
+    expect_true(prepared_scope(true, false, true, false, false));
+    expect_true(prepared_scope(false, true, true, true, true));
+    expect_true(prepared_scope(true, false, false, true, true));
+    expect_true(!prepared_scope(false, false, false, false, false));
+    expect_true(!prepared_scope(true, true, false, false, false));
+    expect_true(!prepared_scope(true, false, true, true, false));
+    expect_true(!prepared_scope(true, false, true, false, true));
+    expect_true(prepared_endpoints(Some("a"), Some("a"), "b", "b", false, false));
+    expect_true(prepared_endpoints(None, None, "a", "a", true, true));
+    expect_true(!prepared_endpoints(Some("a"), None, "b", "b", false, false));
+    expect_true(!prepared_endpoints(None, Some("a"), "b", "b", false, false));
+    expect_true(!prepared_endpoints(Some("a"), Some("b"), "b", "b", false, false));
+    expect_true(!prepared_endpoints(None, None, "a", "b", true, true));
+    expect_true(!prepared_endpoints(None, None, "a", "a", true, false));
+    expect_true(source_selector_matches("local", "local", None));
+    expect_true(source_selector_matches("ci", "ci", Some(true)));
+    expect_true(!source_selector_matches("local", "ci", Some(true)));
+    expect_true(!source_selector_matches("ci", "ci", None));
+    expect_true(!source_selector_matches("local", "local", Some(false)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn local_collection_alone_requires_two_ordered_producers() {
     let n = policy::receipt_count(true, true);
     assert(n == 2);
