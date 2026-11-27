@@ -85,6 +85,10 @@ fn main() {
 fn judge() {
     assert!(std::env::var_os("CHRONO_TEST_PREPARATION_JOB").is_none());
     let case: Value = serde_json::from_slice(&std::fs::read("cli-case.json").unwrap()).unwrap();
+    if let Some(expected) = case["inherited_sha256"].as_str() {
+        let received = std::env::var("CHRONO_TEST_SCOPED_INPUT").unwrap();
+        assert_eq!(chrono_harness::sha256(received.as_bytes()), expected);
+    }
     match case["kind"].as_str().unwrap_or("response") {
         "sleep" => {
             std::thread::sleep(std::time::Duration::from_secs(8));

@@ -332,7 +332,11 @@
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".chrono-harness/projects.json",
@@ -1874,7 +1878,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_status.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_status.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/ownership.rs",
@@ -1886,7 +1903,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_status.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_status.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/prepared.rs",

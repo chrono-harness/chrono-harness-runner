@@ -1,10 +1,40 @@
 //! Stable, identity-bound kernel capabilities for an opted-in enrollment.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// A failed create may reopen a preexisting lease only for an unbound enrolment.
+pub fn reopen_existing_lease(already_exists: bool, expected: Option<&str>) -> (reopen: bool)
+    ensures reopen == (already_exists && expected.is_none()),
+{
+    already_exists && expected.is_none()
+}
+
+/// Metadata must describe the requested physical file or directory.
+pub fn physical_lease_entry(expected_kind: bool, is_symlink: bool) -> (valid: bool)
+    ensures valid == (expected_kind && !is_symlink),
+{
+    expected_kind && !is_symlink
+}
+
+/// Only the synchronous owner releases a local directory operation on return.
+pub fn release_local_directory(local: bool, owner_pid: u32, current_pid: u32) -> (out: bool)
+    ensures out == (local && owner_pid == current_pid),
+{
+    local && owner_pid == current_pid
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use std::{
     fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
+#[cfg(not(verus_keep_ghost))]
 pub struct Lease {
     file: File,
     path: PathBuf,
@@ -17,6 +47,7 @@ pub struct Lease {
 /// Metadata exclusion on the addressed directory itself. Removing an empty
 /// registration does not leave a separate lock file or authorize a detached
 /// waiter to publish into a replacement directory.
+#[cfg(not(verus_keep_ghost))]
 pub struct DirectoryLease {
     file: File,
     path: PathBuf,
@@ -26,6 +57,7 @@ pub struct DirectoryLease {
     #[cfg(unix)]
     _scope: Option<crate::process_fds::Scope>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl DirectoryLease {
     pub fn acquire(
         path: &Path,
@@ -120,13 +152,16 @@ impl DirectoryLease {
     }
     pub fn stable(&self) -> Result<(), String> {
         let m = fs::symlink_metadata(&self.path).map_err(|e| e.to_string())?;
-        if !m.is_dir() || m.file_type().is_symlink() {
+        if !physical_lease_entry(m.is_dir(), m.file_type().is_symlink()) {
             return Err("held metadata directory changed".into());
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            if format!("{}:{}", m.dev(), m.ino()) != self.id {
+            if !crate::verified_identifiers::equal_text(
+                &format!("{}:{}", m.dev(), m.ino()),
+                &self.id,
+            ) {
                 return Err("held metadata directory identity changed".into());
             }
         }
@@ -134,24 +169,22 @@ impl DirectoryLease {
         Ok(())
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for DirectoryLease {
     fn drop(&mut self) {
         #[cfg(unix)]
-        if crate::verified_status::release_local_directory(
-            self.local,
-            self.owner_pid,
-            std::process::id(),
-        ) {
+        if release_local_directory(self.local, self.owner_pid, std::process::id()) {
             use std::os::fd::AsRawFd;
             // A forked copy must never unlock its parent's live operation.
             unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn identity(path: &Path) -> Result<String, String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|e| format!("ownership identity {}: {e}", path.display()))?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
+    if !physical_lease_entry(metadata.is_file(), metadata.file_type().is_symlink()) {
         return Err("ownership lease must be a physical regular file".into());
     }
     #[cfg(unix)]
@@ -164,6 +197,7 @@ pub fn identity(path: &Path) -> Result<String, String> {
         Err("kernel ownership is unsupported on this platform".into())
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Lease {
     pub fn acquire(
         path: &Path,
@@ -203,7 +237,10 @@ impl Lease {
                 match options.create_new(true).open(path) {
                     Ok(file) => (file, true),
                     Err(e)
-                        if e.kind() == std::io::ErrorKind::AlreadyExists && expected.is_none() =>
+                        if reopen_existing_lease(
+                            e.kind() == std::io::ErrorKind::AlreadyExists,
+                            expected,
+                        ) =>
                     {
                         (
                             options
@@ -231,7 +268,9 @@ impl Lease {
                 return Err("ownership lease must be a regular file".into());
             }
             let id = format!("{}:{}", metadata.dev(), metadata.ino());
-            if expected.is_some_and(|v| v != id) || identity(path)? != id {
+            if !crate::verified_git_binding::matches_expected(&id, expected)
+                || !crate::verified_identifiers::equal_text(&identity(path)?, &id)
+            {
                 return Err("ownership lease identity changed; preserve work".into());
             }
             let began = Instant::now();
@@ -267,7 +306,7 @@ impl Lease {
                     Some(_) => std::thread::sleep(Duration::from_millis(10)),
                 }
             }
-            if identity(path)? != id {
+            if !crate::verified_identifiers::equal_text(&identity(path)?, &id) {
                 return Err("ownership lease replaced during acquisition".into());
             }
             let scope = crate::process_fds::Scope::new(&[file.as_fd()])?;
@@ -292,7 +331,7 @@ impl Lease {
     }
     pub fn stable(&self) -> Result<(), String> {
         let _ = self.file.metadata().map_err(|e| e.to_string())?;
-        if identity(&self.path)? != self.id {
+        if !crate::verified_identifiers::equal_text(&identity(&self.path)?, &self.id) {
             return Err("held ownership lease identity changed".into());
         }
         Ok(())

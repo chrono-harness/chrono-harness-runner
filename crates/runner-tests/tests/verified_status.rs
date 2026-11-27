@@ -29,6 +29,34 @@ use vstd::vpanic as panic;
 verus! {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn retained_process_checks_keep_the_observed_result_and_original_digest_error() {
+    let yes = || -> (out: bool) ensures out, { true };
+    let no = || -> (out: bool) ensures !out, { false };
+    let accepted = || -> (out: Result<bool, String>) ensures out == Ok::<bool, String>(true), { Ok(true) };
+    let different = || -> (out: Result<bool, String>) ensures out == Ok::<bool, String>(false), { Ok(false) };
+    let error = || -> (out: Result<bool, String>) ensures out matches Err(message) && message@ == "encoding error"@, {
+        Err("encoding error".to_string())
+    };
+    let valid = policy::retained_process_matches(0, false, yes, yes, accepted);
+    let exit = policy::retained_process_matches(7, false, yes, yes, error);
+    let failure = policy::retained_process_matches(0, true, yes, yes, error);
+    let digest = policy::retained_process_matches(0, false, no, yes, error);
+    let text = policy::retained_process_matches(0, false, yes, no, error);
+    let environment = policy::retained_process_matches(0, false, yes, yes, different);
+    let original = policy::retained_process_matches(0, false, yes, yes, error);
+    expect_status_true(matches!(valid, Ok(true)));
+    expect_status_true(matches!(exit, Ok(false)));
+    expect_status_true(matches!(failure, Ok(false)));
+    expect_status_true(matches!(digest, Ok(false)));
+    expect_status_true(matches!(text, Ok(false)));
+    expect_status_true(matches!(environment, Ok(false)));
+    match original {
+        Err(message) => expect_status_true(scope_text::equal_text(message.as_str(), "encoding error")),
+        Ok(_) => panic!(),
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn cloning_the_actual_report_result_preserves_every_field() {
     let original = policy::CheckResult {
         id: "build".to_string(), status: Status::Blocked,
@@ -1321,6 +1349,14 @@ fn snapshot_prefetch_failure_and_later_file_failure_preserve_only_the_real_prefi
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn local_directory_release_respects_owner_and_descendant_lifetimes() {
+    expect_status_true(policy::reopen_existing_lease(true, None));
+    expect_status_true(!policy::reopen_existing_lease(true, Some("known")));
+    expect_status_true(!policy::reopen_existing_lease(false, None));
+    expect_status_true(!policy::reopen_existing_lease(false, Some("known")));
+    expect_status_true(policy::physical_lease_entry(true, false));
+    expect_status_true(!policy::physical_lease_entry(false, false));
+    expect_status_true(!policy::physical_lease_entry(true, true));
+    expect_status_true(!policy::physical_lease_entry(false, true));
     expect_status_true(policy::release_local_directory(true, 10, 10));
     expect_status_true(!policy::release_local_directory(true, 10, 11));
     expect_status_true(!policy::release_local_directory(false, 10, 10));
