@@ -1,11 +1,43 @@
 //! Factual process/tool observations, without expected-version policy or work selection.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// The original process must succeed before we compare its bytes, text and environment.
+/// The digest operation can return its own error after the two streams match.
+pub fn retained_process_matches<D, T, E>(
+    exit_code: i32, failed: bool, digests: D, texts: T, environment: E,
+) -> (out: Result<bool, String>)
+    where D: FnOnce() -> bool, T: FnOnce() -> bool, E: FnOnce() -> Result<bool, String>,
+    requires digests.requires(()), texts.requires(()), environment.requires(()),
+    ensures if exit_code != 0 || failed {
+        out == Ok::<bool, String>(false)
+    } else {
+        exists|hashes: bool| #[trigger] digests.ensures((), hashes)
+            && if !hashes { out == Ok::<bool, String>(false) } else {
+                exists|readable: bool| #[trigger] texts.ensures((), readable)
+                    && if !readable { out == Ok::<bool, String>(false) } else { environment.ensures((), out) }
+            }
+    },
+{
+    if exit_code != 0 || failed || !digests() || !texts() { return Ok(false); }
+    environment()
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{CommandSpec, ProcessResult, resolve_program, run_process_observed, sha256};
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tool {
@@ -15,6 +47,7 @@ pub struct Tool {
     pub sha256: String,
     pub version: ProcessResult,
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn tool(
     root: &Path,
     program: &str,
@@ -56,15 +89,18 @@ pub fn tool(
 }
 
 /// Pure success and byte correspondence; no invocation or expected-version policy.
+#[cfg(not(verus_keep_ghost))]
 pub fn process_success(p: &ProcessResult) -> Result<(), String> {
-    if p.exit_code != 0
-        || p.failure.is_some()
-        || p.stdout_sha256 != sha256(&p.stdout_bytes)
-        || p.stderr_sha256 != sha256(&p.stderr_bytes)
-        || p.stdout != String::from_utf8_lossy(&p.stdout_bytes)
-        || p.stderr != String::from_utf8_lossy(&p.stderr_bytes)
-        || p.environment_digest != crate::wire::digest(&p.environment)?
-    {
+    if !retained_process_matches(
+        p.exit_code,
+        p.failure.is_some(),
+        || p.stdout_sha256 == sha256(&p.stdout_bytes) && p.stderr_sha256 == sha256(&p.stderr_bytes),
+        || {
+            p.stdout == String::from_utf8_lossy(&p.stdout_bytes)
+                && p.stderr == String::from_utf8_lossy(&p.stderr_bytes)
+        },
+        || Ok(p.environment_digest == crate::wire::digest(&p.environment)?),
+    )? {
         return Err("E_PROCESS_EVIDENCE: unsuccessful or inconsistent retained process".into());
     }
     Ok(())

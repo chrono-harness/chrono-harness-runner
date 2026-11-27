@@ -24,6 +24,14 @@ pub use crate::ownership::{physical_lease_entry, release_local_directory, reopen
 pub use ownership::{physical_lease_entry, release_local_directory, reopen_existing_lease};
 
 #[cfg(verus_keep_ghost)]
+#[path = "observation.rs"]
+mod process_observation;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::observation::retained_process_matches;
+#[cfg(verus_keep_ghost)]
+pub use process_observation::retained_process_matches;
+
+#[cfg(verus_keep_ghost)]
 #[path = "facts.rs"]
 pub mod fixed_source_read;
 #[cfg(not(verus_keep_ghost))]
