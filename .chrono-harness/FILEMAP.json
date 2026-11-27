@@ -53,31 +53,6 @@
       "edges": []
     },
     {
-      "path": "crates/runner/src/judge_schedule.rs",
-      "owner": "runner",
-      "surface": "product",
-      "cost": "unmeasured",
-      "edges": [
-        {
-          "kind": "test-execution",
-          "to": "test:runner"
-        }
-      ],
-      "verification": {
-        "role": "program",
-        "roots": [
-          {
-            "path": "crates/runner/src/verified_status.rs",
-            "operation": "runner.verify"
-          },
-          {
-            "path": "crates/runner-tests/tests/verified_status.rs",
-            "operation": "runner.verify"
-          }
-        ]
-      }
-    },
-    {
       "path": "docs/licenses/methodology-attribution.md",
       "owner": "runner",
       "surface": "documentation",
@@ -1750,7 +1725,45 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_status.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_status.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/runner/src/judge_schedule.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_status.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_status.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/initial.rs",

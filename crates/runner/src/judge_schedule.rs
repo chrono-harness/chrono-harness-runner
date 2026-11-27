@@ -259,38 +259,9 @@ pub open spec fn schedule_result(rows: Seq<Declaration>, selector: &str, mode: &
     }
 }
 
-pub fn schedule(rows: &[Declaration], selector: &str, mode: &str) -> (out: Result<Vec<usize>, Error>)
-    ensures schedule_result(rows@, selector, mode, out),
-{
-    let mut pending = BTreeMap::new();
-    let mut i = 0;
-    while i < rows.len()
-        invariant i <= rows.len(), pending@.len() == i, indexed(rows@, pending@),
-            pending@ == declaration_index(rows@, i as int), admitted(rows@, i as int, selector, mode),
-        decreases rows.len() - i,
-    {
-        let row = &rows[i];
-        if let Some(e) = check_entry(row, &pending, selector, mode) {
-            assert(admitted(rows@, i as int, selector, mode));
-            return Err(e);
-        }
-        pending.insert(row.id, i);
-        i += 1;
-    }
-    if rows.is_empty() { return Err(Error::Empty); }
-    i = 0;
-    while i < rows.len()
-        invariant i <= rows.len(), pending@.len() == rows.len(), indexed(rows@, pending@),
-            pending@ == declaration_index(rows@, rows.len() as int),
-            admitted(rows@, rows.len() as int, selector, mode), referenced(rows@, pending@, i as int),
-        decreases rows.len() - i,
-    {
-        if let Some(j) = first_parent(&rows[i].after, &pending, false) {
-            return Err(Error::Missing(i, j));
-        }
-        i += 1;
-    }
-    walk(rows, pending)
-}
-
 } // verus!
+
+#[cfg(verus_keep_ghost)]
+pub use super::full::order_declarations as schedule;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::full::order_declarations as schedule;
