@@ -16,6 +16,14 @@ pub extern crate chrono_identifiers as identifiers;
 use crate::verified_identifiers as identifiers;
 
 #[cfg(verus_keep_ghost)]
+#[path = "ownership.rs"]
+mod ownership;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::ownership::{physical_lease_entry, release_local_directory, reopen_existing_lease};
+#[cfg(verus_keep_ghost)]
+pub use ownership::{physical_lease_entry, release_local_directory, reopen_existing_lease};
+
+#[cfg(verus_keep_ghost)]
 #[path = "facts.rs"]
 pub mod fixed_source_read;
 #[cfg(not(verus_keep_ghost))]
@@ -58,13 +66,6 @@ pub fn judge_version_matches(
     ensures accepted == (exit == 0 && !failed && complete && joined && stdout@ == expected@),
 {
     exit == 0 && !failed && complete && joined && identifiers::equal_bytes(stdout, expected)
-}
-
-/// Only the synchronous owner releases a local directory operation on return.
-pub fn release_local_directory(local: bool, owner_pid: u32, current_pid: u32) -> (out: bool)
-    ensures out == (local && owner_pid == current_pid),
-{
-    local && owner_pid == current_pid
 }
 
 pub open spec fn oid_text_result(value: Result<String, String>) -> Result<Seq<char>, Seq<char>> {

@@ -1321,6 +1321,14 @@ fn snapshot_prefetch_failure_and_later_file_failure_preserve_only_the_real_prefi
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn local_directory_release_respects_owner_and_descendant_lifetimes() {
+    expect_status_true(policy::reopen_existing_lease(true, None));
+    expect_status_true(!policy::reopen_existing_lease(true, Some("known")));
+    expect_status_true(!policy::reopen_existing_lease(false, None));
+    expect_status_true(!policy::reopen_existing_lease(false, Some("known")));
+    expect_status_true(policy::physical_lease_entry(true, false));
+    expect_status_true(!policy::physical_lease_entry(false, false));
+    expect_status_true(!policy::physical_lease_entry(true, true));
+    expect_status_true(!policy::physical_lease_entry(false, true));
     expect_status_true(policy::release_local_directory(true, 10, 10));
     expect_status_true(!policy::release_local_directory(true, 10, 11));
     expect_status_true(!policy::release_local_directory(false, 10, 10));
