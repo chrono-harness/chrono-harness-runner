@@ -23,6 +23,7 @@ if [[ ( $# == 1 && $1 == --native ) || ( $# -ge 2 && $1 == --cargo-verus-roots )
     exit 1
   fi
   mkdir -p target
+  installed=$(realpath "$installed")
   if [[ $(readlink "$bootstrap" || true) != "$installed" ]]; then
     ln -sfn "$installed" "$bootstrap"
   fi
@@ -47,7 +48,14 @@ if [[ $# == 4 && $1 == --scoped ]]; then
     ln -s "$(command -v "$name")" "$tools/$name"
   done
   ln -s "$runner" "$tools/chrono-harness"
-  PATH="$tools:$PATH" "$tools/chrono-harness" check --config .chrono-harness/check.json \
+  # Keep the toolchain inputs needed by the check and its compiler receipts.
+  check_env=("HOME=$HOME" "PATH=$tools:$PATH" "VERUS=$VERUS")
+  for name in TMPDIR CARGO_HOME RUSTUP_HOME CARGO_TARGET_DIR; do
+    if [[ ${!name+x} ]]; then
+      check_env+=("$name=${!name}")
+    fi
+  done
+  env -i "${check_env[@]}" "$tools/chrono-harness" check --config .chrono-harness/check.json \
     --base "$base" --candidate "$candidate"
   exit $?
 fi
