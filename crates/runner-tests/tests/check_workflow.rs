@@ -8,6 +8,31 @@ use vstd::prelude::*;
 verus! {
 fn deployed_workflow() -> &'static str { include_str!("../../../.github/workflows/check.yml") }
 
+// The scoped and development operations execute these registered deployment files.
+fn deployed_cargo_adapters() -> [&'static str; 4] {
+    [
+        include_str!("../../../check.sh"),
+        include_str!("../../../.chrono-harness/native-check.sh"),
+        include_str!("../../../.chrono-harness/native-check.py"),
+        include_str!("../../../.chrono-harness/test-native-check.py"),
+    ]
+}
+
+fn matches_cargo_adapter(index: usize, digest: &String) -> (accepted: bool)
+    ensures accepted == ((index == 0 && digest@ == "d251c7eb60ca0d2bb143a8129e792d3cad304f816f878b304a7f8e824b7a9f00"@)
+        || (index == 1 && digest@ == "4bcc4c036ce7c2cec7713e8bf93dcce00323ba906d2a6fe1e22092e1c314f297"@)
+        || (index == 2 && digest@ == "da08ad23894f00db9b963c642b0668f036cc405fb9c780f230a1d3969f60f4ed"@)
+        || (index == 3 && digest@ == "f0382a201241dfdf430a38702779669345a2c081f416ac7077fc9d1c8c52f1e3"@)),
+{
+    match index {
+        0 => *digest == "d251c7eb60ca0d2bb143a8129e792d3cad304f816f878b304a7f8e824b7a9f00".to_string(),
+        1 => *digest == "4bcc4c036ce7c2cec7713e8bf93dcce00323ba906d2a6fe1e22092e1c314f297".to_string(),
+        2 => *digest == "da08ad23894f00db9b963c642b0668f036cc405fb9c780f230a1d3969f60f4ed".to_string(),
+        3 => *digest == "f0382a201241dfdf430a38702779669345a2c081f416ac7077fc9d1c8c52f1e3".to_string(),
+        _ => false,
+    }
+}
+
 fn is_hex(byte: u8) -> (valid: bool)
     ensures valid == ((48 <= byte <= 57) || (97 <= byte <= 102)),
 {
@@ -71,6 +96,19 @@ mod native {
             .map(|byte| format!("{byte:02x}"))
             .collect();
         matches_deployed_contract(&digest)
+    }
+
+    #[test]
+    fn cargo_operation_uses_its_reviewed_collectors_in_order() {
+        let adapters = deployed_cargo_adapters();
+        let digests: Vec<_> = adapters
+            .iter()
+            .map(|text| format!("{:x}", Sha256::digest(text.as_bytes())))
+            .collect();
+        for (i, digest) in digests.iter().enumerate() {
+            assert!(matches_cargo_adapter(i, digest));
+            assert!(!matches_cargo_adapter((i + 1) % digests.len(), digest));
+        }
     }
 
     #[test]

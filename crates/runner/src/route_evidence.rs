@@ -1,12 +1,30 @@
 //! Original tool observation and compiler output admission for installed route planners.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub fn successful_group(exit: i32, failed: bool, direct_dependency: bool, direct_artifact: bool)
+    -> (accepted: bool)
+    ensures accepted == (exit == 0 && !failed && !direct_dependency && !direct_artifact),
+{
+    exit == 0 && !failed && !direct_dependency && !direct_artifact
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{observation, verified_verifier as verifier};
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
     path::PathBuf,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Observe {
@@ -18,6 +36,7 @@ struct Observe {
     output_limit_bytes: usize,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, tag = "operation", rename_all = "kebab-case")]
 enum Compiler {
@@ -71,22 +90,26 @@ enum Compiler {
     },
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn cargo_roots(args: &[String]) -> Option<&[String]> {
     args.get(1)
         .filter(|arg| arg.as_str() == "--cargo-verus-roots")
         .map(|_| &args[2..])
 }
 
+#[cfg(not(verus_keep_ghost))]
 type Bindings = BTreeMap<String, BTreeMap<String, (String, usize)>>;
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CargoArchive {
     receipt: serde_json::Value,
-    cargo_stdout_zlib_hex: String,
+    cargo_stdout_zlib_hex: serde_json::Value,
     roots: Vec<ArchiveRoot>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArchiveRoot {
@@ -94,6 +117,7 @@ struct ArchiveRoot {
     original: serde_json::Value,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn validate_cargo(
     stdout: &[u8],
     roots: &[String],
@@ -128,7 +152,10 @@ pub(crate) fn validate_cargo(
         .as_u64()
         .filter(|n| *n <= 8_388_608)
         .ok_or("Cargo original exceeds the collector bound")? as usize;
-    let compressed = crate::full::decode_hex(&archive.cargo_stdout_zlib_hex)?;
+    let compressed = crate::full::artifact_bytes(
+        &serde_json::json!({"cargo": archive.cargo_stdout_zlib_hex}),
+        "cargo",
+    )?;
     let raw = miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&compressed, size)
         .map_err(|_| "invalid compressed Cargo original")?;
     if raw.len() != size {
@@ -174,20 +201,24 @@ pub(crate) fn validate_cargo(
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct CompilerReportReader;
 
+#[cfg(not(verus_keep_ghost))]
 impl verifier::CompilerReportRead for CompilerReportReader {
     fn decode(&self, bytes: &[u8]) -> Option<verifier::CompilerReport> {
         serde_json::from_slice(bytes).ok()
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl verifier::CompilerRowRead for CompilerReportReader {
     fn decode(&self, text: &str) -> Option<verifier::CompilerReport> {
         verifier::CompilerReportRead::decode(self, text.as_bytes())
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<(), String> {
     match operation {
         "observed-tool-v1" => {
@@ -302,8 +333,12 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
                     artifact,
                 } => {
                     if let Some(roots) = cargo_roots(&argv) {
-                        if exit != 0 || process_failed || dependency.is_some() || artifact.is_some()
-                        {
+                        if !successful_group(
+                            exit,
+                            process_failed,
+                            dependency.is_some(),
+                            artifact.is_some(),
+                        ) {
                             return Err(
                                 "Cargo proof operation did not return a successful group".into()
                             );
@@ -338,7 +373,9 @@ pub fn serve(operation: &str, input: impl Read, output: impl Write) -> Result<()
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct CompilerFiles<'a>(&'a std::path::Path);
+#[cfg(not(verus_keep_ghost))]
 impl verifier::sources::DependencyRead for CompilerFiles<'_> {
     fn read(&self, path: &[u8], limit: u64) -> Result<Vec<u8>, String> {
         std::str::from_utf8(path)
@@ -354,6 +391,7 @@ impl verifier::sources::DependencyRead for CompilerFiles<'_> {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl verifier::ArtifactRead for CompilerFiles<'_> {
     fn identity(&self, path: &[u8]) -> Result<(Vec<u8>, u64), String> {
         std::str::from_utf8(path)

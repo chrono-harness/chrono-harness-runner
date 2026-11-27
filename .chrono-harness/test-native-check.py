@@ -49,7 +49,7 @@ class NativeDirectoryTest(unittest.TestCase):
         collect(["tests.rs", "main.rs"])
         result = native.pack_cargo_roots(records, ["main.rs", "tests.rs"])
         self.assertEqual([row["path"] for row in result["roots"]], ["main.rs", "tests.rs"])
-        self.assertEqual(zlib.decompress(bytes.fromhex(result["cargo_stdout_zlib_hex"])), stream)
+        self.assertEqual(zlib.decompress(bytes.fromhex(result["cargo_stdout_zlib_hex"]["hex"])), stream)
         with self.assertRaisesRegex(ValueError, "selection differs"):
             native.pack_cargo_roots(records, ["main.rs"])
         collect(["main.rs", "main.rs"])

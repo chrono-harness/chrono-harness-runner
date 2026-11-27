@@ -104,7 +104,9 @@ def pack_cargo_roots(records, requested):
     raw = (cwd / original["path"]).read_bytes()
     if len(raw) != original["size"] or hashlib.sha256(raw).hexdigest() != original["sha256"]:
         raise ValueError("Cargo compiler stdout changed after collection")
-    return {"receipt": receipt, "cargo_stdout_zlib_hex": zlib.compress(raw).hex(),
+    compressed = zlib.compress(raw)
+    encoded = {"hex": compressed.hex(), "length": len(compressed), "sha256": hashlib.sha256(compressed).hexdigest()}
+    return {"receipt": receipt, "cargo_stdout_zlib_hex": encoded,
             "roots": [{"path": path, "original": rows[path]} for path in requested]}
 
 

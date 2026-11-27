@@ -286,6 +286,28 @@
             "version": "0.2026.04.24.f8e1704",
             "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
           }
+        },
+        "verify_cargo_root_bindings": {
+          "operation": "verify.cargo-root-bindings",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link={operation_state}/verify.cargo-root-bindings.rlib,dep-info={operation_state}/verify.cargo-root-bindings.rlib.d",
+            ".chrono-harness/ci/cargo-root-proof.rs",
+            "-o",
+            "{operation_state}/verify.cargo-root-bindings.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
         }
       }
     },

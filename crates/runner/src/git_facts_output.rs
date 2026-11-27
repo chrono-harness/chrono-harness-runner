@@ -1,10 +1,29 @@
 //! Bind CI operation receipts to the registered plan and this reader's fixed candidate.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub fn complete_candidate(paths: usize, contents: usize) -> (accepted: bool)
+    ensures accepted == (paths > 0 && paths == contents),
+{
+    paths > 0 && paths == contents
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::{facts, verified_verifier as verifier};
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::{collections::BTreeMap, path::Path};
+#[cfg(not(verus_keep_ghost))]
 use verifier::sources::{CandidateSourceRead, SourceRegistry};
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Method {
@@ -14,6 +33,7 @@ pub(super) struct Method {
     output_limit_bytes: usize,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Original {
@@ -26,11 +46,13 @@ pub(super) struct Original {
     artifact: Option<Result<verifier::CompiledArtifact, String>>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) struct Binding {
     methods: Vec<Method>,
     registry: Result<SourceRegistry, String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Binding {
     pub fn new(methods: Vec<Method>, registry: Value) -> Self {
         Self {
@@ -69,11 +91,13 @@ impl Binding {
                         .as_ref()
                         .ok_or("missing Cargo proof contract")?;
                     if receipt.operation != operation
-                        || receipt.exit != 0
-                        || receipt.failed
+                        || !crate::route_evidence::successful_group(
+                            receipt.exit,
+                            receipt.failed,
+                            receipt.dependency.is_some(),
+                            receipt.artifact.is_some(),
+                        )
                         || receipt.argv.get(1..) != Some(method.argv.as_slice())
-                        || receipt.dependency.is_some()
-                        || receipt.artifact.is_some()
                     {
                         return Err("Cargo proof operation does not match its plan".into());
                     }
@@ -113,7 +137,7 @@ impl Binding {
                             return Err("Cargo proof source is not a fixed regular Git file".into());
                         }
                         let contents = input.blobs(&paths)?;
-                        if contents.len() != paths.len() {
+                        if !complete_candidate(paths.len(), contents.len()) {
                             return Err("Cargo proof candidate Git inputs are incomplete".into());
                         }
                         let bindings = paths
@@ -156,12 +180,14 @@ impl Binding {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) struct Candidate<'a> {
     pub reader: &'a facts::Reader,
     pub root: &'a Path,
     pub commit: &'a str,
     pub modes: &'a BTreeMap<String, String>,
 }
+#[cfg(not(verus_keep_ghost))]
 impl CandidateSourceRead for Candidate<'_> {
     fn text(&self, bytes: &[u8]) -> Result<String, String> {
         std::str::from_utf8(bytes)
@@ -178,6 +204,7 @@ impl CandidateSourceRead for Candidate<'_> {
         crate::sha256(bytes).into_bytes()
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl verifier::CompilerReportRead for Candidate<'_> {
     fn decode(&self, bytes: &[u8]) -> Option<verifier::CompilerReport> {
         verifier::CompilerReportRead::decode(&crate::route_evidence::CompilerReportReader, bytes)

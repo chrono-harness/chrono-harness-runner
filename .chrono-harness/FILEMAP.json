@@ -514,7 +514,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/check_workflow.rs",
+            "operation": "verify.check-workflow"
+          }
+        ]
+      }
     },
     {
       "path": ".chrono-harness/test-native-check.py",
@@ -526,7 +535,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "specification",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/check_workflow.rs",
+            "operation": "verify.check-workflow"
+          }
+        ]
+      }
     },
     {
       "path": ".chrono-harness/native-check.sh",
@@ -538,7 +556,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/check_workflow.rs",
+            "operation": "verify.check-workflow"
+          }
+        ]
+      }
     },
     {
       "path": ".chrono-harness/native-check.py",
@@ -550,7 +577,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/check_workflow.rs",
+            "operation": "verify.check-workflow"
+          }
+        ]
+      }
     },
     {
       "path": "Cargo.lock",
@@ -1274,7 +1310,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "specification",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/cargo-root-proof.rs",
+            "operation": "verify.cargo-root-bindings"
+          }
+        ]
+      }
     },
     {
       "path": "Cargo.toml",
@@ -1444,7 +1489,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/cargo-root-proof.rs",
+            "operation": "verify.cargo-root-bindings"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/git_facts_session.rs",
@@ -1573,7 +1627,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/cargo-root-proof.rs",
+            "operation": "verify.cargo-root-bindings"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/invocation_query.rs",
@@ -1952,7 +2015,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/cargo-root-proof.rs",
+            "operation": "verify.cargo-root-bindings"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/scoped_report.rs",
@@ -2241,7 +2313,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/cargo-root-proof.rs",
+            "operation": "verify.cargo-root-bindings"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/verified_status.rs",
@@ -2265,7 +2346,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/cargo-root-proof.rs",
+            "operation": "verify.cargo-root-bindings"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/wire.rs",
@@ -2405,6 +2495,27 @@
           }
         ]
       }
+    },
+    {
+      "path": ".chrono-harness/ci/cargo-root-proof.rs",
+      "owner": "runner",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:runner"
+        }
+      ],
+      "verification": {
+        "role": "specification",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/cargo-root-proof.rs",
+            "operation": "verify.cargo-root-bindings"
+          }
+        ]
+      }
     }
   ],
   "project_edges": [],
@@ -2466,7 +2577,8 @@
         "verify.report-paths",
         "verify.report-paths-tests",
         "verify.maintenance-notice",
-        "verify.maintenance-notice-tests"
+        "verify.maintenance-notice-tests",
+        "verify.cargo-root-bindings"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576
