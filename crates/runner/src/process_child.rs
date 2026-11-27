@@ -1,4 +1,35 @@
 //! Direct Child status ownership, separate from advisory kernel exit events.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub enum ProbeAction<S> {
+    Reaped(S),
+    Join,
+    Pending,
+}
+
+/// An actual status or a native error takes precedence over an advisory exit event.
+pub fn probe_action<S, E>(status: Result<Option<S>, E>, observed: bool, expired: bool)
+    -> (action: Result<ProbeAction<S>, E>)
+    ensures action == match status {
+        Err(e) => Err(e),
+        Ok(Some(s)) => Ok(ProbeAction::Reaped(s)),
+        Ok(None) => if observed && !expired { Ok(ProbeAction::Join) } else { Ok(ProbeAction::Pending) },
+    },
+{
+    match status {
+        Err(error) => Err(error),
+        Ok(Some(status)) => Ok(ProbeAction::Reaped(status)),
+        Ok(None) if observed && !expired => Ok(ProbeAction::Join),
+        Ok(None) => Ok(ProbeAction::Pending),
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use std::{
     io,
     ops::{Deref, DerefMut},
@@ -7,19 +38,23 @@ use std::{
     thread::JoinHandle,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[cfg(feature = "retention-test")]
 static STATUS_PROBES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+#[cfg(not(verus_keep_ghost))]
 /// Read actual monitor probes in the isolated completion-wait fixture.
 #[cfg(feature = "retention-test")]
 pub fn direct_child_status_probe_count() -> usize {
     STATUS_PROBES.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct ReapOnDrop {
     child: Child,
     joined: bool,
 }
+#[cfg(not(verus_keep_ghost))]
 impl ReapOnDrop {
     fn wait(&mut self) -> io::Result<ExitStatus> {
         let status = self.child.wait()?;
@@ -27,6 +62,7 @@ impl ReapOnDrop {
         Ok(status)
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for ReapOnDrop {
     fn drop(&mut self) {
         if !self.joined {
@@ -36,15 +72,18 @@ impl Drop for ReapOnDrop {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct WaitState {
     child: Option<ReapOnDrop>,
     result: Option<io::Result<ExitStatus>>,
 }
+#[cfg(not(verus_keep_ghost))]
 struct Waiter {
     state: Arc<Mutex<WaitState>>,
     thread: JoinHandle<()>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct DirectChild {
     pid: u32,
     child: Option<ReapOnDrop>,
@@ -52,6 +91,7 @@ pub(crate) struct DirectChild {
     status: Option<ExitStatus>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl DirectChild {
     pub(crate) fn new(child: Child) -> Self {
         Self {
@@ -108,18 +148,20 @@ impl DirectChild {
             };
         }
         let child = self.child.as_mut().expect("direct Child owner");
-        if let Some(status) = probe(&mut child.child)? {
-            child.joined = true;
-            self.status = Some(status);
-            return Ok(Some(status));
+        match probe_action(probe(&mut child.child), observed, expired)? {
+            ProbeAction::Reaped(status) => {
+                child.joined = true;
+                self.status = Some(status);
+                Ok(Some(status))
+            }
+            ProbeAction::Join => {
+                // NOTE_EXIT may precede waitability. Keep deadline and cancellation on
+                // the monitor while the native blocking waiter owns the child.
+                self.start_join(wake)?;
+                Ok(None)
+            }
+            ProbeAction::Pending => Ok(None),
         }
-        if observed && !expired {
-            // NOTE_EXIT can precede waitability. Join exactly once with the
-            // native blocking Child::wait, while the existing monitor retains
-            // its deadline/cancellation/output checks on the same wake socket.
-            self.start_join(wake)?;
-        }
-        Ok(None)
     }
 
     fn start_join(&mut self, wake: impl FnOnce() + Send + 'static) -> io::Result<()> {
@@ -211,17 +253,20 @@ impl DirectChild {
 }
 
 // Pipe extraction happens before any blocking join starts.
+#[cfg(not(verus_keep_ghost))]
 impl Deref for DirectChild {
     type Target = Child;
     fn deref(&self) -> &Child {
         &self.child.as_ref().expect("Child pipes before join").child
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl DerefMut for DirectChild {
     fn deref_mut(&mut self) -> &mut Child {
         &mut self.child.as_mut().expect("Child pipes before join").child
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for DirectChild {
     fn drop(&mut self) {
         if self.status.is_none() {

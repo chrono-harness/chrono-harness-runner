@@ -4,6 +4,30 @@ use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
+#[cfg(verus_keep_ghost)]
+#[path = "command_stream.rs"]
+mod command_stream;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::command_stream::{command_header, command_input};
+#[cfg(verus_keep_ghost)]
+pub use command_stream::{command_header, command_input};
+
+#[cfg(verus_keep_ghost)]
+#[path = "observed_command.rs"]
+mod observed_command;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::observed_command::acquisition_within;
+#[cfg(verus_keep_ghost)]
+pub use observed_command::acquisition_within;
+
+#[cfg(verus_keep_ghost)]
+#[path = "process_child.rs"]
+mod process_child;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::process_child::{ProbeAction, probe_action};
+#[cfg(verus_keep_ghost)]
+pub use process_child::{ProbeAction, probe_action};
+
 verus! {
 
 pub struct CapturedStreams<'a> {

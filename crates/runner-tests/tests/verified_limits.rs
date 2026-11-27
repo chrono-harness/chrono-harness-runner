@@ -67,4 +67,69 @@ fn transport_output_uses_the_same_inclusive_byte_boundary() {
     expect_limit_true(!zero && minimum && maximum && !above_maximum && !largest);
 }
 
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn request_bounds_preserve_line_termination_and_accept_empty_input() {
+    expect_limit_true(!policy::command_header(&[]));
+    expect_limit_true(policy::command_header(&[10u8]));
+    expect_limit_true(!policy::command_header(&[10u8, 0u8]));
+    expect_limit_true(policy::command_header(&[255u8, 10u8]));
+    expect_limit_true(policy::command_input(0));
+    expect_limit_true(policy::command_input(67_108_864));
+    expect_limit_true(!policy::command_input(67_108_865));
+}
+
+#[cfg(verus_keep_ghost)]
+fn inclusive_header_limit_and_first_excess(line: &[u8])
+    requires line.len() >= 1_048_576,
+        line@[line.len() - 1] == 10u8,
+{
+    let accepted = policy::command_header(line);
+    assert(accepted == (line.len() == 1_048_576));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn acquisition_deadline_keeps_the_fractional_second() {
+    expect_limit_true(policy::acquisition_within(0, 0, 0));
+    expect_limit_true(policy::acquisition_within(8, 999_999_999, 9));
+    expect_limit_true(policy::acquisition_within(9, 0, 9));
+    expect_limit_true(!policy::acquisition_within(9, 1, 9));
+    expect_limit_true(!policy::acquisition_within(10, 0, 9));
+    expect_limit_true(!policy::acquisition_within(u64::MAX, 1, u64::MAX));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn only_an_unexpired_exit_hint_starts_the_wait_for_an_unavailable_status() {
+    use policy::ProbeAction;
+    match policy::probe_action::<i32, u8>(Ok(None), true, false) {
+        Ok(ProbeAction::Join) => {},
+        _ => panic!(),
+    }
+    match policy::probe_action::<i32, u8>(Ok(None), false, false) {
+        Ok(ProbeAction::Pending) => {},
+        _ => panic!(),
+    }
+    match policy::probe_action::<i32, u8>(Ok(None), true, true) {
+        Ok(ProbeAction::Pending) => {},
+        _ => panic!(),
+    }
+    match policy::probe_action::<i32, u8>(Ok(None), false, true) {
+        Ok(ProbeAction::Pending) => {},
+        _ => panic!(),
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn direct_status_or_native_error_precedes_both_hints() {
+    use policy::ProbeAction;
+    match policy::probe_action::<i32, u8>(Ok(Some(-19)), true, false) {
+        Ok(ProbeAction::Reaped(code)) => expect_limit_true(code == -19),
+        _ => panic!(),
+    }
+    match policy::probe_action::<i32, u8>(Err(77), true, false) {
+        Err(error) => expect_limit_true(error == 77),
+        _ => panic!(),
+    }
+}
+
 }

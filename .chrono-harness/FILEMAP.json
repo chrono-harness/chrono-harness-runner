@@ -1488,8 +1488,29 @@
         {
           "kind": "test-execution",
           "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_limits.rs",
+            "operation": "verify.resource-limits"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_limits.rs",
+            "operation": "verify.resource-limits-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/observed_command.rs",
@@ -1500,8 +1521,29 @@
         {
           "kind": "test-execution",
           "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_limits.rs",
+            "operation": "verify.resource-limits"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_limits.rs",
+            "operation": "verify.resource-limits-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/facts.rs",
@@ -1838,8 +1880,29 @@
         {
           "kind": "test-execution",
           "to": "test:runner"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits"
+        },
+        {
+          "kind": "test-execution",
+          "to": "test:resource-limits-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_limits.rs",
+            "operation": "verify.resource-limits"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_limits.rs",
+            "operation": "verify.resource-limits-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/diagnostic_session.rs",

@@ -1,8 +1,28 @@
 //! Binary stdout/stderr frames share the original bounded readers and their real acquisition deadline.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+/// A whole-second command deadline includes its exact endpoint.
+pub fn acquisition_within(seconds: u64, nanos: u32, bound_seconds: u64) -> (ok: bool)
+    requires nanos < 1_000_000_000,
+    ensures ok == (seconds as int * 1_000_000_000 + nanos <= bound_seconds as int * 1_000_000_000),
+{
+    seconds < bound_seconds || (seconds == bound_seconds && nanos == 0)
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::verified_limits::{CapturedStreams, StreamSizes};
+#[cfg(not(verus_keep_ghost))]
 use crate::{CommandSpec, ProcessForward, ProcessResult, run_process_observed_forwarded_for};
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::json;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     io::{self, BufRead, Read, Write},
     path::Path,
@@ -10,6 +30,7 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
@@ -18,6 +39,7 @@ struct Request {
     timeout: Duration,
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn frame(output: &mut impl Write, kind: u8, bytes: &[u8]) -> io::Result<()> {
     output.write_all(&[kind])?;
     output.write_all(&(bytes.len() as u64).to_be_bytes())?;
@@ -25,10 +47,12 @@ fn frame(output: &mut impl Write, kind: u8, bytes: &[u8]) -> io::Result<()> {
     output.flush()
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct Stream<'a, W> {
     output: &'a Mutex<W>,
     kind: u8,
 }
+#[cfg(not(verus_keep_ghost))]
 impl<W: Write> Write for Stream<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if !bytes.is_empty() {
@@ -48,6 +72,7 @@ impl<W: Write> Write for Stream<'_, W> {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn serve(
     mut input: impl BufRead,
     output: impl Write + Send,
@@ -59,26 +84,31 @@ pub fn serve(
         ProcessForward<'_>,
     ) -> Result<ProcessResult, String>,
 ) -> Result<(), String> {
-    const HEADER: u64 = 1024 * 1024;
+    use crate::command_stream::{
+        COMMAND_HEADER_BYTES, COMMAND_INPUT_BYTES, command_header, command_input,
+    };
     let mut line = vec![];
     (&mut input)
-        .take(HEADER + 1)
+        .take(COMMAND_HEADER_BYTES as u64 + 1)
         .read_until(b'\n', &mut line)
         .map_err(|e| e.to_string())?;
-    if !line.ends_with(b"\n") || line.len() as u64 > HEADER {
+    if !command_header(&line) {
         return Err("observed command requires a JSON line of at most 1 MiB".into());
     }
     let request: Request = crate::decode(&line)?;
-    if request.timeout > Duration::from_secs(request.command.timeout_seconds) {
+    if !acquisition_within(
+        request.timeout.as_secs(),
+        request.timeout.subsec_nanos(),
+        request.command.timeout_seconds,
+    ) {
         return Err("acquisition timeout exceeds the declared command bound".into());
     }
-    let limit = crate::verified_limits::MAX_OUTPUT_BYTES;
     let mut bytes = vec![];
     input
-        .take(limit as u64 + 1)
+        .take(COMMAND_INPUT_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
-    if bytes.len() > limit {
+    if !command_input(bytes.len()) {
         return Err("observed command input exceeds 64 MiB".into());
     }
     let output = Mutex::new(output);
@@ -127,6 +157,7 @@ pub fn serve(
     .map_err(|e| e.to_string())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn command(root: &Path) -> Result<(), String> {
     serve(
         io::stdin().lock(),
