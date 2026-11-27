@@ -20,7 +20,7 @@ jobs:
         with:
           version: 2026.11.12
           cache: false
-          install_args: http:chrono-harness http:chrono-host-bootstrap http:chrono-judge-ci http:verus http:chrono-test-git http:chrono-test-git-profile
+          install_args: http:chrono-harness http:chrono-host-bootstrap http:chrono-judge-ci http:chrono-judge-filemap http:chrono-judge-projects http:chrono-judge-registration http:chrono-judge-routes http:chrono-diagnostics http:verus http:chrono-test-git http:chrono-test-git-profile
       - name: Check this change with the released and candidate harness
         shell: bash
         env:
@@ -36,15 +36,14 @@ jobs:
             base=$BEFORE
           fi
           released=$(mise which chrono-harness)
-          judge=$(mise which chrono-judge-ci)
           verifier=$(mise which verus)
           mkdir -p target
           target=$(mktemp -d "$PWD/target/runner-self.XXXXXXXX")
           trap 'rm -rf -- "$target"' EXIT
           check_change() {
-            env -i HOME="$HOME" PATH="$(dirname "$judge"):$PATH" TMPDIR="$TMPDIR" \
+            env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" \
               VERUS="$verifier" CARGO_TARGET_DIR="$target" \
-              "$1" check --config .chrono-harness/check.json --base "$base" --candidate "$candidate" > "$RUNNER_TEMP/check-output.json"
+              ./check.sh --scoped "$1" "$base" "$candidate" > "$RUNNER_TEMP/check-output.json"
           }
           check_change "$released"
           jq '{status: .response.status, results: .response.results}' .chrono-harness/state/check.json
@@ -52,7 +51,7 @@ jobs:
             check_change "$target/debug/chrono-harness"
             jq '{status: .response.status, results: .response.results}' .chrono-harness/state/check.json
           fi
-          if jq -e 'any(.response.results[]; (.id == "verify.shallow-reads" or .id == "verify.shallow-reads-tests" or .id == "verify.resource-limits" or .id == "verify.resource-limits-tests" or .id == "verify.sealed-member" or .id == "verify.sealed-member-tests") and .status == "passed")' .chrono-harness/state/check.json >/dev/null ||
+          if jq -e 'any(.response.results[]; (.id == "runner.verify" or .id == "verify.shallow-reads" or .id == "verify.shallow-reads-tests" or .id == "verify.resource-limits" or .id == "verify.resource-limits-tests" or .id == "verify.sealed-member" or .id == "verify.sealed-member-tests") and .status == "passed")' .chrono-harness/state/check.json >/dev/null ||
              ! git diff --quiet "$base" "$candidate" -- crates/runner/src/verified_paths.rs crates/runner-tests/tests/verified_paths.rs \
                 crates/runner/src/prepared.rs crates/runner/src/verified_git_binding.rs crates/runner-tests/tests/verified_git_binding.rs \
                 crates/runner/src/retained_artifacts/session/publication.rs crates/runner/src/retained_artifacts/verified_release.rs crates/runner-tests/tests/verified_release.rs; then

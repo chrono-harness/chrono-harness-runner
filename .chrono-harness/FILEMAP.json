@@ -1121,7 +1121,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "specification",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/verified_cli.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner-tests/tests/verified_fixture.rs",
@@ -2109,7 +2118,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/verified_cli.rs",
+            "operation": "runner.verify"
+          },
+          {
+            "path": "crates/runner-tests/tests/verified_cli.rs",
+            "operation": "runner.verify"
+          }
+        ]
+      }
     },
     {
       "path": "crates/proofs/verifier/src/verified_continuity.rs",

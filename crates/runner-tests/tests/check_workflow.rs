@@ -19,13 +19,13 @@ fn deployed_cargo_adapters() -> [&'static str; 4] {
 }
 
 fn matches_cargo_adapter(index: usize, digest: &String) -> (accepted: bool)
-    ensures accepted == ((index == 0 && digest@ == "d251c7eb60ca0d2bb143a8129e792d3cad304f816f878b304a7f8e824b7a9f00"@)
+    ensures accepted == ((index == 0 && digest@ == "806a72e9d83ca82e4a8ce48b38c314a1a895faa6546cc4cbfc49c70a07904645"@)
         || (index == 1 && digest@ == "4bcc4c036ce7c2cec7713e8bf93dcce00323ba906d2a6fe1e22092e1c314f297"@)
         || (index == 2 && digest@ == "da08ad23894f00db9b963c642b0668f036cc405fb9c780f230a1d3969f60f4ed"@)
         || (index == 3 && digest@ == "f0382a201241dfdf430a38702779669345a2c081f416ac7077fc9d1c8c52f1e3"@)),
 {
     match index {
-        0 => *digest == "d251c7eb60ca0d2bb143a8129e792d3cad304f816f878b304a7f8e824b7a9f00".to_string(),
+        0 => *digest == "806a72e9d83ca82e4a8ce48b38c314a1a895faa6546cc4cbfc49c70a07904645".to_string(),
         1 => *digest == "4bcc4c036ce7c2cec7713e8bf93dcce00323ba906d2a6fe1e22092e1c314f297".to_string(),
         2 => *digest == "da08ad23894f00db9b963c642b0668f036cc405fb9c780f230a1d3969f60f4ed".to_string(),
         3 => *digest == "f0382a201241dfdf430a38702779669345a2c081f416ac7077fc9d1c8c52f1e3".to_string(),
@@ -62,9 +62,9 @@ fn full_commit(pin: &[u8]) -> (valid: bool)
 
 // SHA-256 of the reviewed YAML and shell with each action's commit replaced by @COMMIT.
 fn matches_deployed_contract(digest: &String) -> (matches: bool)
-    ensures matches == (digest@ == "47b859d3387c2803862dccb97f6652d36df3ca91e9486f9fe0512900c8589565"@),
+    ensures matches == (digest@ == "db157a09627c40e00d187acab094f8609fad3ea0ff6545533077a0dcb08aad1d"@),
 {
-    *digest == "47b859d3387c2803862dccb97f6652d36df3ca91e9486f9fe0512900c8589565".to_string()
+    *digest == "db157a09627c40e00d187acab094f8609fad3ea0ff6545533077a0dcb08aad1d".to_string()
 }
 }
 
