@@ -1,5 +1,28 @@
 //! Human console projection of already completed reports; never a verdict producer.
+#[cfg(verus_keep_ghost)]
+use super::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
 
+verus! {
+pub fn original_locator<'a>(retained: Option<&'a str>, report_path: Option<&'a str>) -> (locator: Option<&'a str>)
+    ensures locator == match retained { Some(path) => Some(path), None => report_path },
+{
+    match retained { Some(path) => Some(path), None => report_path }
+}
+
+pub fn display_operation(status: &str) -> (show: bool)
+    ensures show == (status@ == "failed"@ || status@ == "blocked"@),
+{
+    identifiers::equal_text(status, "failed") || identifiers::equal_text(status, "blocked")
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 /// Keep identifying text on one line, including when a diagnostic embeds evidence.
 pub(crate) fn brief(text: &str) -> String {
     let mut chars = text.chars();
@@ -17,6 +40,7 @@ pub(crate) fn brief(text: &str) -> String {
 // Deserialize only presentation fields from the existing serialized report.
 // Serde skips the receipts/graphs, so wrapping accepted evidence in a report
 // cannot introduce a second verdict-bearing recursion limit.
+#[cfg(not(verus_keep_ghost))]
 #[derive(serde::Deserialize)]
 struct Report {
     status: Option<String>,
@@ -28,18 +52,21 @@ struct Report {
     #[serde(default)]
     judges: Vec<Judge>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(serde::Deserialize)]
 struct Response {
     status: Option<String>,
     #[serde(default)]
     results: Vec<ResultRow>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(serde::Deserialize)]
 struct ResultRow {
     id: String,
     status: String,
     cause: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(serde::Deserialize)]
 struct Judge {
     id: String,
@@ -49,6 +76,7 @@ struct Judge {
     response: Option<Response>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn error_cause(error: &str) -> String {
     // A retained-process publication failure is already the lossless error
     // envelope.  Keep its embedded process receipt intact so callers can
@@ -70,12 +98,14 @@ pub(crate) fn error_cause(error: &str) -> String {
     brief(error)
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(serde::Deserialize)]
 struct Locator {
     retained_report: Option<serde_json::Value>,
     report_path: Option<serde_json::Value>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 /// Preserve the completed check's exit code when only its human projection is
 /// malformed. The published report remains the sole locator authority.
 pub(crate) fn projection_fallback(code: u8, text: &str, error: &str) -> String {
@@ -86,18 +116,17 @@ pub(crate) fn projection_fallback(code: u8, text: &str, error: &str) -> String {
     match serde_json::from_str::<Locator>(text)
         .ok()
         .and_then(|locator| {
-            locator
-                .retained_report
-                .as_ref()
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| {
-                    locator
-                        .report_path
-                        .as_ref()
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned)
-                })
+            original_locator(
+                locator
+                    .retained_report
+                    .as_ref()
+                    .and_then(serde_json::Value::as_str),
+                locator
+                    .report_path
+                    .as_ref()
+                    .and_then(serde_json::Value::as_str),
+            )
+            .map(str::to_owned)
         }) {
         Some(path) => out.push_str(&format!("Original report: {path}\n")),
         None => out.push_str("Original report locator unavailable in serialized result.\n"),
@@ -105,6 +134,7 @@ pub(crate) fn projection_fallback(code: u8, text: &str, error: &str) -> String {
     out
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn producer_cause(stderr: &str, stdout: &str) -> String {
     // The local producer's established error envelope puts its identifying
     // error beside process receipts. Read only that field, never the receipts.
@@ -123,13 +153,14 @@ pub(crate) fn producer_cause(stderr: &str, stdout: &str) -> String {
     brief(if stderr.is_empty() { stdout } else { stderr })
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn completed(code: u8, text: &str) -> Result<String, String> {
     let report: Report = serde_json::from_str(text).map_err(|e| e.to_string())?;
-    let path = report
-        .retained_report
-        .as_deref()
-        .or(report.report_path.as_deref())
-        .ok_or("completed short check has no original report path")?;
+    let path = original_locator(
+        report.retained_report.as_deref(),
+        report.report_path.as_deref(),
+    )
+    .ok_or("completed short check has no original report path")?;
     let status = report
         .status
         .as_deref()
@@ -209,7 +240,7 @@ pub(crate) fn completed(code: u8, text: &str) -> Result<String, String> {
     }
     if let Some(response) = &report.response {
         for result in &response.results {
-            if matches!(result.status.as_str(), "failed" | "blocked") {
+            if display_operation(&result.status) {
                 row(&[&result.status, &result.id, &result.cause]);
             }
         }
