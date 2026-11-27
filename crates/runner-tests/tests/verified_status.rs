@@ -29,6 +29,34 @@ use vstd::vpanic as panic;
 verus! {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn retained_process_checks_keep_the_observed_result_and_original_digest_error() {
+    let yes = || -> (out: bool) ensures out, { true };
+    let no = || -> (out: bool) ensures !out, { false };
+    let accepted = || -> (out: Result<bool, String>) ensures out == Ok::<bool, String>(true), { Ok(true) };
+    let different = || -> (out: Result<bool, String>) ensures out == Ok::<bool, String>(false), { Ok(false) };
+    let error = || -> (out: Result<bool, String>) ensures out matches Err(message) && message@ == "encoding error"@, {
+        Err("encoding error".to_string())
+    };
+    let valid = policy::retained_process_matches(0, false, yes, yes, accepted);
+    let exit = policy::retained_process_matches(7, false, yes, yes, error);
+    let failure = policy::retained_process_matches(0, true, yes, yes, error);
+    let digest = policy::retained_process_matches(0, false, no, yes, error);
+    let text = policy::retained_process_matches(0, false, yes, no, error);
+    let environment = policy::retained_process_matches(0, false, yes, yes, different);
+    let original = policy::retained_process_matches(0, false, yes, yes, error);
+    expect_status_true(matches!(valid, Ok(true)));
+    expect_status_true(matches!(exit, Ok(false)));
+    expect_status_true(matches!(failure, Ok(false)));
+    expect_status_true(matches!(digest, Ok(false)));
+    expect_status_true(matches!(text, Ok(false)));
+    expect_status_true(matches!(environment, Ok(false)));
+    match original {
+        Err(message) => expect_status_true(scope_text::equal_text(message.as_str(), "encoding error")),
+        Ok(_) => panic!(),
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn cloning_the_actual_report_result_preserves_every_field() {
     let original = policy::CheckResult {
         id: "build".to_string(), status: Status::Blocked,
