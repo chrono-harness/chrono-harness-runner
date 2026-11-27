@@ -818,7 +818,16 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "specification",
+        "roots": [
+          {
+            "path": "crates/runner-tests/tests/maintenance_signal.rs",
+            "operation": "verify.maintenance-notice-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner-tests/tests/process_fds.rs",
@@ -1612,7 +1621,20 @@
           "kind": "test-execution",
           "to": "test:runner"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/runner/src/maintenance_signal.rs",
+            "operation": "verify.maintenance-notice"
+          },
+          {
+            "path": "crates/runner-tests/tests/maintenance_signal.rs",
+            "operation": "verify.maintenance-notice-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/runner/src/observation.rs",
@@ -2442,7 +2464,9 @@
         "verify.git-object-ids",
         "verify.process-ownership-exit",
         "verify.report-paths",
-        "verify.report-paths-tests"
+        "verify.report-paths-tests",
+        "verify.maintenance-notice",
+        "verify.maintenance-notice-tests"
       ],
       "timeout_seconds": 1800,
       "output_limit_bytes": 1048576

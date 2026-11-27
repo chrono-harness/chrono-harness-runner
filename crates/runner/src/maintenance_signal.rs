@@ -10,10 +10,19 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
 #[cfg(verus_keep_ghost)]
-pub extern crate chrono_identifiers as identifiers;
+#[path = "../../proofs/identifiers/src/lib.rs"]
+#[rustfmt::skip]
+pub mod identifiers;
 #[cfg(not(verus_keep_ghost))]
 use crate::verified_identifiers as identifiers;
 verus! {
+pub fn maintenance_notice_required(status: &str) -> (required: bool)
+    ensures required == (status@ != "not-adopted"@ && status@ != "maintenance-internal-no-new-event"@),
+{
+    !identifiers::equal_text(status, "not-adopted")
+        && !identifiers::equal_text(status, "maintenance-internal-no-new-event")
+}
+
 #[verifier::inline]
 pub open spec fn maintenance_location(path: &str, directory: bool) -> bool {
     let bytes = path.spec_bytes();
@@ -210,6 +219,7 @@ use serde_json::{Value, json};
 use std::{
     cell::Cell,
     fs,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -425,10 +435,8 @@ pub fn send(_: &Path, _: &[u8]) -> Result<(), String> {
 #[cfg(not(verus_keep_ghost))]
 pub fn announce_adopted(root: &Path, reason: &str) {
     let receipt = request_adopted(root, reason);
-    if !matches!(
-        receipt["status"].as_str(),
-        Some("not-adopted" | "maintenance-internal-no-new-event")
-    ) {
-        eprintln!("W_MAINTENANCE_ACTIVATION: {}", receipt);
+    if maintenance_notice_required(receipt["status"].as_str().unwrap_or_default()) {
+        // The retention operation already succeeded, even if its notice has no reader.
+        let _ = writeln!(io::stderr().lock(), "W_MAINTENANCE_ACTIVATION: {receipt}");
     }
 }
