@@ -49,6 +49,65 @@ fn report_reference_requires_an_exact_version_and_an_explicit_string() {
 }
 
 #[cfg(verus_keep_ghost)]
+fn unit_test_selection_keeps_only_the_chosen_registration(
+    example: String, harness: String, example_test: String, harness_test: String,
+)
+    requires
+        vstd::laws_cmp::obeys_cmp::<String>(),
+        identifiers::identifier(vstd::utf8::encode_utf8(example@)),
+        identifiers::identifier(vstd::utf8::encode_utf8(harness@)),
+        example != harness,
+        example_test != harness_test,
+{
+    use policy::{judge_evidence::unit_tests, units::Unit};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut units = BTreeMap::new();
+    units.insert(example.clone(), Unit {
+        tests: vec![example_test.clone(), example_test.clone()],
+        report_path: String::new(),
+    });
+    units.insert(harness.clone(), Unit {
+        tests: vec![harness_test.clone()],
+        report_path: String::new(),
+    });
+    let mut selected = BTreeSet::new();
+    selected.insert(harness_test.clone());
+    selected.insert(example_test.clone());
+
+    let example_tests = unit_tests(&example, &units, &selected);
+    assert(example_tests is Ok);
+    assert(example_tests->Ok_0@ =~= Set::new(|test: &String| *test == example_test));
+    let harness_tests = unit_tests(&harness, &units, &selected);
+    assert(harness_tests is Ok);
+    assert(harness_tests->Ok_0@ =~= Set::new(|test: &String| *test == harness_test));
+
+    let empty = unit_tests(&example, &units, &BTreeSet::new());
+    assert(empty is Ok && empty->Ok_0@ =~= Set::<&String>::empty());
+}
+
+#[cfg(verus_keep_ghost)]
+fn unit_test_selection_distinguishes_invalid_and_unknown_units(
+    invalid: &String, unknown: &String,
+    units: &std::collections::BTreeMap<String, policy::units::Unit>,
+    selected: &std::collections::BTreeSet<String>,
+)
+    requires
+        vstd::laws_cmp::obeys_cmp::<String>(),
+        !identifiers::identifier(vstd::utf8::encode_utf8(invalid@)),
+        units@.contains_key(*invalid),
+        identifiers::identifier(vstd::utf8::encode_utf8(unknown@)),
+        !units@.contains_key(*unknown),
+{
+    use policy::judge_evidence::unit_tests;
+
+    let invalid_result = unit_tests(invalid, units, selected);
+    assert(invalid_result is Err && invalid_result->Err_0 is InvalidId);
+    let unknown_result = unit_tests(unknown, units, selected);
+    assert(unknown_result is Err && unknown_result->Err_0 is Unregistered);
+}
+
+#[cfg(verus_keep_ghost)]
 fn scoped_environment_receipt(process: u64) {
     let project = |value: u64| -> (result: u64)
         ensures result == !value,

@@ -67,9 +67,11 @@ pub fn reference_publication(config: &CheckConfig) -> Result<bool, String> {
 #[cfg(not(verus_keep_ghost))]
 pub use crate::verified_status::scopes::Scope;
 
-#[cfg(not(verus_keep_ghost))]
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[cfg_attr(
+    not(verus_keep_ghost),
+    derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)
+)]
+#[cfg_attr(not(verus_keep_ghost), serde(deny_unknown_fields))]
 pub struct Unit {
     pub tests: Vec<String>,
     pub report_path: String,
@@ -275,9 +277,14 @@ pub fn full_execution_units(
 #[cfg(not(verus_keep_ghost))]
 pub fn id(s: &str) -> Result<(), String> {
     if !crate::verified_identifiers::valid_id(s.as_bytes()) {
-        return Err(format!("invalid CI unit ID: {s:?}"));
+        return Err(invalid_id(s));
     }
     Ok(())
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn invalid_id(s: &str) -> String {
+    format!("invalid CI unit ID: {s:?}")
 }
 
 #[cfg(not(verus_keep_ghost))]

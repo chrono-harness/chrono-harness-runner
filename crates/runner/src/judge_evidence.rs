@@ -1,11 +1,91 @@
 //! Read and verify the runner's judge wire evidence without opening any host retention policy.
+#[cfg(verus_keep_ghost)]
+use super::{identifiers, units::Unit};
+#[cfg(not(verus_keep_ghost))]
+use crate::{units::Unit, verified_identifiers as identifiers};
+#[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
-use std::{
-    collections::BTreeMap,
-    io::{BufRead, Read, Write},
-};
+use std::collections::{BTreeMap, BTreeSet};
+#[cfg(not(verus_keep_ghost))]
+use std::io::{BufRead, Read, Write};
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
 
+verus! {
+
+pub(crate) enum UnitTestsError {
+    InvalidId,
+    Unregistered,
+}
+
+pub(crate) fn unit_tests<'a>(
+    unit: &String, units: &'a BTreeMap<String, Unit>, selected: &BTreeSet<String>,
+) -> (result: Result<BTreeSet<&'a String>, UnitTestsError>)
+    requires vstd::laws_cmp::obeys_cmp::<String>(),
+    ensures
+        if !identifiers::identifier(vstd::utf8::encode_utf8(unit@)) {
+            result is Err && result->Err_0 is InvalidId
+        } else if !units@.contains_key(*unit) {
+            result is Err && result->Err_0 is Unregistered
+        } else {
+            result is Ok && result->Ok_0@ == Set::new(|test: &String|
+                units@[*unit].tests@.contains(*test) && selected@.contains(*test))
+        },
+{
+    broadcast use vstd::std_specs::btree::group_btree_axioms;
+    if !identifiers::valid_id(unit.as_str().as_bytes()) {
+        return Err(UnitTestsError::InvalidId);
+    }
+    let definition = match units.get::<String>(unit) {
+        Some(definition) => definition,
+        None => return Err(UnitTestsError::Unregistered),
+    };
+    let tests = &definition.tests;
+    // Serialization uses the set's sorted order and borrows the registered names.
+    let mut matches = BTreeSet::new();
+    let mut index = 0;
+    assert(matches@ =~= Set::new(|test: &String|
+        tests@.take(0).contains(*test) && selected@.contains(*test)));
+    while index < tests.len()
+        invariant
+            vstd::laws_cmp::obeys_cmp::<String>(),
+            index <= tests.len(),
+            matches@ == Set::new(|test: &String|
+                tests@.take(index as int).contains(*test) && selected@.contains(*test)),
+        decreases tests.len() - index,
+    {
+        let test = &tests[index];
+        let ghost previous = matches@;
+        let chosen = selected.contains::<String>(test);
+        if chosen {
+            matches.insert(test);
+        }
+        proof {
+            broadcast use vstd::seq_lib::lemma_seq_contains_after_push;
+            let prefix = tests@.take(index as int);
+            let next = tests@.take(index as int + 1);
+            assert(next =~= prefix.push(*test));
+            let expected = Set::new(|name: &String|
+                next.contains(*name) && selected@.contains(*name));
+            assert forall|name: &String| matches@.contains(name) == expected.contains(name) by {
+                assert(next.contains(*name) == (prefix.contains(*name) || *test == *name));
+                assert(previous.contains(name) == (prefix.contains(*name) && selected@.contains(*name)));
+            }
+            assert(matches@ =~= expected);
+        }
+        index += 1;
+    }
+    assert(tests@.take(index as int) =~= tests@);
+    Ok(matches)
+}
+
+}
+
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 enum Operation {
@@ -59,8 +139,8 @@ enum Operation {
     },
     UnitTests {
         unit: String,
-        units: BTreeMap<String, crate::units::Unit>,
-        selected: std::collections::BTreeSet<String>,
+        units: BTreeMap<String, Unit>,
+        selected: BTreeSet<String>,
     },
     CollectionPaths {
         manifest: String,
@@ -101,6 +181,7 @@ enum Operation {
         config: Value,
     },
 }
+#[cfg(not(verus_keep_ghost))]
 impl Operation {
     fn evaluate(self) -> Result<Value, String> {
         match self {
@@ -179,16 +260,11 @@ impl Operation {
                 unit,
                 units,
                 selected,
-            } => {
-                crate::units::id(&unit)?;
-                let tests = &units.get(&unit).ok_or("unregistered CI unit")?.tests;
-                Ok(json!(
-                    tests
-                        .iter()
-                        .filter(|test| selected.contains(*test))
-                        .collect::<std::collections::BTreeSet<_>>()
-                ))
-            }
+            } => match unit_tests(&unit, &units, &selected) {
+                Ok(tests) => Ok(json!(tests)),
+                Err(UnitTestsError::InvalidId) => Err(crate::units::invalid_id(&unit)),
+                Err(UnitTestsError::Unregistered) => Err("unregistered CI unit".into()),
+            },
             Operation::CollectionPaths {
                 manifest,
                 report,
@@ -251,6 +327,7 @@ impl Operation {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn serve(mut input: impl BufRead, mut output: impl Write) -> Result<(), String> {
     loop {
         let mut line = Vec::new();

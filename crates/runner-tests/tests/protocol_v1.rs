@@ -325,6 +325,58 @@ fn scoped_ci_queries_use_the_registered_report_and_publication_policy() {
 
 #[test]
 #[cfg(not(verus_keep_ghost))]
+fn judge_evidence_unit_tests_select_one_registered_unit_and_recover_after_errors() {
+    let units = value!({
+        "example": {"tests": ["example-test"], "report_path": ".chrono-harness/state/example.json"},
+        "harness": {"tests": ["harness-test"], "report_path": ".chrono-harness/state/harness.json"},
+        "duplicates": {
+            "tests": ["zeta", "ignored", "alpha", "zeta"],
+            "report_path": ".chrono-harness/state/duplicates.json"
+        },
+        "empty": {"tests": [], "report_path": ".chrono-harness/state/empty.json"},
+        "bad/unit": {"tests": ["harness-test"], "report_path": ".chrono-harness/state/invalid.json"}
+    });
+    let both = &["harness-test", "example-test"][..];
+    let cases: [(&str, &[&str], serde_json::Value); 10] = [
+        ("example", both, value!({"Ok":["example-test"]})),
+        ("harness", both, value!({"Ok":["harness-test"]})),
+        ("example", &["harness-test"], value!({"Ok":[]})),
+        (
+            "duplicates",
+            &["zeta", "alpha", "zeta", "unregistered"],
+            value!({"Ok":["alpha","zeta"]}),
+        ),
+        ("duplicates", &[], value!({"Ok":[]})),
+        ("empty", both, value!({"Ok":[]})),
+        (
+            "bad/unit",
+            both,
+            value!({"Err":"invalid CI unit ID: \"bad/unit\""}),
+        ),
+        ("", both, value!({"Err":"invalid CI unit ID: \"\""})),
+        ("missing", &[], value!({"Err":"unregistered CI unit"})),
+        ("harness", both, value!({"Ok":["harness-test"]})),
+    ];
+    let mut input = Vec::new();
+    for (unit, selected, _) in &cases {
+        serde_json::to_writer(
+            &mut input,
+            &value!({"operation":"unit-tests","unit":unit,"units":units,"selected":selected}),
+        )
+        .unwrap();
+        input.push(b'\n');
+    }
+    let mut output = Vec::new();
+    chrono_harness::judge_evidence::serve(input.as_slice(), &mut output).unwrap();
+    let replies: Vec<serde_json::Value> = serde_json::Deserializer::from_slice(&output)
+        .into_iter()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(replies, cases.map(|(_, _, expected)| expected));
+}
+
+#[test]
+#[cfg(not(verus_keep_ghost))]
 fn independent_initial_judge_checks_the_sealed_request_and_profile() {
     let (_dir, mut request, binding) = initial_fixture(value!({}));
     let mut profile = value!({

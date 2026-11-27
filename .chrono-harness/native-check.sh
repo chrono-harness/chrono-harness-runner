@@ -49,7 +49,8 @@ src=crates/runner/src
 check_native crates/runner "$src/lib.rs" "$src/artifact_disposal.rs" "$src/source_endpoints.rs" "$src/source_coverage.rs" "$src/route_evidence.rs" \
   "$src/verified_cli.rs" "$src/trace_source.rs" "$src/diagnostic_session.rs" "$src/process_error.rs" "$src/short_console.rs" "$src/verified_git_binding.rs" "$src/verified_shallow_reads.rs" "$src/verified_limits.rs" "$src/verified_paths.rs" "$src/verified_status.rs" "$src/judge_schedule.rs" "$src/full.rs" "$src/finding_registry.rs" \
   "$src/command_stream.rs" "$src/observed_command.rs" "$src/process_child.rs" "$src/process_fds.rs" "$src/retained_artifacts/session.rs" "$src/retained_artifacts/session/descriptors.rs" \
-  "$src/facts.rs" "$src/facts_binding.rs" "$src/git_facts_session.rs" "$src/publication.rs" "$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs" "$src/retained_artifacts/session/publication.rs" "$src/retained_artifacts/manifest.rs"
+  "$src/facts.rs" "$src/facts_binding.rs" "$src/git_facts_session.rs" "$src/publication.rs" "$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/retention.rs" "$src/retained_artifacts/session/publication.rs" "$src/retained_artifacts/manifest.rs" \
+  "$src/judge_evidence.rs" "$src/units.rs"
 
 verifier=$(command -v "${VERUS:-verus}")
 cargo_verus=$(dirname "$verifier")/cargo-verus
@@ -93,7 +94,7 @@ release=("$src/retained_artifacts/verified_release.rs" "$src/retained_artifacts/
          "$src/retained_artifacts/retention_command.rs" "$src/scoped_report.rs"
          "$src/prepared.rs" "$src/prepared_artifacts.rs" "$src/prepared_binding.rs" "$src/retained_artifacts.rs"
          "$src/retained_artifacts/session/directory.rs" "$src/retained_artifacts/session/inventory.rs"
-         "$src/retained_artifacts/session/publication.rs" "$src/units.rs")
+         "$src/retained_artifacts/session/publication.rs" "$src/units.rs" "$src/judge_evidence.rs")
 git_binding=("$src/verified_git_binding.rs" "$src/verified_paths.rs" "$src/facts_configs.rs" "$src/invocation_query.rs" "$src/finding_registry.rs")
 cli=("$src/verified_cli.rs" "$src/trace_source.rs" "$src/diagnostic_session.rs" "$src/process_error.rs" "$src/publication.rs" "$src/short_console.rs")
 
