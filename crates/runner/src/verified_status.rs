@@ -16,6 +16,14 @@ pub extern crate chrono_identifiers as identifiers;
 use crate::verified_identifiers as identifiers;
 
 #[cfg(verus_keep_ghost)]
+#[path = "observation.rs"]
+mod process_observation;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::observation::retained_process_matches;
+#[cfg(verus_keep_ghost)]
+pub use process_observation::retained_process_matches;
+
+#[cfg(verus_keep_ghost)]
 #[path = "facts.rs"]
 pub mod fixed_source_read;
 #[cfg(not(verus_keep_ghost))]
