@@ -6,6 +6,9 @@ mod cli_contract;
 #[cfg(verus_keep_ghost)]
 #[path = "../../runner/src/verified_status.rs"]
 mod policy;
+#[cfg(verus_keep_ghost)]
+#[path = "registration_reports.rs"]
+mod registration_reports;
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::verified_identifiers as scope_text;
 #[cfg(not(verus_keep_ghost))]
@@ -27,19 +30,6 @@ use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::vpanic as panic;
 
 verus! {
-
-#[cfg_attr(not(verus_keep_ghost), test)]
-fn named_report_fields_preserve_null_over_conflict_and_repeated_values() {
-    use policy::NamedOutput::*;
-    let first = Missing.observe(false, false);
-    expect_status_true(matches!(first, Common));
-    expect_status_true(matches!(first.observe(false, true), Common));
-    let conflict = first.observe(false, false);
-    expect_status_true(matches!(conflict, Conflict));
-    expect_status_true(matches!(conflict.observe(false, true), Conflict));
-    expect_status_true(matches!(conflict.observe(true, false), Null));
-    expect_status_true(matches!(Missing.observe(true, true).observe(false, false), Null));
-}
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn judge_delivery_keeps_admitted_outputs_and_the_first_error() {

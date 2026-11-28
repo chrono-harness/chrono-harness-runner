@@ -1,19 +1,50 @@
 //! Exercise the runner's real initial/full execution and reporting with external judges modeled at the process boundary.
+#![allow(unexpected_cfgs)]
+#[cfg(verus_keep_ghost)]
+use super::policy as report_policy;
+#[cfg(not(verus_keep_ghost))]
+use chrono_harness::verified_status as report_policy;
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::{prelude::*, vpanic as panic};
+
+verus! {
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn named_report_fields_preserve_null_over_conflict_and_repeated_values() {
+    use report_policy::NamedOutput::*;
+    let first = Missing.observe(false, false);
+    if !matches!(first, Common) { panic!("incorrect full report field agreement"); }
+    if !matches!(first.observe(false, true), Common) { panic!("incorrect full report field agreement"); }
+    let conflict = first.observe(false, false);
+    if !matches!(conflict, Conflict) { panic!("incorrect full report field agreement"); }
+    if !matches!(conflict.observe(false, true), Conflict) { panic!("incorrect full report field agreement"); }
+    if !matches!(conflict.observe(true, false), Null) { panic!("incorrect full report field agreement"); }
+    if !matches!(Missing.observe(true, true).observe(false, false), Null) { panic!("incorrect full report field agreement"); }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use chrono_harness::{facts, sha256};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
+#[cfg(not(verus_keep_ghost))]
 use tempfile::TempDir;
 
+#[cfg(not(verus_keep_ghost))]
 struct Host {
     dir: TempDir,
     base: String,
     candidate: String,
 }
 // Self-contained registry inputs; tests never query the source checkout's Git.
+#[cfg(not(verus_keep_ghost))]
 fn fixture_registries() -> Value {
     let mut registries: Value =
         serde_json::from_str(include_str!("fixtures/host-registries.json")).unwrap();
@@ -22,9 +53,11 @@ fn fixture_registries() -> Value {
         manifest["package"]["version"].as_str().unwrap().into();
     registries
 }
+#[cfg(not(verus_keep_ghost))]
 fn fixture_git() -> PathBuf {
     Path::new(env!("CHRONO_TEST_GIT")).canonicalize().unwrap()
 }
+#[cfg(not(verus_keep_ghost))]
 fn git(root: &Path, args: &[&str]) -> String {
     let out = Command::new(fixture_git())
         .arg("-C")
@@ -41,11 +74,13 @@ fn git(root: &Path, args: &[&str]) -> String {
     );
     String::from_utf8(out.stdout).unwrap().trim().into()
 }
+#[cfg(not(verus_keep_ghost))]
 fn write(root: &Path, path: &str, value: &Value) {
     let p = root.join(path);
     fs::create_dir_all(p.parent().unwrap()).unwrap();
     fs::write(p, serde_json::to_vec_pretty(value).unwrap()).unwrap();
 }
+#[cfg(not(verus_keep_ghost))]
 fn commit(root: &Path) -> String {
     git(root, &["add", "."]);
     git(
@@ -63,9 +98,11 @@ fn commit(root: &Path) -> String {
     );
     git(root, &["rev-parse", "HEAD"])
 }
+#[cfg(not(verus_keep_ghost))]
 fn file(path: &str) -> Value {
     json!({"path":path,"owner":"repository","surface":"documentation","cost":"unmeasured","edges":[]})
 }
+#[cfg(not(verus_keep_ghost))]
 impl Host {
     fn new() -> Self {
         let dir = tempfile::Builder::new()
@@ -205,6 +242,7 @@ impl Host {
         self.run_context(self.context())
     }
 }
+#[cfg(not(verus_keep_ghost))]
 fn finding(v: &Value, code: &str) -> bool {
     v["judges"]
         .as_array()
@@ -214,6 +252,7 @@ fn finding(v: &Value, code: &str) -> bool {
         .any(|f| f["code"] == code)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn initial_host() -> Host {
     let mut h = Host::new();
     git(h.root(), &["checkout", "--orphan", "initial-fixture"]);
@@ -252,6 +291,7 @@ fn initial_host() -> Host {
     h
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn initial_run(h: &Host) -> (i32, Value) {
     let o = Command::new(h.root().join(".chrono-harness/bin/chrono-harness"))
         .current_dir("/")
@@ -274,6 +314,7 @@ fn initial_run(h: &Host) -> (i32, Value) {
     (o.status.code().unwrap(), report)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn amend_initial(h: &mut Host) {
     git(h.root(), &["add", "."]);
     git(
@@ -293,6 +334,7 @@ fn amend_initial(h: &mut Host) {
     h.candidate = git(h.root(), &["rev-parse", "HEAD"]);
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn mock_registration(host: &Host, codes: &[&str], status: &str) {
     write(
         host.root(),
@@ -300,6 +342,7 @@ fn mock_registration(host: &Host, codes: &[&str], status: &str) {
         &json!({"codes":codes,"status":status}),
     );
 }
+#[cfg(not(verus_keep_ghost))]
 fn assert_report_contract(h: &Host, report: &Value) {
     // Required consumer fields come from SPEC §9, independently of serialization.
     let missing: Vec<_> = [
@@ -356,6 +399,7 @@ fn assert_report_contract(h: &Host, report: &Value) {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn assert_unresolved(report: &Value, field: &str) {
     assert!(
         report.get(field).is_some_and(Value::is_null),
@@ -369,6 +413,7 @@ fn assert_unresolved(report: &Value, field: &str) {
     );
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn install_regression_child(h: &Host, path: &str) -> String {
     fs::copy(
         env!("CARGO_BIN_EXE_chrono-test-registration-regression"),
@@ -378,6 +423,7 @@ fn install_regression_child(h: &Host, path: &str) -> String {
     sha256(&fs::read(h.root().join(path)).unwrap())
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn retain_regression(h: &Host, case: &str, report: &Value) {
     let destination = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("regression-evidence")
@@ -417,6 +463,7 @@ fn retain_regression(h: &Host, case: &str, report: &Value) {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn assert_rejected_regression_inputs(mode: &str, request: &Value) {
     use std::{io::Write, process::Stdio};
     let mut cases = vec![
@@ -465,6 +512,7 @@ fn assert_rejected_regression_inputs(mode: &str, request: &Value) {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn install_report_fixture(h: &mut Host, mode: &str, plan: &[(&str, Vec<&str>)]) {
     let path = ".chrono-harness/bin/report-fixture";
     let digest = install_regression_child(h, path);
@@ -477,6 +525,7 @@ fn install_report_fixture(h: &mut Host, mode: &str, plan: &[(&str, Vec<&str>)]) 
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn initial_inventory_reads_original_parents_through_git_replace_overlays() {
     let mut h = initial_host();
     let root = h.candidate.clone();
@@ -513,6 +562,7 @@ fn initial_inventory_reads_original_parents_through_git_replace_overlays() {
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn initial_inventory_uses_only_declared_dag_and_blocks_failed_dependents() {
     let mut h = initial_host();
     let script = ".chrono-harness/inventory-plugin";
@@ -601,6 +651,7 @@ fn initial_inventory_uses_only_declared_dag_and_blocks_failed_dependents() {
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn initial_inventory_rejects_real_parents_even_in_shallow_history_and_cannot_activate_delta() {
     let mut h = initial_host();
     h.base = h.candidate.clone();
@@ -657,6 +708,7 @@ fn initial_inventory_rejects_real_parents_even_in_shallow_history_and_cannot_act
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn explicit_initial_inventory_runs_candidate_judge_without_a_delta_or_activation_claim() {
     let h = initial_host();
     let (exit, r) = initial_run(&h);
@@ -685,6 +737,7 @@ fn explicit_initial_inventory_runs_candidate_judge_without_a_delta_or_activation
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn selected_initial_inventory_keeps_entry_identity_and_runs_the_effective_policy() {
     let mut h = initial_host();
     let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
@@ -742,6 +795,7 @@ fn selected_initial_inventory_keeps_entry_identity_and_runs_the_effective_policy
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn full_report_required_fields_and_unknowns_for_bounded_host() {
     let h = Host::new();
     let (exit, report) = h.run();
@@ -759,6 +813,7 @@ fn full_report_required_fields_and_unknowns_for_bounded_host() {
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn full_report_executable_list_distinguishes_observed_and_configured() {
     let h = Host::new();
     let (exit, report) = h.run();
@@ -800,6 +855,7 @@ fn full_report_executable_list_distinguishes_observed_and_configured() {
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn full_report_preserves_failure_findings_and_incomplete_status() {
     let mut h = Host::new();
     fs::write(h.root().join("new.txt"), "unregistered").unwrap();
@@ -845,6 +901,7 @@ fn full_report_preserves_failure_findings_and_incomplete_status() {
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn full_report_forwards_real_named_outputs_and_warn_without_inventing_observations() {
     let mut h = Host::new();
     install_report_fixture(&mut h, "named", &[("observations", vec![])]);
@@ -954,6 +1011,7 @@ fn full_report_forwards_real_named_outputs_and_warn_without_inventing_observatio
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn full_report_missing_responses_and_conflicting_outputs_remain_unresolved() {
     let mut h = Host::new();
     install_report_fixture(
@@ -1040,6 +1098,7 @@ fn full_report_missing_responses_and_conflicting_outputs_remain_unresolved() {
 }
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn missing_oid_and_symbolic_endpoint_are_errors() {
     let h = Host::new();
     assert!(facts::verify_oid(h.root(), "HEAD").is_err());
@@ -1047,9 +1106,11 @@ fn missing_oid_and_symbolic_endpoint_are_errors() {
 }
 
 #[path = "registered_git.rs"]
+#[cfg(not(verus_keep_ghost))]
 mod registered_git;
 
 #[test]
+#[cfg(not(verus_keep_ghost))]
 fn full_report_represents_a_rename_as_delete_add_and_equal_endpoints_as_an_empty_delta() {
     let mut h = Host::new();
     fs::rename(h.root().join("document.txt"), h.root().join("renamed.txt")).unwrap();
