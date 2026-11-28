@@ -32,7 +32,7 @@ fn initial_candidate_stops_before_an_unavailable_observer(parents:usize, expecte
 {
     let result = policy::verify_initial_binding(parents, Some(("profile", expected)),
         || -> (r:Result<(),String>) requires false { Ok(()) },
-        |_:&str| -> (r:Result<String,String>) requires false { Ok(String::new()) });
+        |_unused:&str| -> (r:Result<String,String>) requires false { Ok(String::new()) });
     assert(result is Err && result.unwrap_err()@ == "prepared initial candidate has parents"@);
 }
 
@@ -40,7 +40,7 @@ fn initial_candidate_stops_before_an_unavailable_observer(parents:usize, expecte
 fn initial_candidate_preserves_failed_contract_and_skips_profile(error:String) {
     let result = policy::verify_initial_binding(0, Some(("profile","digest")),
         || -> (r:Result<(),String>) ensures r == Err::<(),String>(error) { Err(error) },
-        |_:&str| -> (r:Result<String,String>) requires false { Ok(String::new()) });
+        |_unused:&str| -> (r:Result<String,String>) requires false { Ok(String::new()) });
     assert(result == Err::<(), String>(error));
 }
 
@@ -48,7 +48,7 @@ fn initial_candidate_preserves_failed_contract_and_skips_profile(error:String) {
 fn initial_candidate_accepts_an_unpinned_contract_without_reading() {
     let result = policy::verify_initial_binding(0, None,
         || -> (r:Result<(),String>) ensures r == Ok::<(),String>(()) { Ok(()) },
-        |_:&str| -> (r:Result<String,String>) requires false { Ok(String::new()) });
+        |_unused:&str| -> (r:Result<String,String>) requires false { Ok(String::new()) });
     assert(result == Ok::<(), String>(()));
 }
 

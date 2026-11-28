@@ -18,6 +18,14 @@ pub fn prepared_scope(initial: bool, has_base: bool, standalone_profile: bool,
     initial != has_base && !(initial && standalone_profile && (context || scope))
 }
 
+pub open spec fn profile_read_matches(read: Result<String,String>, expected: &str, out: Result<(),String>) -> bool {
+    match read {
+        Err(error) => out == Err::<(),String>(error),
+        Ok(actual) => if actual@ == expected@ { out == Ok::<(),String>(()) }
+            else { out is Err && out.unwrap_err()@ == "initial profile differs from candidate"@ },
+    }
+}
+
 /// The parent list comes from the physical commit. Only a parentless candidate can
 /// use the host contract; an optional profile must then match its committed blob.
 pub fn verify_initial_binding<'a, C, R>(
@@ -25,35 +33,41 @@ pub fn verify_initial_binding<'a, C, R>(
 ) -> (out: Result<(), String>)
     where C: FnOnce() -> Result<(), String>, R: FnOnce(&'a str) -> Result<String, String>,
     requires parents == 0 ==> contract.requires(()),
-        forall|path:&'a str, digest:&'a str| parents == 0 && contract.ensures((), Ok(()))
-            && profile == Some((path, digest)) ==> committed.requires((path,)),
+        parents == 0 && (exists|admitted:Result<(),String>| admitted is Ok && #[trigger] contract.ensures((),admitted)) ==> match profile {
+            None => true,
+            Some((path, _)) => committed.requires((path,)),
+        },
     ensures if parents != 0 {
         out is Err && out.unwrap_err()@ == "prepared initial candidate has parents"@
     } else {
         (out is Err && contract.ensures((), out)) ||
-        (contract.ensures((), Ok(())) && match profile {
+        ((exists|admitted:Result<(),String>| admitted is Ok && #[trigger] contract.ensures((),admitted)) && match profile {
             None => out == Ok::<(), String>(()),
             Some((path, expected)) => exists|read:Result<String, String>|
-                #[trigger] committed.ensures((path,), read) && match read {
-                    Err(error) => out == Err::<(),String>(error),
-                    Ok(actual) => if actual@ == expected@ { out == Ok::<(),String>(()) }
-                        else { out is Err && out.unwrap_err()@ == "initial profile differs from candidate"@ },
-                },
+                #[trigger] committed.ensures((path,), read) && profile_read_matches(read, expected, out),
         })
     },
 {
     if parents != 0 { return Err("prepared initial candidate has parents".to_string()); }
-    if let Err(error) = contract() { return Err(error); }
+    let admitted = contract();
+    if let Err(error) = admitted { return Err(error); }
+    assert(contract.ensures((), admitted));
+    assert(admitted is Ok);
     if let Some((path, expected)) = profile {
+        assert(profile == Some((path, expected)));
+        assert(committed.requires((path,)));
         let read = committed(path);
-        match read {
-            Err(error) => return Err(error),
-            Ok(actual) => {
-                if !identifiers::equal_text(actual.as_str(), expected) {
-                    return Err("initial profile differs from candidate".to_string());
-                }
-            },
+        let out = match read {
+            Err(error) => Err(error),
+            Ok(actual) => if identifiers::equal_text(actual.as_str(), expected) { Ok(()) }
+                else { Err("initial profile differs from candidate".to_string()) },
+        };
+        assert(exists|observed: Result<String,String>| #[trigger] committed.ensures((path,), observed)
+            && profile_read_matches(observed, expected, out)) by {
+            assert(committed.ensures((path,), read));
+            assert(profile_read_matches(read, expected, out));
         }
+        return out;
     }
     Ok(())
 }
