@@ -15,6 +15,7 @@ path = "tests/runtime_logging.rs"
 
 [dependencies]
 serde_yaml = { package = "serde_yaml_ng", version = "=0.10.0" }
+toml = { version = "1.2", default-features = false, features = ["parse", "serde", "std"] }
 chrono-test-process.workspace = true
 verus_builtin_macros.workspace = true
 serde.workspace = true
@@ -172,4 +173,4 @@ path = "tests/release_observation.rs"
 
 [[test]]
 name = "roadmap_adapters"
-path = "../../.chrono-harness/ci/roadmap.rs"
+path = "../../.chrono-harness/ci/host_adapters.rs"

@@ -1,10 +1,37 @@
-//! Roadmap deployment contract rendered from this host's selected Copier release.
+//! Deployment checks for the files selected by this host.
+#![allow(unexpected_cfgs)]
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
 verus! {
+/// A mise setup installs tools first and refreshes the rules only when selected.
+pub fn setup_sequence(commands: &[String], instructions: bool) -> (accepted: bool)
+    ensures accepted == (commands.len() == (if instructions { 2usize } else { 1usize })
+        && commands@[0]@ == "sh .chrono-harness/install-tools.sh"@
+        && (!instructions || commands@[1]@ == "mise exec -- chrono-instructions sync-rules --host-root ."@)),
+{
+    if commands.len() != (if instructions { 2usize } else { 1usize }) { return false; }
+    commands[0] == "sh .chrono-harness/install-tools.sh".to_string() && (!instructions
+        || commands[1] == "mise exec -- chrono-instructions sync-rules --host-root .".to_string())
+}
+
+pub fn mise_manifest() -> (s: &'static str) {
+    include_str!("../../.config/mise/conf.d/chrono-harness.toml")
+}
+
+/// The template renders these same rows into both mise platform tables.
+pub fn deployed_tool_installer() -> (source: &'static str) {
+    include_str!("../install-tools.sh")
+}
+
+pub fn installer_digest_matches(digest: &String) -> (accepted: bool)
+    ensures accepted == (digest@ == "9dd26d30cae3d2b5a9da1e100944800f8d6ed80983f6b25a7c08a6eb153ad75d"@),
+{
+    *digest == "9dd26d30cae3d2b5a9da1e100944800f8d6ed80983f6b25a7c08a6eb153ad75d".to_string()
+}
+
 /// Both deployed files are inputs to this proof compilation and its native test.
 pub fn deployed_roadmap() -> (&'static str, &'static str) {
     (include_str!("../../.github/roadmap.cjs"), include_str!("../../.github/workflows/issue-roadmap.yml"))
@@ -22,9 +49,9 @@ pub fn roadmap_repository(checkout: bool, owner_id: u64, repo_id: u64) -> (accep
 }
 /// The native caller hashes the actual UTF-8 bytes embedded above.
 pub fn roadmap_matches(script: &String, workflow: &String) -> (accepted: bool)
-    ensures accepted == (script@ == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9"@ && workflow@ == "5907b4ac507644d1aa5fabb00363f03f7bc713ab05fcd8ea9d9f3664e1a6b21f"@),
+    ensures accepted == (script@ == "86e97ab0ed63be36d37d32e7d164da4e226c6f616685ad4ce1dd75f814095f8a"@ && workflow@ == "b305ce0fec7db541582192bcacf82f82049e6628762a408174b9d757d9f36337"@),
 {
-    *script == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9".to_string() && *workflow == "5907b4ac507644d1aa5fabb00363f03f7bc713ab05fcd8ea9d9f3664e1a6b21f".to_string()
+    *script == "86e97ab0ed63be36d37d32e7d164da4e226c6f616685ad4ce1dd75f814095f8a".to_string() && *workflow == "b305ce0fec7db541582192bcacf82f82049e6628762a408174b9d757d9f36337".to_string()
 }
 }
 
@@ -32,6 +59,19 @@ pub fn roadmap_matches(script: &String, workflow: &String) -> (accepted: bool)
 mod native {
     use super::*;
     use serde_yaml::Value;
+
+    #[test]
+    fn deployed_tool_installer_matches_the_selected_template() {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(deployed_tool_installer().as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert!(
+            installer_digest_matches(&digest),
+            "install-tools.sh differs from the selected template"
+        );
+    }
 
     fn roadmap_digest(source: &str) -> String {
         use sha2::{Digest, Sha256};
@@ -155,5 +195,70 @@ mod native {
         );
         assert!(!roadmap_matches(&workflow_hash, &workflow_hash));
         assert!(!roadmap_matches(&script_hash, &script_hash));
+    }
+    fn setup_matches(source: &str, instructions: bool) -> bool {
+        let Ok(doc) = source.parse::<toml::Table>() else {
+            return false;
+        };
+        let instruction_tool = doc
+            .get("tools")
+            .and_then(toml::Value::as_table)
+            .is_some_and(|tools| tools.contains_key("http:chrono-instructions"));
+        let Some(setup) = doc
+            .get("tasks")
+            .and_then(|tasks| tasks.get("harness-setup"))
+            .and_then(toml::Value::as_table)
+        else {
+            return false;
+        };
+        if instruction_tool != instructions
+            || setup.keys().any(|key| key != "run" && key != "description")
+        {
+            return false;
+        }
+        let commands: Vec<String> = match setup.get("run") {
+            Some(toml::Value::String(one)) => vec![one.clone()],
+            Some(toml::Value::Array(steps)) => {
+                let Some(all) = steps
+                    .iter()
+                    .map(|value| value.as_str().map(str::to_owned))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return false;
+                };
+                all
+            }
+            _ => return false,
+        };
+        setup_sequence(&commands, instructions)
+    }
+
+    #[test]
+    fn mise_installs_the_selected_tools_before_refreshing_instructions() {
+        let original = mise_manifest();
+        let selected = true;
+        assert!(setup_matches(original, selected));
+        assert!(!setup_matches(
+            &original.replace(
+                "sh .chrono-harness/install-tools.sh",
+                "sh .chrono-harness/install-tools.sh --dry-run"
+            ),
+            selected
+        ));
+        assert!(!setup_matches(
+            &original.replace(
+                "[tasks.harness-setup]",
+                "[tasks.harness-setup]\ndepends = ['other']"
+            ),
+            selected
+        ));
+        let install_only =
+            "[tools]\n[tasks.harness-setup]\nrun = 'sh .chrono-harness/install-tools.sh'";
+        assert!(setup_matches(install_only, false));
+        assert!(!setup_matches(install_only, true));
+        let reverse = "[tools.'http:chrono-instructions']\n[tasks.harness-setup]\nrun=['mise exec -- chrono-instructions sync-rules --host-root .','sh .chrono-harness/install-tools.sh']";
+        assert!(!setup_matches(reverse, true));
+        let extra = "[tools]\n[tasks.harness-setup]\nrun = ['sh .chrono-harness/install-tools.sh', 'another-command']";
+        assert!(!setup_matches(extra, false));
     }
 }
