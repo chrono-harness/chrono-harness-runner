@@ -196,7 +196,8 @@ pub(crate) fn resolve_target(
         selected_config.get("schema").is_some(),
     )?;
     if let Some((program, hash)) = identity {
-        let (tool, input) = crate::facts_binding::declaration(&selected_config)?;
+        let declared = crate::facts_binding::declaration(&selected_config)?;
+        let (tool, input) = (declared.tool, declared.input);
         admit_selector_binding(
             program,
             hash,

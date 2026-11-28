@@ -21,6 +21,42 @@ use policy::identifiers::equal_text as text_matches;
 
 verus! {
 
+struct FileObserver {
+    trace: Vec<(u8,Result<u8,u8>)>,
+}
+
+impl policy::GuardObserver<u8,u8,u8> for FileObserver {
+    closed spec fn observations(&self) -> Seq<(u8,Result<u8,u8>)> { self.trace@ }
+    fn observe(&mut self, id:u8) -> (out: Result<u8,u8>) {
+        let out = if id==0 { Err(42) } else { Ok(id) };
+        self.trace.push((id,out));
+        out
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost),test)]
+fn absent_guard_keeps_existing_observations() {
+    let mut observer = FileObserver { trace: Vec::new() };
+    observer.trace.push((3,Ok(3)));
+    let result=policy::observe_declared_guard(None,&mut observer);
+    expect_true(matches!(result,Ok(None)));
+    expect_true(observer.trace.len()==1);
+    expect_true(observer.trace[0].0==3);
+}
+
+fn every_supplied_guard_keeps_the_actual_read<E,D,R,O:policy::GuardObserver<D,R,E>>(id:D,observer:&mut O) {
+    let ghost previous = observer.observations();
+    let result=policy::observe_declared_guard(Some(id),observer);
+    assert(observer.observations().len()==previous.len()+1);
+    assert(observer.observations().take(previous.len() as int) =~= previous);
+    assert(observer.observations().last().0==id);
+    match result {
+        Ok(Some(bytes)) => assert(observer.observations().last().1==Ok::<R,E>(bytes)),
+        Err(original) => assert(observer.observations().last().1==Err::<R,E>(original)),
+        Ok(None) => assert(false),
+    }
+}
+
 fn expect_true(value: bool)
     requires value,
 { if !value { panic!(); } }
@@ -1606,4 +1642,13 @@ fn guard_presence_mismatch_keeps_the_complete_original_id() {
         "", Some("PRESENT"), Some("hash"), Some(("hash", u64::MAX))));
 }
 
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn supplied_guard_reads_once_and_keeps_the_original_return() {
+    let mut observer=FileObserver { trace: Vec::new() };
+    assert_eq!(policy::observe_declared_guard(Some(7),&mut observer),Ok(Some(7)));
+    assert_eq!(policy::observe_declared_guard(Some(0),&mut observer),Err(42));
+    assert_eq!(observer.trace,[(7,Ok(7)),(0,Err(42))]);
 }
