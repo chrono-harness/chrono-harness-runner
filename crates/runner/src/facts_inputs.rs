@@ -35,7 +35,7 @@ pub(crate) use native::{Guard, declaration};
 
 #[cfg(not(verus_keep_ghost))]
 mod native {
-    use crate::{input_file::observe_file, relative_path, verified_git_binding, wire};
+    use crate::{input_file::observe_file, relative_path, verified_git_binding};
     use serde_json::{Value, json};
     use std::{
         collections::{BTreeMap, BTreeSet},

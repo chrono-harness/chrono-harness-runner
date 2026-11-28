@@ -685,16 +685,17 @@ impl Reader {
                 timeout_seconds: timeout,
                 output_limit_bytes: limit,
             };
-            let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
+            let canonical_root = fs::canonicalize(root).map_err(|e| e.to_string())?;
+            let guard = crate::facts_inputs::Guard::from_declaration(&canonical_root, guard)?;
             let reader = Self {
                 bound: Some(Bound {
-                    root: root.clone(),
+                    root: canonical_root,
                     config_path,
                     config_bytes: bytes,
                     binding,
                     spec,
                     environment,
-                    guard: crate::facts_inputs::Guard::from_declaration(&root, guard)?,
+                    guard,
                     selection,
                 }),
                 processes: RefCell::new(vec![]),
