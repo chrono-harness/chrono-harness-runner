@@ -26,6 +26,44 @@ use policy::identifiers;
 mod retention_frontier;
 
 verus! {
+#[cfg(verus_keep_ghost)]
+fn initial_candidate_stops_before_an_unavailable_observer(parents:usize, expected:&str)
+    requires parents > 0,
+{
+    let result = policy::verify_initial_binding(parents, Some(("profile", expected)),
+        || -> (r:Result<(),String>) requires false { Ok(()) },
+        |_:&str| -> (r:Result<String,String>) requires false { Ok(String::new()) });
+    assert(result is Err && result.unwrap_err()@ == "prepared initial candidate has parents"@);
+}
+
+#[cfg(verus_keep_ghost)]
+fn initial_candidate_preserves_failed_contract_and_skips_profile(error:String) {
+    let result = policy::verify_initial_binding(0, Some(("profile","digest")),
+        || -> (r:Result<(),String>) ensures r == Err::<(),String>(error) { Err(error) },
+        |_:&str| -> (r:Result<String,String>) requires false { Ok(String::new()) });
+    assert(result == Err::<(), String>(error));
+}
+
+#[cfg(verus_keep_ghost)]
+fn initial_candidate_accepts_an_unpinned_contract_without_reading() {
+    let result = policy::verify_initial_binding(0, None,
+        || -> (r:Result<(),String>) ensures r == Ok::<(),String>(()) { Ok(()) },
+        |_:&str| -> (r:Result<String,String>) requires false { Ok(String::new()) });
+    assert(result == Ok::<(), String>(()));
+}
+
+#[cfg(verus_keep_ghost)]
+fn pinned_initial_profile_requires_the_observed_digest(path:&str, expected:&str, observed:Result<String,String>) {
+    let result = policy::verify_initial_binding(0, Some((path, expected)),
+        || -> (r:Result<(),String>) ensures r == Ok::<(),String>(()) { Ok(()) },
+        |selected:&str| -> (r:Result<String,String>) requires selected == path, ensures r == observed { observed });
+    assert(match observed {
+        Err(error) => result == Err::<(),String>(error),
+        Ok(digest) => if digest@ == expected@ { result == Ok::<(),String>(()) }
+            else { result is Err && result.unwrap_err()@ == "initial profile differs from candidate"@ },
+    });
+}
+
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn report_reference_requires_an_exact_version_and_an_explicit_string() {

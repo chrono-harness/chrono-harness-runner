@@ -53,9 +53,9 @@ pub use prepared_artifacts::bounded_original;
 #[path = "../prepared.rs"]
 mod prepared;
 #[cfg(not(verus_keep_ghost))]
-pub use crate::prepared::{prepared_scope, receipt_count};
+pub use crate::prepared::{prepared_scope, receipt_count, verify_initial_binding};
 #[cfg(verus_keep_ghost)]
-pub use prepared::{prepared_scope, receipt_count};
+pub use prepared::{prepared_scope, receipt_count, verify_initial_binding};
 
 #[cfg(verus_keep_ghost)]
 #[path = "../prepared_binding.rs"]
