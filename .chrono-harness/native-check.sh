@@ -29,15 +29,9 @@ cargo test --locked --package chrono-harness-tests -- --test-threads=2
 check_native() {
   local package=$1
   shift
-  local metadata stem filename
-  metadata=$(jq -ers --arg manifest "$(pwd -P)/$package/Cargo.toml" '
-    [.[] | select(.reason == "compiler-artifact" and .manifest_path == $manifest
-                  and .target.kind == ["lib"]) | .filenames[] | select(endswith(".rmeta"))]
-    | if length == 1 then .[0] else error("expected one native library") end
-  ' "$scratch/native.jsonl")
-  filename=${metadata##*/}
-  stem=${filename#lib}
-  chrono-host-bootstrap check-compiler-sources native "${metadata%/*}/${stem%.rmeta}" "$@"
+  local stem
+  stem=$(chrono-host-bootstrap select-native-cargo-library "$(pwd -P)/$package/Cargo.toml" "$scratch/native.jsonl") || return
+  chrono-host-bootstrap check-compiler-sources native "$stem" "$@"
 }
 
 # rustc records each workspace member's sources relative to the workspace root.
