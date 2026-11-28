@@ -4,6 +4,11 @@ use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
+#[cfg(verus_keep_ghost)]
+use super::identifiers;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_identifiers as identifiers;
+
 verus! {
 /// A prepared result identifies exactly one initial or DELTA shape.
 pub fn prepared_scope(initial: bool, has_base: bool, standalone_profile: bool,
@@ -11,6 +16,60 @@ pub fn prepared_scope(initial: bool, has_base: bool, standalone_profile: bool,
     ensures valid == (initial != has_base && !(initial && standalone_profile && (context || scope))),
 {
     initial != has_base && !(initial && standalone_profile && (context || scope))
+}
+
+pub open spec fn profile_read_matches(read: Result<String,String>, expected: &str, out: Result<(),String>) -> bool {
+    match read {
+        Err(error) => out == Err::<(),String>(error),
+        Ok(actual) => if actual@ == expected@ { out == Ok::<(),String>(()) }
+            else { out is Err && out.unwrap_err()@ == "initial profile differs from candidate"@ },
+    }
+}
+
+/// The parent list comes from the physical commit. Only a parentless candidate can
+/// use the host contract; an optional profile must then match its committed blob.
+pub fn verify_initial_binding<'a, C, R>(
+    parents: usize, profile: Option<(&'a str, &'a str)>, contract: C, committed: R,
+) -> (out: Result<(), String>)
+    where C: FnOnce() -> Result<(), String>, R: FnOnce(&'a str) -> Result<String, String>,
+    requires parents == 0 ==> contract.requires(()),
+        parents == 0 && (exists|admitted:Result<(),String>| admitted is Ok && #[trigger] contract.ensures((),admitted)) ==> match profile {
+            None => true,
+            Some((path, _)) => committed.requires((path,)),
+        },
+    ensures if parents != 0 {
+        out is Err && out.unwrap_err()@ == "prepared initial candidate has parents"@
+    } else {
+        (out is Err && contract.ensures((), out)) ||
+        ((exists|admitted:Result<(),String>| admitted is Ok && #[trigger] contract.ensures((),admitted)) && match profile {
+            None => out == Ok::<(), String>(()),
+            Some((path, expected)) => exists|read:Result<String, String>|
+                #[trigger] committed.ensures((path,), read) && profile_read_matches(read, expected, out),
+        })
+    },
+{
+    if parents != 0 { return Err("prepared initial candidate has parents".to_string()); }
+    let admitted = contract();
+    if let Err(error) = admitted { return Err(error); }
+    assert(contract.ensures((), admitted));
+    assert(admitted is Ok);
+    if let Some((path, expected)) = profile {
+        assert(profile == Some((path, expected)));
+        assert(committed.requires((path,)));
+        let read = committed(path);
+        let out = match read {
+            Err(error) => Err(error),
+            Ok(actual) => if identifiers::equal_text(actual.as_str(), expected) { Ok(()) }
+                else { Err("initial profile differs from candidate".to_string()) },
+        };
+        assert(exists|observed: Result<String,String>| #[trigger] committed.ensures((path,), observed)
+            && profile_read_matches(observed, expected, out)) by {
+            assert(committed.ensures((path,), read));
+            assert(profile_read_matches(read, expected, out));
+        }
+        return out;
+    }
+    Ok(())
 }
 
 pub fn receipt_count(local: bool, collecting: bool) -> (required: usize)
@@ -826,16 +885,21 @@ pub fn validate_result(req: &InputRequest, p: &PreparedCheck) -> Result<(), Stri
     if p.initial {
         let reader = facts::Reader::for_config(&req.host_root, &req.host_config)?;
         reader.verify_config(&req.host_root, &p.candidate)?;
-        if !reader.parents(&req.host_root, &p.candidate)?.is_empty() {
-            return Err("prepared initial candidate has parents".into());
-        }
-        validate_initial_contract(&req.host_root, req)?;
-        if let Some(profile) = &req.initial_profile {
-            if sha256(&reader.blob(&req.host_root, &p.candidate, &profile.path)?) != profile.sha256
-            {
-                return Err("initial profile differs from candidate".into());
-            }
-        }
+        let parents = reader.parents(&req.host_root, &p.candidate)?;
+        let profile = req
+            .initial_profile
+            .as_ref()
+            .map(|p| (p.path.as_str(), p.sha256.as_str()));
+        verify_initial_binding(
+            parents.len(),
+            profile,
+            || validate_initial_contract(&req.host_root, req),
+            |path| {
+                reader
+                    .blob(&req.host_root, &p.candidate, path)
+                    .map(|bytes| sha256(&bytes))
+            },
+        )?;
     }
     Ok(())
 }
