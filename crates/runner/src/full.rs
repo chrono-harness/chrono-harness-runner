@@ -328,11 +328,7 @@ pub fn retained_judges(
         let request = judge_request_from_observations(template, &binding, &history)?;
         let digest = sha256(&request.canonical()?);
         let response = Response::deserialize(&record["response"]).map_err(|e| e.to_string())?;
-        let warnings = response.findings.iter().any(|f| f.level == "warning");
-        if response.findings.iter().any(|f| f.level == "error")
-            || response.status == Status::Pass && warnings
-            || response.status == Status::Warn && !warnings
-        {
+        if !crate::verified_status::retained_finding_levels(&response.status, &response.findings) {
             return Err("E_RETAINED_JUDGES: response status/findings differ".into());
         }
         let process =
@@ -1650,27 +1646,29 @@ pub fn check_prepared(
                 .map(|(index, _)| format!("/judges/{index}/response/outputs/{field}"))
                 .collect(),
         );
-        let reason = if outputs.is_empty() {
-            Some(format!(
+        use crate::verified_status::NamedOutput;
+        let mut agreement = NamedOutput::Missing;
+        for (_, value) in &outputs {
+            let compare = matches!(agreement, NamedOutput::Common) && !value.is_null();
+            agreement = agreement.observe(value.is_null(), !compare || *value == outputs[0].1);
+        }
+        let reason = match agreement {
+            NamedOutput::Missing => format!(
                 "no validated judge response supplied outputs.{field}; configured metadata is not an observed result"
-            ))
-        } else if outputs.iter().any(|(_, output)| output.is_null()) {
-            Some(format!(
-                "a producer supplied null for outputs.{field}; see sources"
-            ))
-        } else if outputs.windows(2).any(|pair| pair[0].1 != pair[1].1) {
-            Some(format!(
-                "conflicting outputs.{field}; see sources and original judge responses"
-            ))
-        } else {
-            None
+            ),
+            NamedOutput::Null => {
+                format!("a producer supplied null for outputs.{field}; see sources")
+            }
+            NamedOutput::Conflict => {
+                format!("conflicting outputs.{field}; see sources and original judge responses")
+            }
+            NamedOutput::Common => {
+                report[field] = outputs[0].1.clone();
+                continue;
+            }
         };
-        report[field] = if let Some(reason) = reason {
-            unresolved.insert(format!("/{field}"), reason);
-            Value::Null
-        } else {
-            outputs[0].1.clone()
-        };
+        unresolved.insert(format!("/{field}"), reason);
+        report[field] = Value::Null;
     }
     report["unresolved"] = value!(unresolved);
     report["sources"] = value!(sources);

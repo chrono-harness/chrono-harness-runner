@@ -6,6 +6,9 @@ mod cli_contract;
 #[cfg(verus_keep_ghost)]
 #[path = "../../runner/src/verified_status.rs"]
 mod policy;
+#[cfg(verus_keep_ghost)]
+#[path = "registration_reports.rs"]
+mod registration_reports;
 #[cfg(not(verus_keep_ghost))]
 use chrono_harness::verified_identifiers as scope_text;
 #[cfg(not(verus_keep_ghost))]
@@ -27,6 +30,68 @@ use vstd::string::StringSliceAdditionalSpecFns;
 use vstd::vpanic as panic;
 
 verus! {
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn judge_delivery_keeps_admitted_outputs_and_the_first_error() {
+    let evaluator = |limits: u8, input: u8, outputs: &u8| -> (out: Result<u8, String>)
+        ensures if limits == 7 && input == 11 && *outputs == 3 { out == Ok::<u8, String>(41) }
+            else { out matches Err(error) && error@ == "evaluation"@ },
+    {
+        if limits == 7 && input == 11 && *outputs == 3 { Ok(41) } else { Err("evaluation".to_string()) }
+    };
+    let unavailable = policy::prepared_decision(Err("transport".to_string()), "run", evaluator);
+    expect_status_true(unavailable.0.is_none());
+    match unavailable.1 { Err(e) => expect_status_text(&e, "transport"), Ok(_) => panic!() }
+    proof { reveal_strlit("other"); reveal_strlit("run"); }
+    let other = "other".to_string();
+    assert(other@ == "other"@);
+    assert(other@.len() == 5);
+    assert("run"@.len() == 3);
+    assert(other@ != "run"@);
+    let mismatch: Result<(u8, String, u8, Result<u8, String>), String> = Ok((7, other, 3, Err("input".to_string())));
+    let rejected = policy::prepared_decision(mismatch, "run", evaluator);
+    expect_status_true(rejected.0.is_none());
+    match rejected.1 { Err(e) => expect_status_text(&e, "E_PROTOCOL: prepared input identity"), Ok(_) => panic!() }
+    let input = policy::prepared_decision(Ok((7, "run".to_string(), 3, Err("input".to_string()))), "run", evaluator);
+    expect_status_true(input.0 == Some(3));
+    match input.1 { Err(e) => expect_status_text(&e, "input"), Ok(_) => panic!() }
+    let failed = policy::prepared_decision(Ok((7, "run".to_string(), 3, Ok(10))), "run", evaluator);
+    expect_status_true(failed.0 == Some(3));
+    match failed.1 { Err(e) => expect_status_text(&e, "evaluation"), Ok(_) => panic!() }
+    let success = policy::prepared_decision(Ok((7, "run".to_string(), 3, Ok(11))), "run", evaluator);
+    expect_status_true(success.0 == Some(3));
+    match success.1 { Ok(value) => expect_status_true(value == 41), Err(_) => panic!() }
+    let duplicate = |value: &u8| -> (out: bool) ensures out == (*value == 3), { *value == 3 };
+    match policy::admit_decision(Err("decode".to_string()), duplicate) {
+        Err(e) => expect_status_text(&e, "decode"), Ok(_) => panic!(),
+    }
+    match policy::admit_decision(Ok(3), duplicate) {
+        Err(e) => expect_status_text(&e, "E_PROTOCOL: duplicate judge output"), Ok(_) => panic!(),
+    }
+    match policy::admit_decision(Ok(4), duplicate) {
+        Ok(value) => expect_status_true(value == 4), Err(_) => panic!(),
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn retained_response_findings_keep_the_original_error_stage() {
+    let errors = [finding("error")];
+    let warnings = [finding("warning")];
+    proof {
+        reveal_strlit("warning"); reveal_strlit("error");
+        assert("error"@.len() == 5 && "warning"@.len() == 7);
+        known_levels(errors@, seq!["error"@]);
+        known_levels(warnings@, seq!["warning"@]);
+    }
+    expect_status_true(policy::retained_finding_levels(&WireStatus::Pass, &[]));
+    expect_status_true(!policy::retained_finding_levels(&WireStatus::Warn, &[]));
+    expect_status_true(!policy::retained_finding_levels(&WireStatus::Pass, &warnings));
+    expect_status_true(policy::retained_finding_levels(&WireStatus::Warn, &warnings));
+    expect_status_true(!policy::retained_finding_levels(&WireStatus::Fail, &errors));
+    expect_status_true(policy::retained_finding_levels(&WireStatus::Fail, &[]));
+    expect_status_true(policy::retained_finding_levels(&WireStatus::Error, &warnings));
+}
+
 
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn retained_process_checks_keep_the_observed_result_and_original_digest_error() {

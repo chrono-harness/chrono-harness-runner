@@ -1460,7 +1460,8 @@ fn diagnosed_maintenance_originals(root: &Path, id: &str) -> Value {
     // The existing operation owns and bounds stderr; no extra log family or
     // subscriber is installed in the parent test process.
     debug_events::capture(std::io::stderr(), || {
-        inventory(root).maintain_originals(&[id.to_owned()])
+        // Callers check node bounds, durable progress and protections with time available.
+        inventory(root).maintain_originals_with_elapsed(&[id.to_owned()], std::time::Duration::ZERO)
     })
     .unwrap()
 }

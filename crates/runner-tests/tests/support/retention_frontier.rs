@@ -525,7 +525,8 @@ fn leaf_entry_preserves_live_unknown_and_replaced_parent_originals() {
     let reader = inventory(h.path()).consume(&parent_id).unwrap();
     let assert_preserved = |reason: &str| {
         let round = inventory(h.path())
-            .maintain_originals(&[leaf_id.clone()])
+            // This case exercises lease and identity protection with budget available.
+            .maintain_originals_with_elapsed(std::slice::from_ref(&leaf_id), Duration::ZERO)
             .unwrap();
         assert_eq!(round["removed_logical_bytes"], 0, "{round}");
         assert!(round["disposed"].as_array().unwrap().is_empty(), "{round}");
