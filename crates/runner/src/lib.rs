@@ -2866,7 +2866,33 @@ pub fn cli_main() -> std::process::ExitCode {
         | "check-invocation-v1"),
     ) = mode.as_deref().and_then(std::ffi::OsStr::to_str)
     {
-        if std::env::args_os().len() != 2 {
+        let args: Vec<_> = std::env::args_os().skip(2).collect();
+        if operation == "compiler-output-v1"
+            && args.first().is_some_and(|arg| arg == "select-cargo-bin")
+        {
+            let fields: Vec<_> = args.iter().skip(1).map(|arg| arg.to_str()).collect();
+            let (manifest, source) = match fields.as_slice() {
+                [Some(manifest)] => (*manifest, None),
+                [Some(manifest), Some(source)] => (*manifest, Some(*source)),
+                _ => {
+                    eprintln!("E_USAGE: compiler-output-v1 select-cargo-bin MANIFEST [SOURCE]");
+                    return 2.into();
+                }
+            };
+            return match route_evidence::select_cargo_bin(
+                std::io::stdin().lock(),
+                std::io::stdout().lock(),
+                manifest,
+                source,
+            ) {
+                Ok(()) => 0.into(),
+                Err((code, error)) => {
+                    eprintln!("{error}");
+                    code.into()
+                }
+            };
+        }
+        if !args.is_empty() {
             eprintln!("E_USAGE: {operation}");
             return 2.into();
         }
