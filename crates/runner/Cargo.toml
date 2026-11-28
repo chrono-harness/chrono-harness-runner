@@ -1,6 +1,6 @@
 [package]
 name = "chrono-harness"
-version = "0.1.24"
+version = "0.1.25"
 edition = "2024"
 publish = false
 description = "External judge transport and canonical harness check entry"

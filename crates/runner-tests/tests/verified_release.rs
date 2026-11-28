@@ -27,6 +27,83 @@ mod retention_frontier;
 
 verus! {
 #[cfg(verus_keep_ghost)]
+fn collection_selects_all_and_only_owners(units: &std::collections::BTreeMap<String, policy::Unit>,
+    selected: &std::collections::BTreeSet<String>, owner: String, other: String, shared: String)
+    requires vstd::laws_cmp::obeys_cmp::<String>(), units@.contains_key(owner),
+        units@.contains_key(other), units@[owner].tests@.contains(shared),
+        units@[other].tests@.contains(shared), selected@.contains(shared),
+{
+    let result = policy::required(units, selected);
+    assert(result@.contains(owner) && result@.contains(other));
+}
+
+#[cfg(verus_keep_ghost)]
+fn collection_skips_empty_and_unselected_registrations(
+    units: &std::collections::BTreeMap<String, policy::Unit>,
+    selected: &std::collections::BTreeSet<String>, id: String,
+)
+    requires vstd::laws_cmp::obeys_cmp::<String>(), !units@.contains_key(id)
+        || (forall|i:int| 0 <= i < units@[id].tests.len() ==> !selected@.contains(#[trigger] units@[id].tests@[i])),
+{
+    let result = policy::required(units, selected);
+    assert(!result@.contains(id));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn full_unit_limits_include_both_endpoints() {
+    expect_true(!policy::nonempty_registration(0));
+    expect_true(policy::nonempty_registration(1));
+    expect_true(!policy::collection_limit(None));
+    expect_true(!policy::collection_limit(Some(0)));
+    expect_true(policy::collection_limit(Some(1)));
+    expect_true(policy::collection_limit(Some(67108864)));
+    expect_true(!policy::collection_limit(Some(67108865)));
+}
+
+#[cfg(verus_keep_ghost)]
+fn equal_and_ancestor_destinations_conflict<'a>(root: &'a [u8], child: &'a [u8], neighbor: &'a [u8])
+    requires root@ != neighbor@,
+{
+    let parent = vec![root];
+    let descendant = vec![root, child];
+    let sibling = vec![neighbor];
+    let published = vec![parent, descendant];
+    let reserved = vec![sibling];
+    expect_true(!policy::disjoint_publications(&published, &reserved));
+    let first = vec![vec![root]];
+    let deeper = vec![vec![root, child]];
+    expect_true(!policy::disjoint_publications(&first, &deeper));
+    expect_true(!policy::disjoint_publications(&deeper, &first));
+    expect_true(!policy::disjoint_publications(&first, &first));
+    expect_true(policy::disjoint_publications(&first, &reserved));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn state_publication_families_use_the_registered_prefixes() {
+    let run = ".chrono-harness/state/run-".as_bytes();
+    let import = ".chrono-harness/state/import-".as_bytes();
+    let base = ".chrono-harness/state/base-".as_bytes();
+    proof {
+        assert(run@.take(run.len() as int) =~= run@);
+        assert(import@.take(import.len() as int) =~= import@);
+        assert(base@.take(base.len() as int) =~= base@);
+    }
+    expect_true(policy::reserved_family(run));
+    expect_true(policy::reserved_family(import));
+    expect_true(policy::reserved_family(base));
+    proof {
+        reveal_strlit(".chrono-harness/state/run-");
+        reveal_strlit(".chrono-harness/state/import-");
+        reveal_strlit(".chrono-harness/state/base-");
+        vstd::utf8::encode_utf8_decode_utf8(".chrono-harness/state/run-"@);
+        vstd::utf8::encode_utf8_decode_utf8(".chrono-harness/state/import-"@);
+        vstd::utf8::encode_utf8_decode_utf8(".chrono-harness/state/base-"@);
+    }
+    expect_true(!policy::reserved_family(&[]));
+}
+
+
+#[cfg(verus_keep_ghost)]
 fn initial_candidate_stops_before_an_unavailable_observer(parents:usize, expected:&str)
     requires parents > 0,
 {

@@ -35,8 +35,9 @@ pub fn publication_mode(schema: &str, field: Option<Option<&str>>)
 use crate::{CheckConfig, relative_path};
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
-#[cfg(not(verus_keep_ghost))]
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::cmp::OrdSpec;
 
 #[cfg(not(verus_keep_ghost))]
 pub const PROTOCOL: &str = "chrono-ci-judge/v2";
@@ -122,22 +123,224 @@ pub struct FullReportInput {
     pub artifacts: Option<crate::prepared::ArtifactTransport>,
 }
 
+verus! {
+pub open spec fn intersects(tests: Seq<String>, selected: Set<String>) -> bool {
+    exists|i: int| 0 <= i < tests.len() && selected.contains(#[trigger] tests[i])
+}
+
+fn unit_is_required(tests: &[String], selected: &BTreeSet<String>) -> (found: bool)
+    requires vstd::laws_cmp::obeys_cmp::<String>(),
+    ensures found == intersects(tests@, selected@),
+{
+    broadcast use vstd::std_specs::btree::group_btree_axioms;
+    let mut i = 0;
+    while i < tests.len()
+        invariant i <= tests.len(), vstd::laws_cmp::obeys_cmp::<String>(),
+            forall|j: int| 0 <= j < i ==> !selected@.contains(#[trigger] tests@[j]),
+        decreases tests.len() - i,
+    {
+        if selected.contains::<String>(&tests[i]) { return true; }
+        i += 1;
+    }
+    false
+}
+
+/// BTreeMap supplies the registered order. A shared selected test can require several units.
+pub fn required(units: &BTreeMap<String, Unit>, selected: &BTreeSet<String>) -> (out: Vec<String>)
+    requires vstd::laws_cmp::obeys_cmp::<String>(),
+    ensures
+        forall|id: String| #[trigger] out@.contains(id) == (units@.contains_key(id)
+            && intersects(units@[id].tests@, selected@)),
+        forall|i: int, j: int| #![trigger out@[i], out@[j]] 0 <= i < j < out.len()
+            ==> (out@[i]).cmp_spec(&(out@[j])) is Less,
+{
+    broadcast use vstd::std_specs::btree::group_btree_axioms;
+    let mut iter = units.iter();
+    let ghost rows = iter@.1;
+    let ghost keys = rows.map(|i: int, row: (String, Unit)| row.0);
+    proof { vstd::std_specs::btree::axiom_increasing_seq_meaning(keys); }
+    let mut out: Vec<String> = Vec::new();
+    let ghost mut positions: Seq<int> = Seq::empty();
+    loop
+        invariant
+            vstd::laws_cmp::obeys_cmp::<String>(), iter@.1 == rows, 0 <= iter@.0 <= rows.len(),
+            rows.to_set() == units@.kv_pairs(), keys == rows.map(|i: int, row: (String, Unit)| row.0),
+            forall|i: int, j: int| #![trigger keys[i], keys[j]] 0 <= i < j < rows.len() ==> (keys[i]).cmp_spec(&(keys[j])) is Less,
+            positions.len() == out.len(),
+            forall|j: int| 0 <= j < out.len() ==> 0 <= #[trigger] positions[j] < iter@.0
+                && out@[j] == rows[positions[j]].0 && intersects(rows[positions[j]].1.tests@,selected@),
+            forall|i: int, j: int| #![trigger positions[i], positions[j]] 0 <= i < j < positions.len() ==> positions[i] < positions[j],
+            forall|i: int| 0 <= i < iter@.0 && intersects((#[trigger] rows[i]).1.tests@, selected@)
+                ==> out@.contains(rows[i].0),
+        decreases rows.len() - iter@.0,
+    {
+        let ghost pos = iter@.0;
+        match iter.next() {
+            Some((id, unit)) => {
+                let ghost earlier = out@;
+                if unit_is_required(&unit.tests, selected) {
+                    let ghost before = positions;
+
+                    out.push(id.clone());
+                    proof {
+                        positions = positions.push(pos);
+                        assert(*id == rows[pos].0 && *unit == rows[pos].1);
+                        assert forall|j: int| 0 <= j < out.len() implies
+                            0 <= #[trigger] positions[j] < iter@.0 && out@[j] == rows[positions[j]].0
+                            && intersects(rows[positions[j]].1.tests@,selected@) by {
+                            if j < before.len() { assert(positions[j] == before[j] && out@[j] == earlier[j]); }
+                        }
+                        assert forall|i: int, j: int| #![trigger positions[i], positions[j]]
+                            0 <= i < j < positions.len() implies positions[i] < positions[j] by {
+                            assert(positions[i] == before[i]);
+                            if j < before.len() { assert(positions[j] == before[j]); }
+                        }
+                    }
+                }
+                assert forall|i:int| 0 <= i < iter@.0 && intersects((#[trigger] rows[i]).1.tests@, selected@)
+                    implies out@.contains(rows[i].0) by {
+                    if i < pos {
+                        assert(earlier.contains(rows[i].0));
+                        let at = choose|at:int| 0 <= at < earlier.len() && earlier[at] == rows[i].0;
+                        assert(out@[at] == earlier[at]);
+                    } else {
+                        assert(i == pos && rows[i].0 == *id && rows[i].1 == *unit);
+                        assert(intersects(unit.tests@, selected@));
+                        assert(earlier.len() < out.len() && out@[earlier.len() as int] == rows[i].0);
+                    }
+                }
+            }
+            None => {
+                assert forall|id: String| #[trigger] out@.contains(id) ==
+                    (units@.contains_key(id) && intersects(units@[id].tests@, selected@)) by {
+                    if out@.contains(id) {
+                        let j = choose|j: int| 0 <= j < out.len() && out@[j] == id;
+                        let row = rows[positions[j]];
+                        assert(rows.to_set().contains(row));
+                    } else if units@.contains_key(id) {
+                        let row = (id, units@[id]);
+                        assert(rows.to_set().contains(row));
+                        let j = choose|j: int| 0 <= j < rows.len() && rows[j] == row;
+                    }
+                }
+                assert forall|i: int, j: int| #![trigger out@[i], out@[j]] 0 <= i < j < out.len() implies
+                    (out@[i]).cmp_spec(&(out@[j])) is Less by {
+                    assert(out@[i] == keys[positions[i]]);
+                    assert(out@[j] == keys[positions[j]]);
+                }
+                return out;
+            }
+        }
+    }
+}
+
+pub fn collection_limit(value: Option<u64>) -> (valid: bool)
+    ensures valid == (value is Some && 1 <= value->Some_0 <= 67108864),
+{
+    match value { Some(bytes) => bytes > 0 && bytes <= 64 * 1024 * 1024, None => false }
+}
+
+/// Both the configured collection and each registered unit must have at least one member.
+pub fn nonempty_registration(count: usize) -> (ok: bool)
+    ensures ok == (count > 0),
+{ count > 0 }
+
+/// The standard library supplies normalized path components. A common textual
+/// prefix inside one component does not establish directory ancestry.
+pub open spec fn component_overlap(a: Seq<&[u8]>, b: Seq<&[u8]>) -> bool {
+    forall|i: int| 0 <= i < a.len() && i < b.len() ==> (#[trigger] a[i])@ == (#[trigger] b[i])@
+}
+
+pub fn overlapping_components(a: &[&[u8]], b: &[&[u8]]) -> (overlap: bool)
+    ensures overlap == component_overlap(a@, b@),
+{
+    let mut i = 0;
+    while i < a.len() && i < b.len()
+        invariant i <= a.len(), i <= b.len(),
+            forall|j: int| 0 <= j < i ==> (#[trigger] a@[j])@ == (#[trigger] b@[j])@,
+        decreases a.len() - i,
+    {
+        if !identifiers::equal_bytes(a[i], b[i]) { return false; }
+        i += 1;
+    }
+    true
+}
+
+pub open spec fn disjoint_before(path: Seq<&[u8]>, others: Seq<Vec<&[u8]>>, end: int) -> bool {
+    forall|i: int| 0 <= i < end ==> !component_overlap(path, (#[trigger] others[i])@)
+}
+
+fn disjoint_from(path: &[&[u8]], others: &[Vec<&[u8]>], end: usize) -> (ok: bool)
+    requires end <= others.len(),
+    ensures ok == disjoint_before(path@, others@, end as int),
+{
+    let mut i = 0;
+    while i < end
+        invariant i <= end, end <= others.len(), disjoint_before(path@, others@, i as int),
+        decreases end - i,
+    {
+        if overlapping_components(path, &others[i]) { return false; }
+        i += 1;
+    }
+    true
+}
+
+pub fn disjoint_publications(outputs: &[Vec<&[u8]>], reserved: &[Vec<&[u8]>]) -> (ok: bool)
+    ensures ok == (forall|i: int| 0 <= i < outputs.len() ==>
+        disjoint_before((#[trigger] outputs@[i])@, outputs@, i)
+        && disjoint_before(outputs@[i]@, reserved@, reserved.len() as int)),
+{
+    let mut i = 0;
+    while i < outputs.len()
+        invariant i <= outputs.len(),
+            forall|j: int| 0 <= j < i ==> disjoint_before((#[trigger] outputs@[j])@, outputs@, j)
+                && disjoint_before(outputs@[j]@, reserved@, reserved.len() as int),
+        decreases outputs.len() - i,
+    {
+        if !disjoint_from(&outputs[i], reserved, reserved.len())
+            || !disjoint_from(&outputs[i], outputs, i) { return false; }
+        i += 1;
+    }
+    true
+}
+
+pub open spec fn byte_prefix(path: Seq<u8>, prefix: Seq<u8>) -> bool {
+    prefix.len() <= path.len() && path.take(prefix.len() as int) == prefix
+}
+
+fn literal_prefix(path: &[u8], prefix: &[u8]) -> (matches: bool)
+    ensures matches == byte_prefix(path@, prefix@),
+{
+    if path.len() < prefix.len() { return false; }
+    let (start, _) = path.split_at(prefix.len());
+    identifiers::equal_bytes(start, prefix)
+}
+
+pub fn reserved_family(path: &[u8]) -> (reserved: bool)
+    ensures reserved == (byte_prefix(path@, vstd::utf8::encode_utf8(".chrono-harness/state/run-"@))
+        || byte_prefix(path@, vstd::utf8::encode_utf8(".chrono-harness/state/import-"@))
+        || byte_prefix(path@, vstd::utf8::encode_utf8(".chrono-harness/state/base-"@))),
+{
+    literal_prefix(path, ".chrono-harness/state/run-".as_bytes())
+        || literal_prefix(path, ".chrono-harness/state/import-".as_bytes())
+        || literal_prefix(path, ".chrono-harness/state/base-".as_bytes())
+}
+
+}
+
 #[cfg(not(verus_keep_ghost))]
-pub fn required(units: &BTreeMap<String, Unit>, selected: &BTreeSet<String>) -> Vec<String> {
-    units
-        .iter()
-        .filter(|(_, definition)| definition.tests.iter().any(|test| selected.contains(test)))
-        .map(|(id, _)| id.clone())
+fn components(path: &str) -> Vec<&[u8]> {
+    std::path::Path::new(path)
+        .components()
+        .map(|part| part.as_os_str().as_encoded_bytes())
         .collect()
 }
 
-/// Read the opt-in full-v3 execution unit block.  Older full registrations do
-/// not acquire selector semantics merely because a caller supplied `--unit`.
 #[cfg(not(verus_keep_ghost))]
 pub fn overlap(a: &str, b: &str) -> bool {
-    let (a, b) = (std::path::Path::new(a), std::path::Path::new(b));
-    a.starts_with(b) || b.starts_with(a)
+    overlapping_components(&components(a), &components(b))
 }
+
 /// Validate a caller-supplied collection manifest against every registered
 /// publication destination. This is the single path owner used by the scoped
 /// adapter, full runner and offline collector.
@@ -149,12 +352,10 @@ pub fn validate_collection_paths(
 ) -> Result<(), String> {
     artifact_path(manifest)?;
     artifact_path(report_path)?;
-    let mut paths = vec![manifest.to_owned(), report_path.to_owned()];
-    paths.extend(unit_paths.iter().cloned());
-    for (index, path) in paths.iter().enumerate() {
-        if paths[..index].iter().any(|prior| overlap(path, prior)) {
-            return Err("collection manifest overlaps publication path".into());
-        }
+    let mut paths = vec![components(manifest), components(report_path)];
+    paths.extend(unit_paths.iter().map(|path| components(path)));
+    if !disjoint_publications(&paths, &[]) {
+        return Err("collection manifest overlaps publication path".into());
     }
     Ok(())
 }
@@ -164,19 +365,19 @@ pub fn report_paths(profile: &serde_json::Value, evidence: Option<&str>) -> Resu
         return Ok(());
     };
     let mut reserved = vec![
-        ".chrono-harness/state/report.json".to_owned(),
-        ".chrono-harness/state/integration.json".to_owned(),
-        ".chrono-harness/state/context.json".to_owned(),
-        ".chrono-harness/state/inputs.json".to_owned(),
+        ".chrono-harness/state/report.json",
+        ".chrono-harness/state/integration.json",
+        ".chrono-harness/state/context.json",
+        ".chrono-harness/state/inputs.json",
     ];
     if let Some(e) = evidence {
-        reserved.push(e.into());
+        reserved.push(e);
     }
     if let Some(argv) = profile["canonical_check"]["argv"].as_array() {
         for pair in argv.windows(2) {
             if pair[0] == "--context" {
                 if let Some(path) = pair[1].as_str() {
-                    reserved.push(path.into());
+                    reserved.push(path);
                 }
             }
         }
@@ -193,17 +394,12 @@ pub fn report_paths(profile: &serde_json::Value, evidence: Option<&str>) -> Resu
     {
         paths.push(unit["report_path"].as_str().ok_or("unit report path")?);
     }
-    for (i, path) in paths.iter().enumerate() {
-        if reserved.iter().any(|r| overlap(path, r))
-            || paths[..i].iter().any(|p| overlap(path, p))
-            || path.starts_with(".chrono-harness/state/run-")
-            || path.starts_with(".chrono-harness/state/import-")
-            || path.starts_with(".chrono-harness/state/base-")
-        {
-            return Err(
-                "execution report paths overlap reserved evidence or another report".into(),
-            );
-        }
+    let reserved: Vec<_> = reserved.iter().map(|path| components(path)).collect();
+    let outputs: Vec<_> = paths.iter().map(|path| components(path)).collect();
+    if paths.iter().any(|path| reserved_family(path.as_bytes()))
+        || !disjoint_publications(&outputs, &reserved)
+    {
+        return Err("execution report paths overlap reserved evidence or another report".into());
     }
     Ok(())
 }
@@ -229,7 +425,7 @@ pub fn full_execution_units(
     let units_value = object.get("units").ok_or("execution_units.units missing")?;
     let units: BTreeMap<String, Unit> = serde_json::from_value(units_value.clone())
         .map_err(|e| format!("invalid execution_units.units: {e}"))?;
-    if units.is_empty() {
+    if !nonempty_registration(units.len()) {
         return Err("execution_units.units must be nonempty".into());
     }
     let shared: BTreeMap<String, Vec<String>> = serde_json::from_value(
@@ -251,17 +447,13 @@ pub fn full_execution_units(
     let limits: BTreeMap<String, u64> = serde_json::from_value(collection_limits.clone())
         .map_err(|e| format!("invalid execution_units.collection_limits: {e}"))?;
     for key in ["manifest_bytes", "report_bytes"] {
-        if limits
-            .get(key)
-            .copied()
-            .is_none_or(|n| n == 0 || n > 64 * 1024 * 1024)
-        {
+        if !collection_limit(limits.get(key).copied()) {
             return Err(format!("invalid execution_units limit {key}"));
         }
     }
     for (unit_id, unit) in &units {
         id(unit_id)?;
-        if unit.tests.is_empty() {
+        if !nonempty_registration(unit.tests.len()) {
             return Err(format!("execution unit has no tests: {unit_id}"));
         }
         artifact_path(&unit.report_path)?;

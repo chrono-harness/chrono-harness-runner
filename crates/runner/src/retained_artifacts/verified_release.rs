@@ -37,9 +37,15 @@ pub(crate) mod judge_evidence;
 #[path = "../units.rs"]
 pub(crate) mod units;
 #[cfg(not(verus_keep_ghost))]
-pub use crate::units::publication_mode;
+pub use crate::units::{
+    Unit, collection_limit, disjoint_publications, nonempty_registration, overlapping_components,
+    publication_mode, required, reserved_family,
+};
 #[cfg(verus_keep_ghost)]
-pub use units::publication_mode;
+pub use units::{
+    Unit, collection_limit, disjoint_publications, nonempty_registration, overlapping_components,
+    publication_mode, required, reserved_family,
+};
 
 #[cfg(verus_keep_ghost)]
 #[path = "../prepared_artifacts.rs"]
