@@ -526,3 +526,55 @@ fn declaration_query_checks_roots_and_preserves_reference_path_order() {
         [true, false, false, true]
     );
 }
+
+#[test]
+fn cargo_bin_reads_complete_stream_and_keeps_selection_failure_order() {
+    use chrono_harness::route_evidence::select_cargo_bin;
+    use serde_json::json;
+
+    let manifest = "/pkg/Cargo.toml";
+    let source = "/pkg/src/main.rs";
+    let path = "/custom target/debug/bin";
+    let bin = json!({
+        "reason": "compiler-artifact",
+        "manifest_path": manifest,
+        "target": {"kind": ["bin"], "src_path": source},
+        "executable": path
+    });
+    let mut other_kind = bin.clone();
+    other_kind["target"]["kind"] = json!(["bin", "lib"]);
+    let mut null = bin.clone();
+    null["executable"] = serde_json::Value::Null;
+    let valid = format!("{other_kind}\n{bin}\n");
+
+    let select = |rows: &str, expected_source: Option<&str>| {
+        let mut output = Vec::new();
+        let result = select_cargo_bin(rows.as_bytes(), &mut output, manifest, expected_source);
+        (result, output)
+    };
+    assert_eq!(
+        select(&valid, Some(source)),
+        (Ok(()), path.as_bytes().to_vec())
+    );
+    let cases = [
+        (valid.as_str(), Some("/pkg/./src/main.rs"), 5, "found none"),
+        ("", None, 5, "found none"),
+        (&null.to_string(), None, 1, "no executable"),
+        (&format!("{null}\n{bin}"), None, 5, "found duplicates"),
+        (&format!("{bin}\n{bin}"), None, 5, "found duplicates"),
+        (
+            &format!("{null}\n{bin}\n{{"),
+            None,
+            5,
+            "invalid Cargo output",
+        ),
+    ];
+    for (rows, source, expected_exit, expected_error) in cases {
+        let (result, output) = select(rows, source);
+        let (exit, error) = result.expect_err("expected rejection");
+        assert_eq!(exit, expected_exit);
+        assert!(error.contains(expected_error), "{error}");
+        assert!(output.is_empty());
+    }
+    assert_eq!(select(&valid, None), (Ok(()), path.as_bytes().to_vec()));
+}

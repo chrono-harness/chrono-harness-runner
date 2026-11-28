@@ -11,6 +11,124 @@ pub fn successful_group(exit: i32, failed: bool, direct_dependency: bool, direct
 {
     exit == 0 && !failed && !direct_dependency && !direct_artifact
 }
+#[derive(Clone, Copy)]
+pub struct CargoBinRow<'a> {
+    pub reason: &'a str,
+    pub manifest: Option<&'a str>,
+    pub singleton_kind: &'a str,
+    pub source: Option<&'a str>,
+    pub executable: Option<&'a str>,
+}
+
+pub enum CargoBinSelection {
+    Missing,
+    Unique(usize),
+    Duplicate,
+}
+
+pub open spec fn cargo_bin_match(row: &CargoBinRow, manifest: &str, source: Option<&str>) -> bool {
+    row.reason@ == "compiler-artifact"@
+        && row.manifest.is_some() && row.manifest.unwrap()@ == manifest@
+        && row.singleton_kind@ == "bin"@
+        && (source.is_none() || (row.source.is_some() && row.source.unwrap()@ == source.unwrap()@))
+}
+
+broadcast use {vstd::string::axiom_str_literal_len, vstd::string::axiom_str_literal_get_char};
+
+pub fn cargo_bin_selection(rows: &[CargoBinRow], manifest: &str, source: Option<&str>)
+    -> (selection: CargoBinSelection)
+    ensures
+        match selection {
+            CargoBinSelection::Missing =>
+                forall|i: int| 0 <= i < rows@.len() ==> !#[trigger] cargo_bin_match(&rows@[i], manifest, source),
+            CargoBinSelection::Unique(index) =>
+                index < rows@.len() && cargo_bin_match(&rows@[index as int], manifest, source)
+                    && forall|i: int| 0 <= i < rows@.len()
+                        && #[trigger] cargo_bin_match(&rows@[i], manifest, source) ==> i == index as int,
+            CargoBinSelection::Duplicate =>
+                exists|i: int, j: int| 0 <= i < j < rows@.len()
+                    && #[trigger] cargo_bin_match(&rows@[i], manifest, source)
+                    && #[trigger] cargo_bin_match(&rows@[j], manifest, source),
+        },
+{
+    let mut selected: Option<usize> = None;
+    let mut index = 0;
+    while index < rows.len()
+        invariant
+            index <= rows@.len(),
+            selected.is_none() || (selected.unwrap() < index
+                && cargo_bin_match(&rows@[selected.unwrap() as int], manifest, source)),
+            forall|i: int| 0 <= i < index && #[trigger] cargo_bin_match(&rows@[i], manifest, source)
+                ==> selected.is_some() && selected.unwrap() as int == i,
+        decreases rows@.len() - index,
+    {
+        let row = &rows[index];
+        let source_matches = match (source, row.source) {
+            (None, _) => true,
+            (Some(expected), Some(actual)) => expected.to_owned() == actual.to_owned(),
+            (Some(_), None) => false,
+        };
+        let manifest_matches = match row.manifest {
+            Some(actual) => actual.to_owned() == manifest.to_owned(),
+            None => false,
+        };
+        let matches = row.reason.to_owned() == "compiler-artifact".to_owned()
+            && manifest_matches
+            && row.singleton_kind.to_owned() == "bin".to_owned()
+            && source_matches;
+        assert(matches == cargo_bin_match(row, manifest, source));
+        if matches {
+            if let Some(previous) = selected {
+                assert(cargo_bin_match(&rows@[previous as int], manifest, source));
+                return CargoBinSelection::Duplicate;
+            }
+            selected = Some(index);
+        }
+        index += 1;
+    }
+    match selected {
+        None => CargoBinSelection::Missing,
+        Some(index) => CargoBinSelection::Unique(index),
+    }
+}
+
+pub enum CargoBin<'a> {
+    Missing,
+    Duplicate,
+    NoExecutable,
+    Executable(&'a str),
+}
+
+pub fn cargo_bin<'a>(rows: &[CargoBinRow<'a>], manifest: &str, source: Option<&str>)
+    -> (result: CargoBin<'a>)
+    ensures
+        match result {
+            CargoBin::Missing =>
+                forall|i: int| 0 <= i < rows@.len() ==> !#[trigger] cargo_bin_match(&rows@[i], manifest, source),
+            CargoBin::Duplicate =>
+                exists|i: int, j: int| 0 <= i < j < rows@.len()
+                    && #[trigger] cargo_bin_match(&rows@[i], manifest, source)
+                    && #[trigger] cargo_bin_match(&rows@[j], manifest, source),
+            _ =>
+                exists|i: int| 0 <= i < rows@.len() && #[trigger] cargo_bin_match(&rows@[i], manifest, source)
+                    && (forall|j: int| 0 <= j < rows@.len()
+                        && #[trigger] cargo_bin_match(&rows@[j], manifest, source) ==> j == i)
+                    && match result {
+                        CargoBin::Executable(path) => rows@[i].executable == Some(path),
+                        _ => rows@[i].executable.is_none(),
+                    },
+        },
+{
+    match cargo_bin_selection(rows, manifest, source) {
+        CargoBinSelection::Missing => CargoBin::Missing,
+        CargoBinSelection::Duplicate => CargoBin::Duplicate,
+        CargoBinSelection::Unique(index) => match rows[index].executable {
+            Some(path) => CargoBin::Executable(path),
+            None => CargoBin::NoExecutable,
+        },
+    }
+}
+
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -215,6 +333,49 @@ impl verifier::CompilerReportRead for CompilerReportReader {
 impl verifier::CompilerRowRead for CompilerReportReader {
     fn decode(&self, text: &str) -> Option<verifier::CompilerReport> {
         verifier::CompilerReportRead::decode(self, text.as_bytes())
+    }
+}
+
+// Cargo stdout and JSON decoding are the wire boundary. Decode the entire stream before
+// reporting selection errors, including when a matching record precedes malformed input.
+#[cfg(not(verus_keep_ghost))]
+pub fn select_cargo_bin(
+    input: impl Read,
+    mut output: impl Write,
+    manifest: &str,
+    source: Option<&str>,
+) -> Result<(), (u8, String)> {
+    let values = serde_json::Deserializer::from_reader(std::io::BufReader::new(input))
+        .into_iter::<serde_json::Value>()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| (5, format!("invalid Cargo output: {error}")))?;
+    let rows = values
+        .iter()
+        .map(|value| {
+            let target = &value["target"];
+            let singleton_kind = match target["kind"].as_array().map(Vec::as_slice) {
+                Some([kind]) => kind.as_str().unwrap_or_default(),
+                _ => "",
+            };
+            CargoBinRow {
+                reason: value["reason"].as_str().unwrap_or_default(),
+                manifest: value["manifest_path"].as_str(),
+                singleton_kind,
+                source: target["src_path"].as_str(),
+                executable: value["executable"].as_str(),
+            }
+        })
+        .collect::<Vec<_>>();
+    match cargo_bin(&rows, manifest, source) {
+        CargoBin::Missing => Err((5, "expected one Cargo bin artifact, found none".into())),
+        CargoBin::Duplicate => Err((
+            5,
+            "expected one Cargo bin artifact, found duplicates".into(),
+        )),
+        CargoBin::NoExecutable => Err((1, "Cargo bin artifact has no executable".into())),
+        CargoBin::Executable(path) => output
+            .write_all(path.as_bytes())
+            .map_err(|error| (2, error.to_string())),
     }
 }
 
