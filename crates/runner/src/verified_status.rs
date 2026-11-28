@@ -75,6 +75,81 @@ pub use path_admission_owner::admit_relative_path;
 
 verus! {
 
+/// Named outputs are absent until a producer supplies a value. Null has
+/// precedence over disagreements, including disagreements seen earlier.
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum NamedOutput { Missing, Common, Conflict, Null }
+
+impl NamedOutput {
+    pub fn observe(self, null: bool, matches_previous: bool) -> (out: Self)
+        ensures if null || self is Null { out is Null }
+            else if self is Missing { out is Common }
+            else if self is Conflict || !matches_previous { out is Conflict }
+            else { out is Common },
+    {
+        match self {
+            _ if null => Self::Null,
+            Self::Null => Self::Null,
+            Self::Missing => Self::Common,
+            Self::Conflict => Self::Conflict,
+            Self::Common if !matches_previous => Self::Conflict,
+            Self::Common => Self::Common,
+        }
+    }
+}
+
+/// Preserve the actual producer outputs once its request identity is bound.
+/// An input or evaluator failure is returned verbatim with those same outputs.
+pub fn prepared_decision<L, I, O, D, F>(
+    prepared: Result<(L, String, O, Result<I, String>), String>, expected: &str, evaluate: F,
+) -> (out: (Option<O>, Result<D, String>))
+    where F: FnOnce(L, I, &O) -> Result<D, String>,
+    requires forall|l: L, input: I, outputs: &O| evaluate.requires((l, input, outputs)),
+    ensures match prepared {
+        Err(error) => out.0 is None && out.1 == Err::<D, String>(error),
+        Ok((limits, id, outputs, input)) => if id@ != expected@ {
+            out.0 is None && out.1 matches Err(error) && error@ == "E_PROTOCOL: prepared input identity"@
+        } else {
+            out.0 == Some(outputs) && match input {
+                Err(error) => out.1 == Err::<D, String>(error),
+                Ok(data) => evaluate.ensures((limits, data, &outputs), out.1),
+            }
+        }
+    },
+{
+    match prepared {
+        Err(error) => (None, Err(error)),
+        Ok((limits, id, outputs, input)) => {
+            if !identifiers::equal_text(id.as_str(), expected) {
+                return (None, Err("E_PROTOCOL: prepared input identity".to_owned()));
+            }
+            let result = match input {
+                Err(error) => Err(error),
+                Ok(data) => evaluate(limits, data, &outputs),
+            };
+            (Some(outputs), result)
+        }
+    }
+}
+
+pub fn admit_decision<D>(decoded: Result<D, String>, duplicate: impl FnOnce(&D) -> bool)
+    -> (out: Result<D, String>)
+    requires forall|d: &D| duplicate.requires((d,)),
+    ensures match decoded {
+        Err(error) => out == Err::<D, String>(error),
+        Ok(decision) => exists|overlap: bool| #[trigger] duplicate.ensures((&decision,), overlap)
+            && if overlap { out matches Err(error) && error@ == "E_PROTOCOL: duplicate judge output"@ }
+                else { out == Ok::<D, String>(decision) },
+    },
+{
+    match decoded {
+        Err(error) => Err(error),
+        Ok(decision) => if duplicate(&decision) {
+            Err("E_PROTOCOL: duplicate judge output".to_owned())
+        } else { Ok(decision) },
+    }
+}
+
 /// A completed installed judge version probe must report the exact registered bytes.
 pub fn judge_version_matches(
     exit: i32, failed: bool, complete: bool, joined: bool, stdout: &[u8], expected: &[u8],
@@ -5465,9 +5540,9 @@ pub open spec fn finding_status_agreement(status: &WireStatus, findings: Seq<Fin
         && (*status == WireStatus::Warn ==> warnings)
 }
 
-/// 直接检查真实 finding；字段有效性和响应身份另由各自所有者检查。
-pub fn findings_match_status(status: &WireStatus, findings: &[Finding]) -> (matches: bool)
-    ensures matches == finding_status_agreement(status, findings@),
+fn finding_levels(findings: &[Finding]) -> (levels: (bool, bool))
+    ensures levels.0 == finding_level_present(findings@, "error"@),
+            levels.1 == finding_level_present(findings@, "warning"@),
 {
     let mut at = 0;
     let mut errors = false;
@@ -5488,6 +5563,29 @@ pub fn findings_match_status(status: &WireStatus, findings: &[Finding]) -> (matc
         at += 1;
     }
     assert(findings@.take(at as int) =~= findings@);
+    (errors, warnings)
+}
+
+/// Retained input rejects error findings before decoding the process. A failing
+/// response without such a finding still reaches the original process check.
+pub fn retained_finding_levels(status: &WireStatus, findings: &[Finding]) -> (accepted: bool)
+    ensures accepted == (!finding_level_present(findings@, "error"@)
+        && (*status == WireStatus::Pass ==> !finding_level_present(findings@, "warning"@))
+        && (*status == WireStatus::Warn ==> finding_level_present(findings@, "warning"@))),
+{
+    let (errors, warnings) = finding_levels(findings);
+    !errors && match status {
+        WireStatus::Pass => !warnings,
+        WireStatus::Warn => warnings,
+        WireStatus::Fail | WireStatus::Error => true,
+    }
+}
+
+/// 直接检查真实 finding；字段有效性和响应身份另由各自所有者检查。
+pub fn findings_match_status(status: &WireStatus, findings: &[Finding]) -> (matches: bool)
+    ensures matches == finding_status_agreement(status, findings@),
+{
+    let (errors, warnings) = finding_levels(findings);
     match status {
         WireStatus::Pass => !errors && !warnings,
         WireStatus::Warn => !errors && warnings,

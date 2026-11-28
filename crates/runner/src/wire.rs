@@ -243,43 +243,55 @@ pub(crate) fn judge_pipeline(
     evaluation: [&str; 2],
 ) -> Response {
     let mut response = req.response(Status::Pass);
-    let mut evaluate = || -> Result<(), String> {
+    let prepare = || {
         req.validate()?;
         let limits = protocol_limits(req)?;
-        let run = |command, input: &[u8]| run_data(req, &limits, command, input);
-        let prepared: Prepared = decode(&run(preparation, &req.canonical()?)?)?;
-        if prepared.request_id != req.request_id {
-            return Err("E_PROTOCOL: prepared input identity".into());
-        }
-        response.outputs = prepared.outputs;
-        let input = prepared.result?;
-        let decision: Decision = decode(&run(evaluation, &canonical(&input)?)?)?;
-        if decision
-            .outputs
-            .keys()
-            .any(|key| response.outputs.contains_key(key))
-        {
-            return Err("E_PROTOCOL: duplicate judge output".into());
-        }
-        response.status = decision.status;
-        response.findings = decision.findings;
-        response.outputs.extend(decision.outputs);
-        Ok(())
+        let bytes = run_data(req, &limits, preparation, &req.canonical()?)?;
+        let prepared: Prepared = decode(&bytes)?;
+        Ok((
+            limits,
+            prepared.request_id,
+            prepared.outputs,
+            prepared.result,
+        ))
     };
-    if let Err(message) = evaluate() {
-        response.status = Status::Error;
-        let code = message
-            .split(':')
-            .next()
-            .filter(|s| s.starts_with("E_"))
-            .unwrap_or("E_INPUT");
-        response.findings.push(Finding {
-            code: code.into(),
-            level: "error".into(),
-            message,
-            delta_refs: vec!["/request".into()],
-            causes: vec![],
-        });
+    let (outputs, decision) = crate::verified_status::prepared_decision(
+        prepare(),
+        &req.request_id,
+        |limits, input, prepared_outputs| {
+            let bytes = run_data(req, &limits, evaluation, &canonical(&input)?)?;
+            crate::verified_status::admit_decision(decode(&bytes), |decision: &Decision| {
+                decision
+                    .outputs
+                    .keys()
+                    .any(|key| prepared_outputs.contains_key(key))
+            })
+        },
+    );
+    if let Some(outputs) = outputs {
+        response.outputs = outputs;
+    }
+    match decision {
+        Ok(decision) => {
+            response.status = decision.status;
+            response.findings = decision.findings;
+            response.outputs.extend(decision.outputs);
+        }
+        Err(message) => {
+            response.status = Status::Error;
+            let code = message
+                .split(':')
+                .next()
+                .filter(|s| s.starts_with("E_"))
+                .unwrap_or("E_INPUT");
+            response.findings.push(Finding {
+                code: code.into(),
+                level: "error".into(),
+                message,
+                delta_refs: vec!["/request".into()],
+                causes: vec![],
+            });
+        }
     }
     response
 }
