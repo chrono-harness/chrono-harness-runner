@@ -1647,8 +1647,14 @@ fn guard_presence_mismatch_keeps_the_complete_original_id() {
 #[cfg(not(verus_keep_ghost))]
 #[test]
 fn supplied_guard_reads_once_and_keeps_the_original_return() {
-    let mut observer=FileObserver { trace: Vec::new() };
-    assert_eq!(policy::observe_declared_guard(Some(7),&mut observer),Ok(Some(7)));
-    assert_eq!(policy::observe_declared_guard(Some(0),&mut observer),Err(42));
-    assert_eq!(observer.trace,[(7,Ok(7)),(0,Err(42))]);
+    let mut observer = FileObserver { trace: Vec::new() };
+    assert_eq!(
+        policy::observe_declared_guard(Some(7), &mut observer),
+        Ok(Some(7))
+    );
+    assert_eq!(
+        policy::observe_declared_guard(Some(0), &mut observer),
+        Err(42)
+    );
+    assert_eq!(observer.trace, [(7, Ok(7)), (0, Err(42))]);
 }
