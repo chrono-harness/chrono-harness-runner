@@ -15,7 +15,12 @@ struct Host {
 }
 // Self-contained registry inputs; tests never query the source checkout's Git.
 fn fixture_registries() -> Value {
-    serde_json::from_str(include_str!("fixtures/host-registries.json")).unwrap()
+    let mut registries: Value =
+        serde_json::from_str(include_str!("fixtures/host-registries.json")).unwrap();
+    let manifest: toml::Table = toml::from_str(include_str!("../../runner/Cargo.toml")).unwrap();
+    registries["config"]["runner"]["version"] =
+        manifest["package"]["version"].as_str().unwrap().into();
+    registries
 }
 fn fixture_git() -> PathBuf {
     Path::new(env!("CHRONO_TEST_GIT")).canonicalize().unwrap()
