@@ -30,6 +30,42 @@ verify() {
     test "${digest%% *}" = "$2" || fail "SHA-256 mismatch for $1"
 }
 config_dir=$PWD/.config/mise/conf.d
+resolved=$config_dir/zz-chrono-harness-resolved.toml
+# Generated from verification/install_target.rs during Copier development.
+validate_installation_path() {
+    target_path=$1
+    target_role=$2
+    shift 2
+    target_flags=
+    for target_test in -L -e; do
+        if test "$target_test" "$target_path"; then
+            target_flags=${target_flags}1
+        else
+            target_flags=${target_flags}0
+        fi
+    done
+    if test "$@"; then target_flags=${target_flags}1; else target_flags=${target_flags}0; fi
+    case "$target_role:$target_flags" in
+        directory:010) fail "Expected an installation state directory: $target_path" ;;
+        directory:100) fail "Expected an installation state directory: $target_path" ;;
+        directory:101) fail "Expected an installation state directory: $target_path" ;;
+        directory:110) fail "Expected an installation state directory: $target_path" ;;
+        directory:111) fail "Expected an installation state directory: $target_path" ;;
+        file:010) fail "Expected a regular installation selection: $target_path" ;;
+        file:100) fail "Expected a regular installation selection: $target_path" ;;
+        file:101) fail "Expected a regular installation selection: $target_path" ;;
+        file:110) fail "Expected a regular installation selection: $target_path" ;;
+        file:111) fail "Expected a regular installation selection: $target_path" ;;
+        entry:010) fail "Unexpected installation data entry: $target_path" ;;
+        entry:100) fail "Unexpected installation data entry: $target_path" ;;
+        entry:110) fail "Unexpected installation data entry: $target_path" ;;
+    esac
+}
+validate_target() {
+    validate_installation_path "$config_dir" directory -d "$config_dir"
+    validate_installation_path "$resolved" file -f "$resolved"
+}
+validate_target
 work=$(mktemp -d "$config_dir/.chrono-install.XXXXXXXX")
 downloads=
 cleanup() {
@@ -40,13 +76,12 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 manifest=$work/mise.toml
 : > "$manifest"
-disabled=$(mise settings get disable_tools)
 enabled() {
     case "$disabled" in *\"http:$1\"*) return 1 ;; *) return 0 ;; esac
 }
-resolved=$config_dir/zz-chrono-harness-resolved.toml
 export MISE_IGNORED_CONFIG_PATHS="${MISE_IGNORED_CONFIG_PATHS:+$MISE_IGNORED_CONFIG_PATHS:}$resolved"
 export MISE_TRUSTED_CONFIG_PATHS="$work${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
+disabled=$(mise settings get disable_tools)
 while read -r command repository; do
     enabled "$command" || continue
     select_tool "$command"
@@ -124,6 +159,7 @@ for command in chrono-cache chrono-ci chrono-diagnostics chrono-distribution chr
     executable=$(mise -C "$work" which "$command")
     verify "$executable" "${expected#sha256:}"
 done
+validate_target
 if [ -s "$manifest" ]; then
     mv -f "$manifest" "$resolved"
 else

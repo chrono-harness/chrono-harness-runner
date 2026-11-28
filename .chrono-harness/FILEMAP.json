@@ -36,7 +36,16 @@
           "kind": "test-execution",
           "to": "test:shallow-reads-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/host_adapters.rs",
+            "operation": "verify.roadmap-adapters"
+          }
+        ]
+      }
     },
     {
       "path": ".chrono-harness/rules.json",
@@ -210,8 +219,13 @@
         }
       ],
       "verification": {
-        "role": "data",
-        "roots": []
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/host_adapters.rs",
+            "operation": "verify.roadmap-adapters"
+          }
+        ]
       }
     },
     {
@@ -397,7 +411,7 @@
         "role": "program",
         "roots": [
           {
-            "path": ".chrono-harness/ci/roadmap.rs",
+            "path": ".chrono-harness/ci/host_adapters.rs",
             "operation": "verify.roadmap-adapters"
           }
         ]
@@ -418,7 +432,7 @@
         "role": "program",
         "roots": [
           {
-            "path": ".chrono-harness/ci/roadmap.rs",
+            "path": ".chrono-harness/ci/host_adapters.rs",
             "operation": "verify.roadmap-adapters"
           }
         ]
@@ -3176,7 +3190,7 @@
       ]
     },
     {
-      "path": ".chrono-harness/ci/roadmap.rs",
+      "path": ".chrono-harness/ci/host_adapters.rs",
       "owner": "runner",
       "surface": "product",
       "cost": "unmeasured",
@@ -3190,7 +3204,7 @@
         "role": "program",
         "roots": [
           {
-            "path": ".chrono-harness/ci/roadmap.rs",
+            "path": ".chrono-harness/ci/host_adapters.rs",
             "operation": "verify.roadmap-adapters"
           }
         ]
@@ -3208,8 +3222,13 @@
         }
       ],
       "verification": {
-        "role": "data",
-        "roots": []
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/host_adapters.rs",
+            "operation": "verify.roadmap-adapters"
+          }
+        ]
       }
     },
     {

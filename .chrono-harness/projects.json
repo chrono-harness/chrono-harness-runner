@@ -139,7 +139,7 @@
             "--output-json",
             "--compile",
             "--emit=link={operation_state}/verify.roadmap-adapters.rlib,dep-info={operation_state}/verify.roadmap-adapters.rlib.d",
-            ".chrono-harness/ci/roadmap.rs",
+            ".chrono-harness/ci/host_adapters.rs",
             "-o",
             "{operation_state}/verify.roadmap-adapters.rlib",
             "-Zchecksum-hash-algorithm=sha256"
