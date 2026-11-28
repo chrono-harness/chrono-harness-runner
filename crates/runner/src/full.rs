@@ -1649,7 +1649,8 @@ pub fn check_prepared(
         use crate::verified_status::NamedOutput;
         let mut agreement = NamedOutput::Missing;
         for (_, value) in &outputs {
-            agreement = agreement.observe(value.is_null(), *value == outputs[0].1);
+            let compare = matches!(agreement, NamedOutput::Common) && !value.is_null();
+            agreement = agreement.observe(value.is_null(), !compare || *value == outputs[0].1);
         }
         let reason = match agreement {
             NamedOutput::Missing => format!(

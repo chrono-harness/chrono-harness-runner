@@ -108,7 +108,7 @@ pub fn prepared_decision<L, I, O, D, F>(
     ensures match prepared {
         Err(error) => out.0 is None && out.1 == Err::<D, String>(error),
         Ok((limits, id, outputs, input)) => if id@ != expected@ {
-            out.0 is None && out.1 matches Err(error) && error@ == "E_PROTOCOL: prepared input identity"@
+            out.0 is None && (out.1 matches Err(error) && error@ == "E_PROTOCOL: prepared input identity"@)
         } else {
             out.0 == Some(outputs) && match input {
                 Err(error) => out.1 == Err::<D, String>(error),
