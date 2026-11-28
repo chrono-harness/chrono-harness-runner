@@ -11,6 +11,14 @@ pub extern crate chrono_identifiers as identifiers;
 use crate::verified_identifiers as identifiers;
 
 #[cfg(verus_keep_ghost)]
+#[path = "facts_inputs.rs"]
+mod facts_inputs;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::facts_inputs::{GuardObserver, observe_declared_guard};
+#[cfg(verus_keep_ghost)]
+pub use facts_inputs::{GuardObserver, observe_declared_guard};
+
+#[cfg(verus_keep_ghost)]
 #[path = "verified_paths.rs"]
 pub mod paths;
 #[cfg(not(verus_keep_ghost))]

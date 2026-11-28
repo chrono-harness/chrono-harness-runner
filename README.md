@@ -137,3 +137,5 @@ CI 判官通过同一 `git-facts-v1` 进程读取两个固定提交的原件。�
 CI 的编译器输出由固定候选的 `git-facts-v1` 会话核验。候选 `tree-entries` 传入 `retain_output_modes=true` 为本次核验保留原文件模式，`prepare-output-binding` 登记本次计划的方法和 FILEMAP，`bind-operation-output` 逐操作核对原参数、进程终态和适用的编译报告、库及候选源码。被阻断的操作和通过的普通操作都返回 JSON null，原错误通过同一会话返回。
 
 `compiler-output-v1` 的 `dependency-header` 从原生 dep-info 的首条规则读取含字面空格的目标主名，解码来源序列及其中的转义空格。返回 `[目标字节, 来源字节数组]`，不合格时为 `null`。与 Cargo 当前选择的库关联时，由读取文件的宿主核实所声明目标与当前选中 dep-info 的身份。
+
+`chrono-harness compiler-output-v1 select-cargo-bin MANIFEST [SOURCE]` 从 stdin 读取同一次成功 Cargo build 的 JSON 输出，按原文匹配 manifest 和可选 source。只有唯一的 `compiler-artifact`、恰为 `["bin"]` 且给出 executable 时，stdout 才返回该路径的原字节。输入解码失败、缺失或重复退出 5，唯一记录的 executable 缺失退出 1，参数或输出写入错误退出 2。已经读取到匹配项时仍先核对完整输入。调用方检查 Cargo 的实际退出，按自身用途判断执行权限。
