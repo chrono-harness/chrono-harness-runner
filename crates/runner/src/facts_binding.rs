@@ -447,7 +447,14 @@ impl verified_git_binding::BindingReferenceRows for JsonBindingReferences<'_> {
 
 /// Validate the new link without interpreting any historical config as v3.
 #[cfg(not(verus_keep_ghost))]
-pub fn declaration(config: &Value) -> Result<(&Value, Option<&Value>), String> {
+pub struct BindingDeclaration<'a> {
+    pub tool: &'a Value,
+    pub input: Option<&'a Value>,
+    guard: Option<Vec<Value>>,
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub fn declaration(config: &Value) -> Result<BindingDeclaration<'_>, String> {
     if !matches!(config["schema_version"].as_u64(), Some(3 | 4)) {
         return Err("facts_git requires config schema_version 3 or 4".into());
     }
@@ -504,8 +511,8 @@ pub fn declaration(config: &Value) -> Result<(&Value, Option<&Value>), String> {
     let args: Vec<String> =
         serde_json::from_value(tool["version_argv"].clone()).map_err(|e| e.to_string())?;
     verified_git_binding::admit_binding_version_argv(args.len())?;
-    crate::facts_inputs::declaration(config)?;
-    Ok((tool, input))
+    let guard = crate::facts_inputs::declaration(config)?;
+    Ok(BindingDeclaration { tool, input, guard })
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -571,7 +578,7 @@ impl Reader {
                 }
                 return Ok(Self::legacy());
             }
-            let (tool, input) = declaration(&cfg)?;
+            let BindingDeclaration { tool, input, guard } = declaration(&cfg)?;
             let credentials = if cfg["schema_version"] == 4 {
                 crate::prepared::credential_environment(&cfg)?
             } else {
@@ -678,18 +685,17 @@ impl Reader {
                 timeout_seconds: timeout,
                 output_limit_bytes: limit,
             };
+            let canonical_root = fs::canonicalize(root).map_err(|e| e.to_string())?;
+            let guard = crate::facts_inputs::Guard::from_declaration(&canonical_root, guard)?;
             let reader = Self {
                 bound: Some(Bound {
-                    root: fs::canonicalize(root).map_err(|e| e.to_string())?,
+                    root: canonical_root,
                     config_path,
                     config_bytes: bytes,
                     binding,
                     spec,
                     environment,
-                    guard: crate::facts_inputs::Guard::open(
-                        &fs::canonicalize(root).map_err(|e| e.to_string())?,
-                        &cfg,
-                    )?,
+                    guard,
                     selection,
                 }),
                 processes: RefCell::new(vec![]),
